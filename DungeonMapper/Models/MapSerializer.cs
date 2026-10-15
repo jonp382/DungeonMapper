@@ -116,7 +116,7 @@ public static class MapSerializer
         foreach (var l in dto.Labels)
         {
             if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new Label { Cell = c, Text = l.Text });
+            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
         return doc;
     }

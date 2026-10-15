@@ -60,7 +60,7 @@ public sealed class Stair
 }
 
 /// Text anchored to a cell, rendered centered on that cell.
-public sealed class Label
+public sealed class MapLabel
 {
     public CellKey Cell { get; set; }
     public string Text { get; set; } = "";
@@ -73,7 +73,7 @@ public sealed class MapDocument
     public Dictionary<EdgeKey, bool> Walls { get; } = new();
     public Dictionary<EdgeKey, Door> Doors { get; } = new();
     public Dictionary<CellKey, Stair> Stairs { get; } = new();
-    public List<Label> Labels { get; } = new();
+    public List<MapLabel> Labels { get; } = new();
 
     public bool HasWall(EdgeKey edge) => Walls.TryGetValue(EdgeKey.Normalize(edge.Cell, edge.Side), out var w) && w;
 
