@@ -16,6 +16,11 @@ sealed class Program
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
+            // Force the CPU (Skia software) renderer. The default GPU renderer
+            // fails to allocate when VRAM is saturated (e.g. a local LLM running),
+            // producing a transparent/blank canvas. Software rendering has no VRAM
+            // dependency.
+            .UseSkia()
 #if DEBUG
             .WithDeveloperTools()
 #endif

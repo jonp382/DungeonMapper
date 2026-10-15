@@ -10,12 +10,25 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-/// Custom control that renders a MapDocument. World units = cells (5ft).
-/// screen = (world - offset) * scale. Right-drag pans, wheel zooms (cursor-anchored).
-/// High-contrast palette for laptop + TV display.
+public enum ToolMode { Select, Room, Wall, Door, Stair, Label }
+
+/// Custom control that renders a MapDocument and hosts the editing tools.
+/// World units = cells (5ft). screen = (world - offset) * scale.
+/// Right-drag pans, wheel zooms (cursor-anchored). Left-click/drag edits per ToolMode.
+/// Raises ActionCompleted after each edit so the owner can commit to history;
+/// raises config requests for door/stair/label dialogs.
 public sealed class MapCanvas : Control
 {
     public MapDocument Document { get; set; } = new();
+    public ToolMode Mode { get; set; } = ToolMode.Select;
+
+    public event Action? ActionCompleted;
+    public event Action<Door>? DoorConfigRequested;
+    public event Action<Stair>? StairConfigRequested;
+    public event Action<MapLabel>? LabelConfigRequested;
+    public event Action<string>? StatusMessage;
+
+    public void Refresh() => InvalidateVisual();
 
     private Point _offset = new(-1, -1); // world coord at screen origin
     private double _scale = 40;          // pixels per cell
@@ -51,7 +64,9 @@ public sealed class MapCanvas : Control
         double availW = Bounds.Width > 0 ? Bounds.Width : 800;
         double availH = Bounds.Height > 0 ? Bounds.Height : 600;
         _scale = Math.Clamp(Math.Min(availW / (w + 2), availH / (h + 2)), MinScale, MaxScale);
-        _offset = new Point(minX - 1, minY - 1);
+        // center content in the viewport, not top-left aligned
+        double cx = (minX + maxX + 1) / 2.0, cy = (minY + maxY + 1) / 2.0;
+        _offset = new Point(cx - availW / (2 * _scale), cy - availH / (2 * _scale));
         InvalidateVisual();
     }
 
@@ -64,7 +79,6 @@ public sealed class MapCanvas : Control
     public override void Render(DrawingContext ctx)
     {
         ctx.FillRectangle(Background, new Rect(Bounds.Size));
-        if (Document.Cells.Count == 0) return;
 
         // Visible world window, for culling
         var topLeft = ScreenToWorld(new Point(0, 0));
@@ -91,15 +105,15 @@ public sealed class MapCanvas : Control
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             double a = _scale * 0.28;
-            // simple triangle via path
-            var tip = s.Direction == StairDirection.Up
-                ? new Point(center.X, center.Y - a) : new Point(center.X, center.Y + a);
+            // tip points up for Up stairs, down for Down; base is opposite the tip
+            double tipY = s.Direction == StairDirection.Up ? center.Y - a : center.Y + a;
+            double baseY = s.Direction == StairDirection.Up ? center.Y + a : center.Y - a;
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
-                g.BeginFigure(tip, isFilled: true);
-                g.LineTo(new Point(center.X - a, center.Y + a));
-                g.LineTo(new Point(center.X + a, center.Y + a));
+                g.BeginFigure(new Point(center.X, tipY), isFilled: true);
+                g.LineTo(new Point(center.X - a, baseY));
+                g.LineTo(new Point(center.X + a, baseY));
                 g.EndFigure(true);
             }
             ctx.DrawGeometry(brush, null, geo);
@@ -126,7 +140,41 @@ public sealed class MapCanvas : Control
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             ctx.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
         }
+
+        DrawPreview(ctx);
     }
+
+    // ---- drag preview ----
+    private bool _dragging;
+    private CellKey _dragStart, _dragEnd;
+    private EdgeKey? _previewEdge;
+    private EdgeKey? _wallDragStart;
+    private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
+
+    private void DrawPreview(DrawingContext ctx)
+    {
+        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Stair))
+        {
+            var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+            var tl = WorldToScreen(x0, y0);
+            var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
+            var fill = Mode == ToolMode.Room
+                ? new SolidColorBrush(Color.FromArgb(70, 60, 75, 105))
+                : new SolidColorBrush(Color.FromArgb(70, 230, 160, 80));
+            ctx.FillRectangle(fill, rect);
+            ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), rect);
+        }
+        if (_previewEdge is EdgeKey pe && (Mode == ToolMode.Wall || Mode == ToolMode.Door))
+        {
+            var seg = EdgeSegment(pe);
+            var a = WorldToScreen(seg.a.X, seg.a.Y);
+            var b = WorldToScreen(seg.b.X, seg.b.Y);
+            ctx.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), a, b);
+        }
+    }
+
+    private static (int x0, int y0, int x1, int y1) NormRect(CellKey a, CellKey b)
+        => (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Max(a.X, b.X), Math.Max(a.Y, b.Y));
 
     /// Edge endpoints in world coords for a normalized EdgeKey.
     private static (Point a, Point b) EdgeSegment(EdgeKey e)
@@ -141,6 +189,261 @@ public sealed class MapCanvas : Control
             Side.West => (new Point(x, y), new Point(x, y + 1)),
             _ => (new Point(x, y), new Point(x, y)),
         };
+    }
+
+    /// Nearest edge to a world point, within tolerance; null if none.
+    /// If horizontal is set, only edges of that orientation are considered
+    /// (N/S = horizontal, E/W = vertical), so a wall drag stays on its axis.
+    private EdgeKey? HitEdge(Point world, bool? horizontal = null)
+    {
+        int cx = (int)Math.Floor(world.X), cy = (int)Math.Floor(world.Y);
+        CellKey cell = new(cx, cy);
+        EdgeKey? best = null;
+        double bestD = 0.3; // tolerance in cells
+        foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+        {
+            var e = EdgeKey.Normalize(cell, side);
+            if (horizontal is not null)
+            {
+                bool isHoriz = e.Side == Side.North || e.Side == Side.South;
+                if (isHoriz != horizontal.Value) continue;
+            }
+            var (a, b) = EdgeSegment(e);
+            double d = DistPointSeg(world, a, b);
+            if (d < bestD) { bestD = d; best = e; }
+        }
+        return best;
+    }
+
+    private static double DistPointSeg(Point p, Point a, Point b)
+    {
+        double abx = b.X - a.X, aby = b.Y - a.Y;
+        double len2 = abx * abx + aby * aby;
+        if (len2 == 0) return Math.Sqrt((p.X - a.X) * (p.X - a.X) + (p.Y - a.Y) * (p.Y - a.Y));
+        double t = Math.Clamp(((p.X - a.X) * abx + (p.Y - a.Y) * aby) / len2, 0, 1);
+        double dx = p.X - (a.X + t * abx), dy = p.Y - (a.Y + t * aby);
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
+    private void Commit()
+    {
+        ActionCompleted?.Invoke();
+        InvalidateVisual();
+    }
+
+    // ---- input ----
+    private bool _panning;
+    private Point _panStartScreen, _panStartOffset;
+
+    protected override void OnPointerPressed(PointerPressedEventArgs e)
+    {
+        var props = e.GetCurrentPoint(this).Properties;
+
+        if (props.IsRightButtonPressed)
+        {
+            _panning = true;
+            _panStartScreen = e.GetPosition(this);
+            _panStartOffset = _offset;
+            e.Pointer.Capture(this);
+            return;
+        }
+
+        if (!props.IsLeftButtonPressed || Mode == ToolMode.Select) return;
+
+        var world = ScreenToWorld(e.GetPosition(this));
+        var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+
+        switch (Mode)
+        {
+            case ToolMode.Room:
+            case ToolMode.Stair:
+                _dragging = true;
+                _dragStart = cell;
+                _dragEnd = cell;
+                e.Pointer.Capture(this);
+                break;
+
+            case ToolMode.Wall:
+                var we = HitEdge(world);
+                if (we is null) break;
+                var wallEdge = we.Value;
+                if (Document.HasWall(wallEdge))
+                {
+                    Document.SetWall(wallEdge, false); // toggle off
+                    Commit();
+                }
+                else
+                {
+                    _dragging = true;
+                    _wallDragStart = wallEdge;
+                    _wallDragHorizontal = wallEdge.Side == Side.North || wallEdge.Side == Side.South;
+                    Document.SetWall(wallEdge, true);
+                    Commit();
+                    e.Pointer.Capture(this);
+                }
+                break;
+
+            case ToolMode.Door:
+                var de = HitEdge(world);
+                if (de is null) break;
+                var doorEdge = de.Value;
+                var existing = Document.GetDoor(doorEdge);
+                if (existing is not null)
+                {
+                    DoorConfigRequested?.Invoke(existing);
+                }
+                else if (Document.HasWall(doorEdge))
+                {
+                    Document.TryPlaceDoor(doorEdge, out var d);
+                    Commit();
+                    DoorConfigRequested?.Invoke(d);
+                }
+                else
+                {
+                    StatusMessage?.Invoke("door needs a wall on that edge");
+                }
+                break;
+
+            case ToolMode.Label:
+                var lbl = Document.Labels.FirstOrDefault(l => l.Cell == cell);
+                if (lbl is not null)
+                {
+                    LabelConfigRequested?.Invoke(lbl);
+                }
+                else
+                {
+                    lbl = new MapLabel { Cell = cell, Text = "" };
+                    Document.Labels.Add(lbl);
+                    Commit();
+                    LabelConfigRequested?.Invoke(lbl);
+                }
+                break;
+        }
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerMoved(PointerEventArgs e)
+    {
+        if (_panning)
+        {
+            var p = e.GetPosition(this);
+            _offset = new Point(_panStartOffset.X - (p.X - _panStartScreen.X) / _scale,
+                                _panStartOffset.Y - (p.Y - _panStartScreen.Y) / _scale);
+            InvalidateVisual();
+            return;
+        }
+
+        var world = ScreenToWorld(e.GetPosition(this));
+        if (_dragging)
+        {
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            if (Mode == ToolMode.Room || Mode == ToolMode.Stair)
+            {
+                if (cell != _dragEnd) { _dragEnd = cell; InvalidateVisual(); }
+            }
+            else if (Mode == ToolMode.Wall)
+            {
+                var edge = HitEdge(world, _wallDragHorizontal);
+                if (edge is not null)
+                {
+                    var e2 = edge.Value;
+                    if (e2 != _wallDragStart)
+                    {
+                        _wallDragStart = e2;
+                        if (!Document.HasWall(e2))
+                        {
+                            Document.SetWall(e2, true);
+                            Commit();
+                        }
+                    }
+                }
+            }
+        }
+        else if (Mode == ToolMode.Wall || Mode == ToolMode.Door)
+        {
+            var edge = HitEdge(world);
+            if (edge != _previewEdge) { _previewEdge = edge; InvalidateVisual(); }
+        }
+    }
+
+    protected override void OnPointerReleased(PointerReleasedEventArgs e)
+    {
+        if (_panning)
+        {
+            _panning = false;
+            e.Pointer.Capture(null);
+            return;
+        }
+
+        if (!_dragging) return;
+        _dragging = false;
+        e.Pointer.Capture(null);
+
+        switch (Mode)
+        {
+            case ToolMode.Room:
+            {
+                var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                for (int x = x0; x <= x1; x++)
+                    for (int y = y0; y <= y1; y++)
+                        Document.Cells.Add(new CellKey(x, y));
+                // auto-walls on the outer boundary
+                for (int x = x0; x <= x1; x++)
+                {
+                    Document.SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
+                    Document.SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
+                }
+                for (int y = y0; y <= y1; y++)
+                {
+                    Document.SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
+                    Document.SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
+                }
+                Commit();
+                break;
+            }
+            case ToolMode.Stair:
+            {
+                var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                bool single = x0 == x1 && y0 == y1;
+                if (single && Document.Stairs.TryGetValue(_dragStart, out var existingStair))
+                {
+                    StairConfigRequested?.Invoke(existingStair);
+                }
+                else
+                {
+                    Stair first = null!;
+                    for (int x = x0; x <= x1; x++)
+                        for (int y = y0; y <= y1; y++)
+                        {
+                            var c = new CellKey(x, y);
+                            if (!Document.Stairs.TryGetValue(c, out var s))
+                            {
+                                s = new Stair { Direction = StairDirection.Down };
+                                Document.Stairs[c] = s;
+                            }
+                            if (ReferenceEquals(s, first)) { }
+                            if (first is null) first = s;
+                        }
+                    Commit();
+                    StairConfigRequested?.Invoke(first);
+                }
+                break;
+            }
+            case ToolMode.Wall:
+                _wallDragStart = null;
+                break;
+        }
+        InvalidateVisual();
+    }
+
+    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
+    {
+        var cursor = e.GetPosition(this);
+        var worldCursor = ScreenToWorld(cursor);
+        double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;
+        _scale = Math.Clamp(_scale * factor, MinScale, MaxScale);
+        _offset = new Point(worldCursor.X - cursor.X / _scale, worldCursor.Y - cursor.Y / _scale);
+        InvalidateVisual();
     }
 
     private void DrawDoor(DrawingContext ctx, EdgeKey e, Point a, Point b, Door door)
@@ -173,47 +476,5 @@ public sealed class MapCanvas : Control
                 ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(30, 30, 30)),
                     new Rect(mid.X - 2, mid.Y - 2, 4, 4));
         }
-    }
-
-    // ---- input: right-drag pan, wheel zoom ----
-    private bool _panning;
-    private Point _panStartScreen, _panStartOffset;
-
-    protected override void OnPointerPressed(PointerPressedEventArgs e)
-    {
-        var props = e.GetCurrentPoint(this).Properties;
-        if (props.IsRightButtonPressed)
-        {
-            _panning = true;
-            _panStartScreen = e.GetPosition(this);
-            _panStartOffset = _offset;
-            e.Pointer.Capture(this);
-        }
-    }
-
-    protected override void OnPointerMoved(PointerEventArgs e)
-    {
-        if (!_panning) return;
-        var p = e.GetPosition(this);
-        _offset = new Point(_panStartOffset.X - (p.X - _panStartScreen.X) / _scale,
-                            _panStartOffset.Y - (p.Y - _panStartScreen.Y) / _scale);
-        InvalidateVisual();
-    }
-
-    protected override void OnPointerReleased(PointerReleasedEventArgs e)
-    {
-        if (!_panning) return;
-        _panning = false;
-        e.Pointer.Capture(null);
-    }
-
-    protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
-    {
-        var cursor = e.GetPosition(this);
-        var worldCursor = ScreenToWorld(cursor);
-        double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;
-        _scale = Math.Clamp(_scale * factor, MinScale, MaxScale);
-        _offset = new Point(worldCursor.X - cursor.X / _scale, worldCursor.Y - cursor.Y / _scale);
-        InvalidateVisual();
     }
 }

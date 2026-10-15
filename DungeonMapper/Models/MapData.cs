@@ -17,7 +17,9 @@ public readonly record struct EdgeKey(CellKey Cell, Side Side)
     {
         switch (side)
         {
-            case Side.South: return new EdgeKey(new CellKey(cell.X, cell.Y - 1), Side.North);
+            // South edge of (x,y) is the segment at world y=y+1, shared with the
+            // cell below: North edge of (x, y+1).
+            case Side.South: return new EdgeKey(new CellKey(cell.X, cell.Y + 1), Side.North);
             case Side.West: return new EdgeKey(new CellKey(cell.X - 1, cell.Y), Side.East);
             default: return new EdgeKey(cell, side);
         }

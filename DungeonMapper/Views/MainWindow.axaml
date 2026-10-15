@@ -6,12 +6,32 @@
         Title="Dungeon Mapper"
         Width="1100" Height="700">
 
-    <Panel>
-        <controls:MapCanvas x:Name="Canvas" />
-        <TextBlock Text="right-drag: pan, wheel: zoom"
-                   Foreground="#888" FontSize="12"
-                   HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                   Margin="0,0,8,4" />
-    </Panel>
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <Button x:Name="ToolSelect" Content="Select" />
+                <Button x:Name="ToolRoom" Content="Room" />
+                <Button x:Name="ToolWall" Content="Wall" />
+                <Button x:Name="ToolDoor" Content="Door" />
+                <Button x:Name="ToolStair" Content="Stair" />
+                <Button x:Name="ToolLabel" Content="Label" />
+                <Separator />
+                <Button x:Name="BtnUndo" Content="Undo" />
+                <Button x:Name="BtnRedo" Content="Redo" />
+                <Separator />
+                <Button x:Name="BtnSave" Content="Save" />
+                <Button x:Name="BtnLoad" Content="Load" />
+                <Button x:Name="BtnFit" Content="Fit" />
+            </StackPanel>
+        </Border>
+
+        <Panel>
+            <controls:MapCanvas x:Name="Canvas" />
+            <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
+                       Foreground="#aaa" FontSize="13"
+                       HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                       Margin="8,0,0,4" />
+        </Panel>
+    </DockPanel>
 
 </Window>
