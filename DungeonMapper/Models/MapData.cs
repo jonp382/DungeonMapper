@@ -111,6 +111,22 @@ public sealed class MapDocument
         Doors.Remove(EdgeKey.Normalize(edge.Cell, edge.Side));
     }
 
+    /// Replaces all content of this document with the content of another.
+    /// Used to apply undo/redo snapshots to the live instance in place.
+    public void ApplyFrom(MapDocument other)
+    {
+        Cells.Clear();
+        foreach (var c in other.Cells) Cells.Add(c);
+        Walls.Clear();
+        foreach (var (e, w) in other.Walls) Walls[e] = w;
+        Doors.Clear();
+        foreach (var (e, d) in other.Doors) Doors[e] = d;
+        Stairs.Clear();
+        foreach (var (c, s) in other.Stairs) Stairs[c] = s;
+        Labels.Clear();
+        foreach (var l in other.Labels) Labels.Add(l);
+    }
+
     /// Bounding box of all drawn content, in cell units. Null when empty.
     public (int minX, int minY, int maxX, int maxY)? ContentBounds()
     {
