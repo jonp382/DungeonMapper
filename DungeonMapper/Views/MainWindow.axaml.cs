@@ -5,6 +5,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.Reactive;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
@@ -37,14 +38,15 @@ public partial class MainWindow : Window
         BtnSave.Click += (_, _) => SaveMap();
         BtnLoad.Click += (_, _) => LoadMap();
 
-        BtnCopy.Click += (_, _) => { Canvas.CopySelection(); Canvas.Refresh(); };
-        BtnPaste.Click += (_, _) => { Canvas.PasteAtCursor(); Canvas.Refresh(); };
-
         Canvas.ActionCompleted += () => _history.Commit(_doc);
         Canvas.DoorConfigRequested += d => ShowDoorDialog(d);
         Canvas.StairConfigRequested += s => ShowStairDialog(s);
         Canvas.LabelConfigRequested += l => ShowLabelDialog(l);
-        Canvas.StatusMessage += msg => StatusText.Text = msg;
+        Canvas.StatusMessage += msg =>
+        {
+            StatusText.Text = msg;
+            System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
+        };
 
         SetTool(ToolMode.Room);
         Canvas.Refresh();

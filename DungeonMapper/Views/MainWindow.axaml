@@ -17,9 +17,6 @@
                 <Button x:Name="ToolLabel" Content="Label" />
                 <Button x:Name="ToolErase" Content="Erase" />
                 <Separator />
-                <Button x:Name="BtnCopy" Content="Copy" />
-                <Button x:Name="BtnPaste" Content="Paste" />
-                <Separator />
                 <Button x:Name="BtnUndo" Content="Undo" />
                 <Button x:Name="BtnRedo" Content="Redo" />
                 <Separator />

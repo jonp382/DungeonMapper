@@ -35,6 +35,7 @@ public sealed class MapCanvas : Control
     private CellKey _selectStart, _selectEnd;
     private bool _selectDragging;
     private Point? _pasteCursor; // world cursor for paste ghost
+    private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -229,7 +230,7 @@ public sealed class MapCanvas : Control
         }
 
         // paste ghost: clipboard preview at the cursor cell
-        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select)
+        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select && _ghostVisible)
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
             int dx = origin.X - _clipboard.OriginX, dy = origin.Y - _clipboard.OriginY;
@@ -318,6 +319,8 @@ public sealed class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
+
+        _ghostVisible = false; // hide paste ghost on click/drag
 
         var world = ScreenToWorld(e.GetPosition(this));
         var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
@@ -411,6 +414,13 @@ public sealed class MapCanvas : Control
 
         var world = ScreenToWorld(e.GetPosition(this));
         _pasteCursor = world; // paste ghost follows the cursor
+        if (!_selectDragging && !_dragging && !_panning)
+        {
+            _ghostVisible = true;
+            // redraw so the paste ghost tracks the cursor on hover
+            if (_clipboard is not null && !_clipboard.Empty && Mode == ToolMode.Select)
+                InvalidateVisual();
+        }
 
         if (_selectDragging)
         {
@@ -463,6 +473,7 @@ public sealed class MapCanvas : Control
         if (_selectDragging)
         {
             _selectDragging = false;
+            _ghostVisible = false;
             e.Pointer.Capture(null);
             var world = ScreenToWorld(e.GetPosition(this));
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
