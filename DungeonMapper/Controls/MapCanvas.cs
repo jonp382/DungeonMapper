@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Room, Wall, Door, Stair, Label }
+public enum ToolMode { Select, Room, Wall, Door, Stair, Label, Erase }
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
 /// World units = cells (5ft). screen = (world - offset) * scale.
@@ -257,6 +257,7 @@ public sealed class MapCanvas : Control
         {
             case ToolMode.Room:
             case ToolMode.Stair:
+            case ToolMode.Erase:
                 _dragging = true;
                 _dragStart = cell;
                 _dragEnd = cell;
@@ -337,7 +338,7 @@ public sealed class MapCanvas : Control
         if (_dragging)
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
-            if (Mode == ToolMode.Room || Mode == ToolMode.Stair)
+            if (Mode == ToolMode.Room || Mode == ToolMode.Stair || Mode == ToolMode.Erase)
             {
                 if (cell != _dragEnd) { _dragEnd = cell; InvalidateVisual(); }
             }
@@ -432,6 +433,23 @@ public sealed class MapCanvas : Control
             case ToolMode.Wall:
                 _wallDragStart = null;
                 break;
+            case ToolMode.Erase:
+            {
+                var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                for (int x = x0; x <= x1; x++)
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        var c = new CellKey(x, y);
+                        Document.Cells.Remove(c);
+                        Document.Stairs.Remove(c);
+                        Document.Labels.RemoveAll(l => l.Cell == c);
+                        // remove walls on all four edges of the cell (doors auto-removed)
+                        foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                            Document.SetWall(new EdgeKey(c, side), false);
+                    }
+                Commit();
+                break;
+            }
         }
         InvalidateVisual();
     }

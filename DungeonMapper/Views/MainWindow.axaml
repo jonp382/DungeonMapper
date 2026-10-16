@@ -15,6 +15,7 @@
                 <Button x:Name="ToolDoor" Content="Door" />
                 <Button x:Name="ToolStair" Content="Stair" />
                 <Button x:Name="ToolLabel" Content="Label" />
+                <Button x:Name="ToolErase" Content="Erase" />
                 <Separator />
                 <Button x:Name="BtnUndo" Content="Undo" />
                 <Button x:Name="BtnRedo" Content="Redo" />

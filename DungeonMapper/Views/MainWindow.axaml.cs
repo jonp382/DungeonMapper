@@ -29,6 +29,7 @@ public partial class MainWindow : Window
         ToolDoor.Click += (_, _) => SetTool(ToolMode.Door);
         ToolStair.Click += (_, _) => SetTool(ToolMode.Stair);
         ToolLabel.Click += (_, _) => SetTool(ToolMode.Label);
+        ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
 
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
@@ -70,6 +71,7 @@ public partial class MainWindow : Window
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
             ToolMode.Label => "label: click a cell to place, click a label to edit",
+            ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels",
             _ => "",
         };
         Canvas.Refresh();
