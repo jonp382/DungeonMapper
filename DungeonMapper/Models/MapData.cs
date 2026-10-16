@@ -141,6 +141,29 @@ public sealed class MapDocument
                 SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
     }
 
+    /// Adds a rectangular floor region: fills cells, removes walls strictly inside
+    /// the region (and any doors on them), and removes stairs/labels in the cells.
+    /// Unlike AddRoom it draws NO walls, and it leaves the boundary walls of the
+    /// region untouched - only interior elements are cleared, leaving plain flooring.
+    public void AddFloor(int x0, int y0, int x1, int y1)
+    {
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                Cells.Add(new CellKey(x, y));
+        // interior walls removed (doors on them auto-removed by SetWall)
+        for (int x = x0 + 1; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                SetWall(new EdgeKey(new CellKey(x - 1, y), Side.East), false);
+        for (int y = y0 + 1; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+                SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+        // stairs and labels inside the region are cleared
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                Stairs.Remove(new CellKey(x, y));
+        Labels.RemoveAll(l => l.Cell.X >= x0 && l.Cell.X <= x1 && l.Cell.Y >= y0 && l.Cell.Y <= y1);
+    }
+
     /// Snapshot of a rectangular region, stored relative to its top-left origin
     /// so it can be pasted at any target cell.
     public sealed class RegionSnapshot

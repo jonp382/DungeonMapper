@@ -26,6 +26,7 @@ public partial class MainWindow : Window
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
         ToolRoom.Click += (_, _) => SetTool(ToolMode.Room);
+        ToolFloor.Click += (_, _) => SetTool(ToolMode.Floor);
         ToolWall.Click += (_, _) => SetTool(ToolMode.Wall);
         ToolDoor.Click += (_, _) => SetTool(ToolMode.Door);
         ToolStair.Click += (_, _) => SetTool(ToolMode.Stair);
@@ -74,6 +75,7 @@ public partial class MainWindow : Window
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
+            ToolMode.Floor => "floor: click-drag a rectangle. fills cells, clears interior walls/doors/stairs/labels, draws no walls",
             ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",

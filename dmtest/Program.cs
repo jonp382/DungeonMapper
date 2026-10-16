@@ -94,6 +94,37 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(cp.Cells.Count == cellsBefore, "paste: same origin idempotent");
 }
 
+// --- floor tool ---
+{
+    var f = new MapDocument();
+    f.AddRoom(0, 0, 2, 2); // room with walls all around
+    f.Stairs[new CellKey(1, 1)] = new Stair { Direction = StairDirection.Up };
+    f.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "x" });
+    f.TryPlaceDoor(EdgeKey.Normalize(new CellKey(0, 0), Side.North), out _); // door on boundary wall
+
+    f.AddFloor(0, 0, 2, 2);
+    // cells filled
+    Check(f.Cells.Contains(new CellKey(0, 0)) && f.Cells.Contains(new CellKey(2, 2)), "floor: cells filled");
+    // boundary walls preserved
+    Check(f.HasWall(EdgeKey.Normalize(new CellKey(0, 0), Side.North)), "floor: boundary wall kept");
+    Check(f.HasWall(EdgeKey.Normalize(new CellKey(2, 2), Side.South)), "floor: boundary wall kept (south)");
+    Check(f.HasWall(EdgeKey.Normalize(new CellKey(0, 0), Side.West)), "floor: boundary wall kept (west)");
+    // interior walls removed
+    Check(!f.HasWall(EdgeKey.Normalize(new CellKey(1, 0), Side.East)), "floor: interior wall removed");
+    Check(!f.HasWall(EdgeKey.Normalize(new CellKey(1, 1), Side.North)), "floor: interior wall removed (north)");
+    // interior stair + label cleared
+    Check(!f.Stairs.ContainsKey(new CellKey(1, 1)), "floor: interior stair removed");
+    Check(!f.Labels.Any(l => l.Cell == new CellKey(1, 1)), "floor: interior label removed");
+    // door on boundary wall survives (boundary wall kept)
+    Check(f.Doors.ContainsKey(EdgeKey.Normalize(new CellKey(0, 0), Side.North)), "floor: boundary door kept");
+
+    // floor on empty region draws NO walls
+    var g = new MapDocument();
+    g.AddFloor(3, 3, 4, 4);
+    Check(g.Cells.Count == 4, "floor: empty region fills cells");
+    Check(g.Walls.Count == 0, "floor: empty region draws no walls");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

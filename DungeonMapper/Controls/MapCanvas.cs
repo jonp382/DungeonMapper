@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Room, Wall, Door, Stair, Label, Erase }
+public enum ToolMode { Select, Room, Floor, Wall, Door, Stair, Label, Erase }
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
 /// World units = cells (5ft). screen = (world - offset) * scale.
@@ -195,13 +195,15 @@ public sealed class MapCanvas : Control
 
     private void DrawPreview(DrawingContext ctx)
     {
-        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
+        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
         {
             var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
             var tl = WorldToScreen(x0, y0);
             var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
             var fill = Mode == ToolMode.Room
                 ? new SolidColorBrush(Color.FromArgb(70, 60, 75, 105))
+                : Mode == ToolMode.Floor
+                ? new SolidColorBrush(Color.FromArgb(70, 150, 130, 90)) // floor: muted tan
                 : Mode == ToolMode.Stair
                 ? new SolidColorBrush(Color.FromArgb(70, 230, 160, 80))
                 : new SolidColorBrush(Color.FromArgb(70, 220, 60, 60)); // erase: red = removal
@@ -335,6 +337,7 @@ public sealed class MapCanvas : Control
                 break;
 
             case ToolMode.Room:
+            case ToolMode.Floor:
             case ToolMode.Stair:
             case ToolMode.Erase:
                 _dragging = true;
@@ -432,7 +435,7 @@ public sealed class MapCanvas : Control
         if (_dragging)
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
-            if (Mode == ToolMode.Room || Mode == ToolMode.Stair || Mode == ToolMode.Erase)
+            if (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase)
             {
                 if (cell != _dragEnd) { _dragEnd = cell; InvalidateVisual(); }
             }
@@ -505,6 +508,13 @@ public sealed class MapCanvas : Control
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
                 Document.AddRoom(x0, y0, x1, y1);
+                Commit();
+                break;
+            }
+            case ToolMode.Floor:
+            {
+                var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                Document.AddFloor(x0, y0, x1, y1);
                 Commit();
                 break;
             }

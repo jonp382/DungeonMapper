@@ -11,6 +11,7 @@
             <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button x:Name="ToolSelect" Content="Select" />
                 <Button x:Name="ToolRoom" Content="Room" />
+                <Button x:Name="ToolFloor" Content="Floor" />
                 <Button x:Name="ToolWall" Content="Wall" />
                 <Button x:Name="ToolDoor" Content="Door" />
                 <Button x:Name="ToolStair" Content="Stair" />
