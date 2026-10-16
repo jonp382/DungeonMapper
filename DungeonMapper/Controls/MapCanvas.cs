@@ -153,16 +153,21 @@ public sealed class MapCanvas : Control
 
     private void DrawPreview(DrawingContext ctx)
     {
-        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Stair))
+        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
         {
             var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
             var tl = WorldToScreen(x0, y0);
             var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
             var fill = Mode == ToolMode.Room
                 ? new SolidColorBrush(Color.FromArgb(70, 60, 75, 105))
-                : new SolidColorBrush(Color.FromArgb(70, 230, 160, 80));
+                : Mode == ToolMode.Stair
+                ? new SolidColorBrush(Color.FromArgb(70, 230, 160, 80))
+                : new SolidColorBrush(Color.FromArgb(70, 220, 60, 60)); // erase: red = removal
             ctx.FillRectangle(fill, rect);
-            ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), rect);
+            var border = Mode == ToolMode.Erase
+                ? new Pen(new SolidColorBrush(Color.FromRgb(220, 60, 60)), 2)
+                : new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2);
+            ctx.DrawRectangle(border, rect);
         }
         if (_previewEdge is EdgeKey pe && (Mode == ToolMode.Wall || Mode == ToolMode.Door))
         {
