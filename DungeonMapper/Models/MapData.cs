@@ -113,6 +113,34 @@ public sealed class MapDocument
         Doors.Remove(EdgeKey.Normalize(edge.Cell, edge.Side));
     }
 
+    /// Adds a rectangular room: fills cells, sets walls on the outer boundary,
+    /// and removes walls strictly inside the region. Drawing a room over adjacent
+    /// rooms merges them (boolean union) - the shared interior walls disappear.
+    public void AddRoom(int x0, int y0, int x1, int y1)
+    {
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                Cells.Add(new CellKey(x, y));
+        // outer boundary walls
+        for (int x = x0; x <= x1; x++)
+        {
+            SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
+            SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
+        }
+        for (int y = y0; y <= y1; y++)
+        {
+            SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
+            SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
+        }
+        // interior walls removed so adjacent rooms merge
+        for (int x = x0 + 1; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                SetWall(new EdgeKey(new CellKey(x - 1, y), Side.East), false);
+        for (int y = y0 + 1; y <= y1; y++)
+            for (int x = x0; x <= x1; x++)
+                SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+    }
+
     /// Replaces all content of this document with the content of another.
     /// Used to apply undo/redo snapshots to the live instance in place.
     public void ApplyFrom(MapDocument other)

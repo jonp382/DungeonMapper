@@ -390,20 +390,7 @@ public sealed class MapCanvas : Control
             case ToolMode.Room:
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
-                for (int x = x0; x <= x1; x++)
-                    for (int y = y0; y <= y1; y++)
-                        Document.Cells.Add(new CellKey(x, y));
-                // auto-walls on the outer boundary
-                for (int x = x0; x <= x1; x++)
-                {
-                    Document.SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
-                    Document.SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
-                }
-                for (int y = y0; y <= y1; y++)
-                {
-                    Document.SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
-                    Document.SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
-                }
+                Document.AddRoom(x0, y0, x1, y1);
                 Commit();
                 break;
             }

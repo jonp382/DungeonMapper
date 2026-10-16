@@ -7,22 +7,10 @@ void Check(bool cond, string name)
     else { fail++; Console.WriteLine($"FAIL: {name}"); }
 }
 
-// mirrors the room tool's OnPointerReleased logic
+// delegates to the real MapDocument.AddRoom
 void AddRoom(MapDocument doc, int x0, int y0, int x1, int y1)
 {
-    for (int x = x0; x <= x1; x++)
-        for (int y = y0; y <= y1; y++)
-            doc.Cells.Add(new CellKey(x, y));
-    for (int x = x0; x <= x1; x++)
-    {
-        doc.SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
-        doc.SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
-    }
-    for (int y = y0; y <= y1; y++)
-    {
-        doc.SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
-        doc.SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
-    }
+    doc.AddRoom(x0, y0, x1, y1);
 }
 
 // --- edge normalization ---
@@ -52,6 +40,26 @@ Check(doc.HasWall(new EdgeKey(new CellKey(3, 0), Side.East)), "right wall exists
 // interior edges must have no walls
 Check(!doc.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "interior north edge has no wall");
 Check(!doc.HasWall(new EdgeKey(new CellKey(1, 1), Side.South)), "interior south edge has no wall");
+
+// --- boolean union: drawing a room over adjacent rooms removes interior walls ---
+var doc2 = new MapDocument();
+AddRoom(doc2, 0, 0, 1, 1);
+AddRoom(doc2, 1, 0, 2, 1);
+// shared wall between the two rooms exists at x=1 (East of cell 0)
+Check(doc2.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "shared wall exists before union");
+Check(doc2.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "shared wall exists before union (row 1)");
+// drag a room spanning [0,0]-[2,1]: union
+AddRoom(doc2, 0, 0, 2, 1);
+Check(doc2.Cells.Count == 6, "union fills 6 cells");
+Check(!doc2.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "interior wall x=1 removed (row 0)");
+Check(!doc2.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "interior wall x=1 removed (row 1)");
+Check(!doc2.HasWall(new EdgeKey(new CellKey(1, 0), Side.East)), "interior wall x=2 removed (row 0)");
+Check(!doc2.HasWall(new EdgeKey(new CellKey(1, 1), Side.East)), "interior wall x=2 removed (row 1)");
+// outer boundary walls remain
+Check(doc2.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "union top wall exists");
+Check(doc2.HasWall(new EdgeKey(new CellKey(0, 1), Side.South)), "union bottom wall exists");
+Check(doc2.HasWall(new EdgeKey(new CellKey(0, 0), Side.West)), "union left wall exists");
+Check(doc2.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "union right wall exists");
 
 // --- door requires wall ---
 Check(doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 0), Side.North), out _), "door on wall edge succeeds");
