@@ -1,4 +1,5 @@
 ﻿using DungeonMapper.Models;
+using DungeonMapper.Controls;
 
 int pass = 0, fail = 0;
 void Check(bool cond, string name)
@@ -123,6 +124,68 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     g.AddFloor(3, 3, 4, 4);
     Check(g.Cells.Count == 4, "floor: empty region fills cells");
     Check(g.Walls.Count == 0, "floor: empty region draws no walls");
+}
+
+// --- connected stairs ---
+{
+    var s = new MapDocument();
+    s.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Down };
+    s.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down };
+    s.Stairs[new CellKey(2, 0)] = new Stair { Direction = StairDirection.Down };
+    s.Stairs[new CellKey(5, 5)] = new Stair { Direction = StairDirection.Up }; // isolated
+    var group = s.ConnectedStairs(new CellKey(0, 0));
+    Check(group.Count == 3, "connected stairs: 3-cell run found");
+    Check(!group.Contains(s.Stairs[new CellKey(5, 5)]), "connected stairs: isolated stair excluded");
+    foreach (var st in group) st.Direction = StairDirection.Up;
+    Check(s.Stairs[new CellKey(2, 0)].Direction == StairDirection.Up, "connected stairs: far end updated");
+    Check(s.Stairs[new CellKey(5, 5)].Direction == StairDirection.Up, "connected stairs: isolated untouched by group apply");
+    Check(s.ConnectedStairs(new CellKey(9, 9)).Count == 0, "connected stairs: empty for non-stair cell");
+}
+
+// --- erase filter ---
+{
+    var e = new MapDocument();
+    e.AddRoom(0, 0, 1, 1); // cells + walls
+    e.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up };
+    e.Labels.Add(new MapLabel { Cell = new CellKey(0, 0), Text = "x" });
+
+    // walls-only filter: erase removes walls, keeps cells/stairs/labels
+    var f = new EraseFilter { Cells = false, Walls = true, Stairs = false, Labels = false };
+    // simulate the erase handler over region [0,0]-[1,1]
+    for (int x = 0; x <= 1; x++)
+        for (int y = 0; y <= 1; y++)
+        {
+            var c = new CellKey(x, y);
+            if (f.Cells) e.Cells.Remove(c);
+            if (f.Stairs) e.Stairs.Remove(c);
+            if (f.Labels) e.Labels.RemoveAll(l => l.Cell == c);
+            if (f.Walls)
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                    e.SetWall(new EdgeKey(c, side), false);
+        }
+    Check(e.Cells.Count > 0, "erase filter: cells kept when Cells off");
+    Check(e.Stairs.ContainsKey(new CellKey(0, 0)), "erase filter: stair kept when Stairs off");
+    Check(e.Labels.Any(l => l.Cell == new CellKey(0, 0)), "erase filter: label kept when Labels off");
+    Check(e.Walls.Count == 0, "erase filter: walls removed when Walls on");
+
+    // stairs-only filter: erase removes stairs, keeps walls
+    var g = new MapDocument();
+    g.AddRoom(0, 0, 1, 1);
+    g.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up };
+    var f2 = new EraseFilter { Cells = false, Walls = false, Stairs = true, Labels = false };
+    for (int x = 0; x <= 1; x++)
+        for (int y = 0; y <= 1; y++)
+        {
+            var c = new CellKey(x, y);
+            if (f2.Cells) g.Cells.Remove(c);
+            if (f2.Stairs) g.Stairs.Remove(c);
+            if (f2.Labels) g.Labels.RemoveAll(l => l.Cell == c);
+            if (f2.Walls)
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                    g.SetWall(new EdgeKey(c, side), false);
+        }
+    Check(!g.Stairs.ContainsKey(new CellKey(0, 0)), "erase filter: stair removed when Stairs on");
+    Check(g.Walls.Count > 0, "erase filter: walls kept when Walls off");
 }
 
 // --- serialization round-trip ---

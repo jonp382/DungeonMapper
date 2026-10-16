@@ -164,6 +164,33 @@ public sealed class MapDocument
         Labels.RemoveAll(l => l.Cell.X >= x0 && l.Cell.X <= x1 && l.Cell.Y >= y0 && l.Cell.Y <= y1);
     }
 
+    /// All stairs connected to the given cell by 4-directional adjacency
+    /// (up/down/left/right), including the start cell. Used so configuring one
+    /// stair updates every stair in the same contiguous group.
+    public List<Stair> ConnectedStairs(CellKey start)
+    {
+        var result = new List<Stair>();
+        if (!Stairs.ContainsKey(start)) return result;
+        var seen = new HashSet<CellKey> { start };
+        var queue = new Queue<CellKey>();
+        queue.Enqueue(start);
+        while (queue.Count > 0)
+        {
+            var c = queue.Dequeue();
+            result.Add(Stairs[c]);
+            foreach (var (dx, dy) in new[] { (1,0), (-1,0), (0,1), (0,-1) })
+            {
+                var n = new CellKey(c.X + dx, c.Y + dy);
+                if (!seen.Contains(n) && Stairs.ContainsKey(n))
+                {
+                    seen.Add(n);
+                    queue.Enqueue(n);
+                }
+            }
+        }
+        return result;
+    }
+
     /// Snapshot of a rectangular region, stored relative to its top-left origin
     /// so it can be pasted at any target cell.
     public sealed class RegionSnapshot

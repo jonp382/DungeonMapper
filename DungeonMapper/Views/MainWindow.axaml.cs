@@ -40,9 +40,9 @@ public partial class MainWindow : Window
         BtnLoad.Click += (_, _) => LoadMap();
 
         Canvas.ActionCompleted += () => _history.Commit(_doc);
-        Canvas.DoorConfigRequested += d => ShowDoorDialog(d);
-        Canvas.StairConfigRequested += s => ShowStairDialog(s);
-        Canvas.LabelConfigRequested += l => ShowLabelDialog(l);
+        Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
+        Canvas.StairConfigRequested += s => ShowStairConfig(s);
+        Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
@@ -83,7 +83,35 @@ public partial class MainWindow : Window
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels",
             _ => "",
         };
+        PopulatePanel(mode);
         Canvas.Refresh();
+    }
+
+    // Builds the floating panel's options for the active tool.
+    private void PopulatePanel(ToolMode mode)
+    {
+        switch (mode)
+        {
+            case ToolMode.Erase:
+                ToolPanel.Clear("Erase options");
+                ToolPanel.AddHint("choose what the eraser removes:");
+                ToolPanel.AddCheck("cells / flooring", Canvas.EraseFilter.Cells, v => Canvas.EraseFilter.Cells = v);
+                ToolPanel.AddCheck("walls (and doors on them)", Canvas.EraseFilter.Walls, v => Canvas.EraseFilter.Walls = v);
+                ToolPanel.AddCheck("stairs", Canvas.EraseFilter.Stairs, v => Canvas.EraseFilter.Stairs = v);
+                ToolPanel.AddCheck("labels", Canvas.EraseFilter.Labels, v => Canvas.EraseFilter.Labels = v);
+                break;
+
+            case ToolMode.Select:
+                ToolPanel.Clear("Select options");
+                ToolPanel.AddHint("copy/paste the selection with Ctrl+C / Ctrl+V.");
+                ToolPanel.AddCheck("show paste ghost on hover", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); });
+                break;
+
+            default:
+                ToolPanel.Clear("Tool options");
+                ToolPanel.AddHint("no options for this tool.");
+                break;
+        }
     }
 
     private void DoUndo()
@@ -137,35 +165,52 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowDoorDialog(Door door)
+    private void ShowDoorConfig(Door door)
     {
-        var dlg = new ConfigDialog("Door");
-        dlg.AddText("Type", door.Type, t => door.Type = string.IsNullOrWhiteSpace(t) ? "standard" : t.Trim());
-        dlg.AddChoice("State", new[] { "open", "closed", "locked" },
+        ToolPanel.Clear("Door");
+        ToolPanel.AddText("Type", door.Type, t =>
+        {
+            door.Type = string.IsNullOrWhiteSpace(t) ? "standard" : t.Trim();
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddChoice("State", new[] { "open", "closed", "locked" },
             door.State.ToString().ToLowerInvariant(), s =>
-                door.State = Enum.Parse<DoorState>(s, ignoreCase: true));
-        dlg.ShowDialog(this);
-        _history.Commit(_doc);
-        Canvas.Refresh();
+            {
+                door.State = Enum.Parse<DoorState>(s, ignoreCase: true);
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
     }
 
-    private void ShowStairDialog(Stair stair)
+    private void ShowStairConfig(Stair stair)
     {
-        var dlg = new ConfigDialog("Stair");
-        dlg.AddChoice("Direction", new[] { "up", "down" },
+        // find the cell this stair lives on so we can update its connected group
+        var cell = default(CellKey);
+        foreach (var kv in _doc.Stairs)
+            if (ReferenceEquals(kv.Value, stair)) { cell = kv.Key; break; }
+
+        ToolPanel.Clear("Stair");
+        ToolPanel.AddHint("changing direction updates all connected stairs.");
+        ToolPanel.AddChoice("Direction", new[] { "up", "down" },
             stair.Direction.ToString().ToLowerInvariant(), s =>
-                stair.Direction = Enum.Parse<StairDirection>(s, ignoreCase: true));
-        dlg.ShowDialog(this);
-        _history.Commit(_doc);
-        Canvas.Refresh();
+            {
+                var dir = Enum.Parse<StairDirection>(s, ignoreCase: true);
+                foreach (var s2 in _doc.ConnectedStairs(cell))
+                    s2.Direction = dir;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
     }
 
-    private void ShowLabelDialog(MapLabel label)
+    private void ShowLabelConfig(MapLabel label)
     {
-        var dlg = new ConfigDialog("Label");
-        dlg.AddText("Text", label.Text, t => label.Text = t);
-        dlg.ShowDialog(this);
-        _history.Commit(_doc);
-        Canvas.Refresh();
+        ToolPanel.Clear("Label");
+        ToolPanel.AddText("Text", label.Text, t =>
+        {
+            label.Text = t;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
     }
 }

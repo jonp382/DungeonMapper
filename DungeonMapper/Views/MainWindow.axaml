@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="using:DungeonMapper.Controls"
+        xmlns:views="using:DungeonMapper.Views"
         x:Class="DungeonMapper.Views.MainWindow"
         Icon="/Assets/avalonia-logo.ico"
         Title="Dungeon Mapper"
@@ -29,6 +30,7 @@
 
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />
+            <views:ToolPanel x:Name="ToolPanel" />
             <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
                        Foreground="#aaa" FontSize="13"
                        HorizontalAlignment="Left" VerticalAlignment="Bottom"

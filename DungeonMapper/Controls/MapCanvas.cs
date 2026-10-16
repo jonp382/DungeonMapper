@@ -12,6 +12,16 @@ namespace DungeonMapper.Controls;
 
 public enum ToolMode { Select, Room, Floor, Wall, Door, Stair, Label, Erase }
 
+/// Which element categories the Erase tool removes. Doors follow walls (a door
+/// implies a wall), so a door is removed when its wall is erased.
+public sealed class EraseFilter
+{
+    public bool Cells = true;
+    public bool Walls = true;
+    public bool Stairs = true;
+    public bool Labels = true;
+}
+
 /// Custom control that renders a MapDocument and hosts the editing tools.
 /// World units = cells (5ft). screen = (world - offset) * scale.
 /// Right-drag pans, wheel zooms (cursor-anchored). Left-click/drag edits per ToolMode.
@@ -36,6 +46,8 @@ public sealed class MapCanvas : Control
     private bool _selectDragging;
     private Point? _pasteCursor; // world cursor for paste ghost
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
+    public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
+    public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -232,7 +244,7 @@ public sealed class MapCanvas : Control
         }
 
         // paste ghost: clipboard preview at the cursor cell
-        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select && _ghostVisible)
+        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select && _ghostVisible && GhostEnabled)
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
             int dx = origin.X - _clipboard.OriginX, dy = origin.Y - _clipboard.OriginY;
@@ -552,16 +564,18 @@ public sealed class MapCanvas : Control
             case ToolMode.Erase:
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                var f = EraseFilter;
                 for (int x = x0; x <= x1; x++)
                     for (int y = y0; y <= y1; y++)
                     {
                         var c = new CellKey(x, y);
-                        Document.Cells.Remove(c);
-                        Document.Stairs.Remove(c);
-                        Document.Labels.RemoveAll(l => l.Cell == c);
+                        if (f.Cells) Document.Cells.Remove(c);
+                        if (f.Stairs) Document.Stairs.Remove(c);
+                        if (f.Labels) Document.Labels.RemoveAll(l => l.Cell == c);
                         // remove walls on all four edges of the cell (doors auto-removed)
-                        foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
-                            Document.SetWall(new EdgeKey(c, side), false);
+                        if (f.Walls)
+                            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                                Document.SetWall(new EdgeKey(c, side), false);
                     }
                 Commit();
                 break;
