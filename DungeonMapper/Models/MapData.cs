@@ -141,6 +141,75 @@ public sealed class MapDocument
                 SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
     }
 
+    /// Snapshot of a rectangular region, stored relative to its top-left origin
+    /// so it can be pasted at any target cell.
+    public sealed class RegionSnapshot
+    {
+        public int OriginX, OriginY;
+        public HashSet<CellKey> Cells = new();
+        public Dictionary<EdgeKey, bool> Walls = new();
+        public Dictionary<EdgeKey, Door> Doors = new();
+        public Dictionary<CellKey, Stair> Stairs = new();
+        public List<MapLabel> Labels = new();
+        public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
+                              && Stairs.Count == 0 && Labels.Count == 0;
+    }
+
+    /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
+    /// Walls/doors are included when their edge segment lies within the region's
+    /// world bounds. Normalization folds South/West edges to neighboring cells, so
+    /// testing the owning cell alone would miss the south and west boundary walls.
+    public RegionSnapshot CaptureRegion(int x0, int y0, int x1, int y1)
+    {
+        var region = new HashSet<CellKey>();
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+                region.Add(new CellKey(x, y));
+
+        // region rectangle in world coords: x in [x0, x1+1], y in [y0, y1+1]
+        bool SegmentIn(EdgeKey e)
+        {
+            var (cx, cy) = (e.Cell.X, e.Cell.Y);
+            (int ax, int ay, int bx, int by) = e.Side switch
+            {
+                Side.North => (cx, cy, cx + 1, cy),
+                Side.East => (cx + 1, cy, cx + 1, cy + 1),
+                _ => (cx, cy, cx, cy),
+            };
+            return ax >= x0 && ax <= x1 + 1 && bx >= x0 && bx <= x1 + 1
+                && ay >= y0 && ay <= y1 + 1 && by >= y0 && by <= y1 + 1;
+        }
+
+        var snap = new RegionSnapshot { OriginX = x0, OriginY = y0 };
+        foreach (var c in Cells) if (region.Contains(c)) snap.Cells.Add(c);
+        foreach (var (e, w) in Walls) if (SegmentIn(e)) snap.Walls[e] = w;
+        foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
+        foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
+        foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
+        return snap;
+    }
+
+    /// Pastes a snapshot with its origin mapped to (targetX, targetY).
+    /// Doors imply walls, so pasting a door also ensures its wall exists.
+    public void PasteRegion(RegionSnapshot snap, int targetX, int targetY)
+    {
+        int dx = targetX - snap.OriginX, dy = targetY - snap.OriginY;
+        foreach (var c in snap.Cells)
+            Cells.Add(new CellKey(c.X + dx, c.Y + dy));
+        foreach (var (e, w) in snap.Walls)
+            SetWall(new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side), w);
+        foreach (var (c, s) in snap.Stairs)
+            Stairs[new CellKey(c.X + dx, c.Y + dy)] = new Stair { Direction = s.Direction, TargetMap = s.TargetMap };
+        foreach (var l in snap.Labels)
+            Labels.Add(new MapLabel { Cell = new CellKey(l.Cell.X + dx, l.Cell.Y + dy), Text = l.Text });
+        foreach (var (e, d) in snap.Doors)
+        {
+            var edge = new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side);
+            SetWall(edge, true);
+            Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State };
+        }
+    }
+
     /// Replaces all content of this document with the content of another.
     /// Used to apply undo/redo snapshots to the live instance in place.
     public void ApplyFrom(MapDocument other)

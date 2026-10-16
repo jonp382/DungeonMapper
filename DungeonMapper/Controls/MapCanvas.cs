@@ -30,6 +30,47 @@ public sealed class MapCanvas : Control
 
     public void Refresh() => InvalidateVisual();
 
+    // ---- clipboard / selection ----
+    private MapDocument.RegionSnapshot? _clipboard;
+    private CellKey _selectStart, _selectEnd;
+    private bool _selectDragging;
+    private Point? _pasteCursor; // world cursor for paste ghost
+
+    public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
+    public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
+
+    /// Captures the current selection rectangle into the clipboard.
+    public void CopySelection()
+    {
+        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+        var snap = Document.CaptureRegion(x0, y0, x1, y1);
+        if (snap.Empty) { StatusMessage?.Invoke("nothing to copy - select a region first"); return; }
+        _clipboard = snap;
+        StatusMessage?.Invoke($"copied {snap.Cells.Count} cells");
+    }
+
+    /// Pastes the clipboard at the given world cell (origin maps to that cell).
+    public void PasteAt(CellKey target)
+    {
+        if (_clipboard is null || _clipboard.Empty) { StatusMessage?.Invoke("clipboard empty"); return; }
+        Document.PasteRegion(_clipboard, target.X, target.Y);
+        Commit();
+    }
+
+    /// Pastes at the current cursor cell, if a paste ghost is showing.
+    public void PasteAtCursor()
+    {
+        if (_pasteCursor is Point p)
+            PasteAt(new CellKey((int)Math.Floor(p.X), (int)Math.Floor(p.Y)));
+    }
+
+    public void ClearSelection()
+    {
+        _selectDragging = false;
+        _selectStart = _selectEnd = default;
+        InvalidateVisual();
+    }
+
     private Point _offset = new(-1, -1); // world coord at screen origin
     private double _scale = 40;          // pixels per cell
 
@@ -176,6 +217,29 @@ public sealed class MapCanvas : Control
             var b = WorldToScreen(seg.b.X, seg.b.Y);
             ctx.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), a, b);
         }
+
+        // selection rectangle (cyan)
+        if (_selectDragging || (_selectStart != _selectEnd && Mode == ToolMode.Select))
+        {
+            var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+            var tl = WorldToScreen(x0, y0);
+            var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
+            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(60, 80, 200, 220)), rect);
+            ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(80, 200, 220)), 2), rect);
+        }
+
+        // paste ghost: clipboard preview at the cursor cell
+        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select)
+        {
+            var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
+            int dx = origin.X - _clipboard.OriginX, dy = origin.Y - _clipboard.OriginY;
+            var ghost = new SolidColorBrush(Color.FromArgb(70, 80, 200, 220));
+            foreach (var c in _clipboard.Cells)
+            {
+                var p0 = WorldToScreen(c.X + dx, c.Y + dy);
+                ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
+            }
+        }
     }
 
     private static (int x0, int y0, int x1, int y1) NormRect(CellKey a, CellKey b)
@@ -253,13 +317,20 @@ public sealed class MapCanvas : Control
             return;
         }
 
-        if (!props.IsLeftButtonPressed || Mode == ToolMode.Select) return;
+        if (!props.IsLeftButtonPressed) return;
 
         var world = ScreenToWorld(e.GetPosition(this));
         var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
 
         switch (Mode)
         {
+            case ToolMode.Select:
+                _selectDragging = true;
+                _selectStart = cell;
+                _selectEnd = cell;
+                e.Pointer.Capture(this);
+                break;
+
             case ToolMode.Room:
             case ToolMode.Stair:
             case ToolMode.Erase:
@@ -339,6 +410,15 @@ public sealed class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        _pasteCursor = world; // paste ghost follows the cursor
+
+        if (_selectDragging)
+        {
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            if (cell != _selectEnd) { _selectEnd = cell; InvalidateVisual(); }
+            return;
+        }
+
         if (_dragging)
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
@@ -377,6 +457,30 @@ public sealed class MapCanvas : Control
         {
             _panning = false;
             e.Pointer.Capture(null);
+            return;
+        }
+
+        if (_selectDragging)
+        {
+            _selectDragging = false;
+            e.Pointer.Capture(null);
+            var world = ScreenToWorld(e.GetPosition(this));
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            _selectEnd = cell;
+            if (_selectStart == _selectEnd)
+            {
+                // single cell: manage the element under the cursor
+                var edge = HitEdge(world);
+                var door = edge is not null ? Document.GetDoor(edge.Value) : null;
+                if (door is not null) DoorConfigRequested?.Invoke(door);
+                else if (Document.Stairs.TryGetValue(cell, out var s)) StairConfigRequested?.Invoke(s);
+                else
+                {
+                    var lbl = Document.Labels.FirstOrDefault(l => l.Cell == cell);
+                    if (lbl is not null) LabelConfigRequested?.Invoke(lbl);
+                }
+            }
+            InvalidateVisual();
             return;
         }
 

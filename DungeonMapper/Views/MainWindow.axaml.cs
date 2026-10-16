@@ -37,6 +37,9 @@ public partial class MainWindow : Window
         BtnSave.Click += (_, _) => SaveMap();
         BtnLoad.Click += (_, _) => LoadMap();
 
+        BtnCopy.Click += (_, _) => { Canvas.CopySelection(); Canvas.Refresh(); };
+        BtnPaste.Click += (_, _) => { Canvas.PasteAtCursor(); Canvas.Refresh(); };
+
         Canvas.ActionCompleted += () => _history.Commit(_doc);
         Canvas.DoorConfigRequested += d => ShowDoorDialog(d);
         Canvas.StairConfigRequested += s => ShowStairDialog(s);
@@ -55,6 +58,8 @@ public partial class MainWindow : Window
             {
                 case Key.Z: DoUndo(); e.Handled = true; return;
                 case Key.Y: DoRedo(); e.Handled = true; return;
+                case Key.C: Canvas.CopySelection(); Canvas.Refresh(); e.Handled = true; return;
+                case Key.V: Canvas.PasteAtCursor(); Canvas.Refresh(); e.Handled = true; return;
             }
         }
         base.OnKeyDown(e);
@@ -65,7 +70,7 @@ public partial class MainWindow : Window
         Canvas.Mode = mode;
         StatusText.Text = mode switch
         {
-            ToolMode.Select => "select: no editing. right-drag pan, wheel zoom",
+            ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",

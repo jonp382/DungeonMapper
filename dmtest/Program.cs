@@ -65,6 +65,35 @@ Check(doc2.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "union right wall
 Check(doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 0), Side.North), out _), "door on wall edge succeeds");
 Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "door on interior edge fails");
 
+// --- copy/paste region ---
+{
+    var cp = new MapDocument();
+    cp.AddRoom(0, 0, 1, 1);
+    cp.TryPlaceDoor(EdgeKey.Normalize(new CellKey(0, 0), Side.North), out _); // outer wall edge
+    cp.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up };
+    cp.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "X" });
+
+    var snap = cp.CaptureRegion(0, 0, 1, 1);
+    Check(snap.Cells.Count == 4, "capture: cells");
+    Check(snap.Walls.Count == 8, "capture: walls (2x2 room = 8 outer walls)");
+    Check(snap.Doors.Count == 1, "capture: door");
+    Check(snap.Stairs.Count == 1, "capture: stair");
+    Check(snap.Labels.Count == 1, "capture: label");
+
+    // paste at a new origin, far away -> full copy
+    cp.PasteRegion(snap, 5, 5);
+    Check(cp.Cells.Contains(new CellKey(5, 5)) && cp.Cells.Contains(new CellKey(6, 6)), "paste: cells offset");
+    Check(cp.Doors.ContainsKey(EdgeKey.Normalize(new CellKey(5, 5), Side.North)), "paste: door offset");
+    Check(cp.Stairs.TryGetValue(new CellKey(5, 5), out var ps) && ps.Direction == StairDirection.Up, "paste: stair offset");
+    Check(cp.Labels.Any(l => l.Cell == new CellKey(6, 6) && l.Text == "X"), "paste: label offset");
+    Check(cp.HasWall(EdgeKey.Normalize(new CellKey(5, 5), Side.North)), "paste: door implies wall");
+
+    // paste overlapping the original at same origin -> idempotent (no growth)
+    int cellsBefore = cp.Cells.Count;
+    cp.PasteRegion(snap, 0, 0);
+    Check(cp.Cells.Count == cellsBefore, "paste: same origin idempotent");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });
