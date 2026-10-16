@@ -298,15 +298,14 @@ public sealed class MapCanvas : Control
                 {
                     DoorConfigRequested?.Invoke(existing);
                 }
-                else if (Document.HasWall(doorEdge))
+                else
                 {
+                    // door implies wall: auto-create the wall if missing, then place the door
+                    if (!Document.HasWall(doorEdge))
+                        Document.SetWall(doorEdge, true);
                     Document.TryPlaceDoor(doorEdge, out var d);
                     Commit();
                     DoorConfigRequested?.Invoke(d);
-                }
-                else
-                {
-                    StatusMessage?.Invoke("door needs a wall on that edge");
                 }
                 break;
 
