@@ -1,6 +1,7 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -48,6 +49,18 @@ public sealed class ConfigDialog : Window
         root.Children.Add(buttons);
 
         Content = root;
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        // Escape closes the dialog without applying changes, matching the Cancel button.
+        if (e.Key == Key.Escape)
+        {
+            Close();
+            e.Handled = true;
+            return;
+        }
+        base.OnKeyDown(e);
     }
 
     public void AddText(string label, string initial, Action<string> onApply)
