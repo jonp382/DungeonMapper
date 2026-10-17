@@ -188,6 +188,64 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(g.Walls.Count > 0, "erase filter: walls kept when Walls off");
 }
 
+// --- door defaults + cut source clear ---
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 1, 1);
+    var edge = new EdgeKey(new CellKey(0, 0), Side.North);
+    // place door with defaults "open"
+    bool ok = d.TryPlaceDoor(edge, "magical", "open", out var door);
+    Check(ok, "door defaults: placed on wall");
+    Check(door.Type == "magical", "door defaults: type applied");
+    Check(door.State == DoorState.Open, "door defaults: state applied");
+
+    // existing door keeps its own type/state, not the defaults
+    d.TryPlaceDoor(edge, "standard", "closed", out var door2);
+    Check(ReferenceEquals(door, door2), "door defaults: existing door reused");
+    Check(door2.Type == "magical", "door defaults: existing type not overwritten");
+
+    // cut source clear: simulate paste-then-delete-source
+    var src = new MapDocument();
+    src.AddRoom(0, 0, 1, 1);
+    var snap = src.CaptureRegion(0, 0, 1, 1);
+    var dst = new MapDocument();
+    dst.PasteRegion(snap, 5, 5);
+    Check(dst.Cells.Contains(new CellKey(5, 5)), "cut: paste lands at target");
+    // delete source region from src
+    for (int x = 0; x <= 1; x++)
+        for (int y = 0; y <= 1; y++)
+        {
+            var c = new CellKey(x, y);
+            src.Cells.Remove(c);
+            src.Stairs.Remove(c);
+            src.Labels.RemoveAll(l => l.Cell == c);
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                src.SetWall(new EdgeKey(c, side), false);
+        }
+    Check(src.Cells.Count == 0, "cut: source region cleared");
+    Check(dst.Cells.Contains(new CellKey(5, 5)), "cut: pasted copy survives source clear");
+}
+
+// --- settings model ---
+{
+    var s = AppSettings.Default();
+    Check(s.GridDrawSpacing == 1, "settings: default grid spacing 1");
+    Check(s.ToolHotkeys["Room"] == "R", "settings: room hotkey R");
+    Check(s.DoorTypes.Count == 5, "settings: 5 default door types");
+    Check(s.FindDoorType("portcullis").R == 180, "settings: door color lookup");
+    Check(s.FindDoorType("nonexistent").Name == "standard", "settings: unknown type falls back");
+    Check(s.DefaultLabelText == "label", "settings: default label text non-blank");
+}
+
+// --- floor mod (grid spacing boundary for negative coords) ---
+{
+    int fm(int a, int m) { int r = a % m; return r < 0 ? r + m : r; }
+    Check(fm(0,2)==0 && fm(2,2)==0 && fm(4,2)==0, "floor mod: positive boundaries at spacing 2");
+    Check(fm(1,2)==1 && fm(3,2)==1, "floor mod: non-boundaries");
+    Check(fm(-2,2)==0 && fm(-4,2)==0, "floor mod: negative boundaries at spacing 2");
+    Check(fm(-1,2)==1, "floor mod: negative non-boundary");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

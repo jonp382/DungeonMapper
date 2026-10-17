@@ -108,6 +108,23 @@ public sealed class MapDocument
         return true;
     }
 
+    /// Places a door, applying default type/state to a newly created door.
+    public bool TryPlaceDoor(EdgeKey edge, string defaultType, string defaultState, out Door door)
+    {
+        var key = EdgeKey.Normalize(edge.Cell, edge.Side);
+        if (!HasWall(key)) { door = null!; return false; }
+        bool isNew = !Doors.ContainsKey(key);
+        door = isNew ? new Door() : Doors[key];
+        if (isNew)
+        {
+            door.Type = defaultType;
+            if (Enum.TryParse<DoorState>(defaultState, ignoreCase: true, out var st))
+                door.State = st;
+        }
+        Doors[key] = door;
+        return true;
+    }
+
     public void RemoveDoor(EdgeKey edge)
     {
         Doors.Remove(EdgeKey.Normalize(edge.Cell, edge.Side));

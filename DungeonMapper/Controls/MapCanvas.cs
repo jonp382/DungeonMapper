@@ -31,6 +31,7 @@ public sealed class MapCanvas : Control
 {
     public MapDocument Document { get; set; } = new();
     public ToolMode Mode { get; set; } = ToolMode.Select;
+    public AppSettings Settings { get; set; } = AppSettings.Default();
 
     public event Action? ActionCompleted;
     public event Action<Door>? DoorConfigRequested;
@@ -59,7 +60,37 @@ public sealed class MapCanvas : Control
         var snap = Document.CaptureRegion(x0, y0, x1, y1);
         if (snap.Empty) { StatusMessage?.Invoke("nothing to copy - select a region first"); return; }
         _clipboard = snap;
+        _cutSource = null; // a plain copy has no source to delete on paste
         StatusMessage?.Invoke($"copied {snap.Cells.Count} cells");
+    }
+
+    /// Cut: capture the selection AND remember its source region. The next
+    /// paste deletes the source; later pastes act as normal paste.
+    public void CutSelection()
+    {
+        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+        var snap = Document.CaptureRegion(x0, y0, x1, y1);
+        if (snap.Empty) { StatusMessage?.Invoke("nothing to cut - select a region first"); return; }
+        _clipboard = snap;
+        _cutSource = (x0, y0, x1, y1);
+        StatusMessage?.Invoke($"cut {snap.Cells.Count} cells");
+    }
+
+    private (int x0, int y0, int x1, int y1)? _cutSource; // region to delete on the next paste
+
+    /// Deletes all elements in a rectangle (cells, walls, doors, stairs, labels).
+    private void ClearRegion(int x0, int y0, int x1, int y1)
+    {
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+            {
+                var c = new CellKey(x, y);
+                Document.Cells.Remove(c);
+                Document.Stairs.Remove(c);
+                Document.Labels.RemoveAll(l => l.Cell == c);
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                    Document.SetWall(new EdgeKey(c, side), false);
+            }
     }
 
     /// Pastes the clipboard at the given world cell (origin maps to that cell).
@@ -67,6 +98,14 @@ public sealed class MapCanvas : Control
     {
         if (_clipboard is null || _clipboard.Empty) { StatusMessage?.Invoke("clipboard empty"); return; }
         Document.PasteRegion(_clipboard, target.X, target.Y);
+        // after a cut, the first paste deletes the original source region;
+        // subsequent pastes act as normal paste (source cleared).
+        if (_cutSource is (int cx0, int cy0, int cx1, int cy1))
+        {
+            ClearRegion(cx0, cy0, cx1, cy1);
+            _cutSource = null;
+            StatusMessage?.Invoke("pasted (cut source removed)");
+        }
         Commit();
     }
 
@@ -98,16 +137,13 @@ public sealed class MapCanvas : Control
     private static readonly IBrush StairDown = new SolidColorBrush(Color.FromRgb(230, 160, 80));
     private static readonly IBrush LabelBrush = new SolidColorBrush(Color.FromRgb(250, 250, 250));
 
-    // Door color per type; unknown types fall back to standard yellow.
-    private static IBrush DoorBrush(string type) => type.ToLowerInvariant() switch
+    // Door color per type, from the configurable DoorTypes list; unknown types
+    // fall back to the first category.
+    private IBrush DoorBrush(string type)
     {
-        "standard" => new SolidColorBrush(Color.FromRgb(245, 220, 60)),
-        "portcullis" => new SolidColorBrush(Color.FromRgb(180, 180, 190)),
-        "bricked" => new SolidColorBrush(Color.FromRgb(160, 100, 60)),
-        "locked" => new SolidColorBrush(Color.FromRgb(220, 80, 80)),
-        "magical" => new SolidColorBrush(Color.FromRgb(180, 120, 240)),
-        _ => new SolidColorBrush(Color.FromRgb(245, 220, 60)),
-    };
+        var t = Settings.FindDoorType(type);
+        return new SolidColorBrush(Color.FromRgb((byte)t.R, (byte)t.G, (byte)t.B));
+    }
 
     public void AutoFit()
     {
@@ -138,15 +174,21 @@ public sealed class MapCanvas : Control
         var topLeft = ScreenToWorld(new Point(0, 0));
         var bottomRight = ScreenToWorld(new Point(Bounds.Width, Bounds.Height));
 
-        // Cell fills + faint grid
+        // Cell fills + grid lines. Grid is always 5ft (1 cell); GridDrawSpacing
+        // controls how many cells between drawn lines (1 = every 5ft, 2 = 10ft).
+        int sp = Math.Max(1, Settings.GridDrawSpacing);
         foreach (var c in Document.Cells)
         {
             if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
             ctx.FillRectangle(CellFill, rect);
-            ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.BottomLeft);
-            ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.TopRight);
+            // vertical grid line at this cell's left edge if it's a spacing boundary
+            if (FloorMod(c.X, sp) == 0)
+                ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.BottomLeft);
+            // horizontal grid line at this cell's top edge if it's a spacing boundary
+            if (FloorMod(c.Y, sp) == 0)
+                ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.TopRight);
         }
 
         // Stairs: fill tint + arrow glyph
@@ -259,6 +301,13 @@ public sealed class MapCanvas : Control
 
     private static (int x0, int y0, int x1, int y1) NormRect(CellKey a, CellKey b)
         => (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Max(a.X, b.X), Math.Max(a.Y, b.Y));
+
+    // floor-mod for negative cell coords (C# % is truncating, not flooring)
+    private static int FloorMod(int a, int m)
+    {
+        int r = a % m;
+        return r < 0 ? r + m : r;
+    }
 
     /// Edge endpoints in world coords for a normalized EdgeKey.
     private static (Point a, Point b) EdgeSegment(EdgeKey e)
@@ -392,7 +441,7 @@ public sealed class MapCanvas : Control
                     // door implies wall: auto-create the wall if missing, then place the door
                     if (!Document.HasWall(doorEdge))
                         Document.SetWall(doorEdge, true);
-                    Document.TryPlaceDoor(doorEdge, out var d);
+                    Document.TryPlaceDoor(doorEdge, Settings.DefaultDoorType, Settings.DefaultDoorState, out var d);
                     Commit();
                     DoorConfigRequested?.Invoke(d);
                 }
@@ -406,7 +455,7 @@ public sealed class MapCanvas : Control
                 }
                 else
                 {
-                    lbl = new MapLabel { Cell = cell, Text = "" };
+                    lbl = new MapLabel { Cell = cell, Text = Settings.DefaultLabelText };
                     Document.Labels.Add(lbl);
                     Commit();
                     LabelConfigRequested?.Invoke(lbl);

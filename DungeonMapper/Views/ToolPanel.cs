@@ -72,7 +72,26 @@ public sealed class ToolPanel : Border
             SelectedItem = Array.IndexOf(options, initial) >= 0 ? initial : options[0],
         };
         cb.SelectionChanged += (_, _) => onChange((string?)cb.SelectedItem ?? options[0]);
-        panel.Children.Add(cb);
         _content.Children.Add(panel);
+    }
+
+    public void AddNumber(string label, int initial, Action<int> onChange)
+    {
+        var panel = new StackPanel { Spacing = 2 };
+        panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
+        var tb = new TextBox { Text = initial.ToString() };
+        tb.TextChanged += (_, _) =>
+        {
+            if (int.TryParse(tb.Text, out int v)) onChange(v);
+        };
+        panel.Children.Add(tb);
+        _content.Children.Add(panel);
+    }
+
+    public void AddButton(string label, Action onClick)
+    {
+        var b = new Button { Content = label };
+        b.Click += (_, _) => onClick();
+        _content.Children.Add(b);
     }
 }

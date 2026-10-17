@@ -25,6 +25,8 @@
                 <Button x:Name="BtnSave" Content="Save" />
                 <Button x:Name="BtnLoad" Content="Load" />
                 <Button x:Name="BtnFit" Content="Fit" />
+                <Separator />
+                <Button x:Name="BtnSettings" Content="Settings" />
             </StackPanel>
         </Border>
 
