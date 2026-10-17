@@ -11,6 +11,7 @@
         <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6">
             <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button x:Name="ToolSelect" Content="Select" />
+                <Button x:Name="ToolMove" Content="Move" />
                 <Button x:Name="ToolRoom" Content="Room" />
                 <Button x:Name="ToolFloor" Content="Floor" />
                 <Button x:Name="ToolWall" Content="Wall" />

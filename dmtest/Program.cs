@@ -246,6 +246,30 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(fm(-1,2)==1, "floor mod: negative non-boundary");
 }
 
+// --- move (capture + paste at target + clear source) ---
+{
+    var m = new MapDocument();
+    m.AddRoom(0, 0, 1, 1);
+    m.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up };
+    var snap = m.CaptureRegion(0, 0, 1, 1);
+    // move to (5,5): paste then clear source
+    m.PasteRegion(snap, 5, 5);
+    for (int x = 0; x <= 1; x++)
+        for (int y = 0; y <= 1; y++)
+        {
+            var c = new CellKey(x, y);
+            m.Cells.Remove(c);
+            m.Stairs.Remove(c);
+            m.Labels.RemoveAll(l => l.Cell == c);
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                m.SetWall(new EdgeKey(c, side), false);
+        }
+    Check(m.Cells.Contains(new CellKey(5, 5)), "move: region lands at target");
+    Check(m.Stairs.ContainsKey(new CellKey(5, 5)), "move: stair moved to target");
+    Check(!m.Cells.Contains(new CellKey(0, 0)), "move: source cleared");
+    Check(!m.Stairs.ContainsKey(new CellKey(0, 0)), "move: source stair cleared");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

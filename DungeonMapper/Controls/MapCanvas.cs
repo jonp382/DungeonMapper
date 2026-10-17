@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Room, Floor, Wall, Door, Stair, Label, Erase }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -106,6 +106,19 @@ public sealed class MapCanvas : Control
             _cutSource = null;
             StatusMessage?.Invoke("pasted (cut source removed)");
         }
+        Commit();
+    }
+
+    /// Move: capture the current selection, paste it at the target cell, and
+    /// delete the source region. One action, no clipboard round-trip.
+    public void MoveAt(CellKey target)
+    {
+        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+        var snap = Document.CaptureRegion(x0, y0, x1, y1);
+        if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
+        Document.PasteRegion(snap, target.X, target.Y);
+        ClearRegion(x0, y0, x1, y1);
+        StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
         Commit();
     }
 
@@ -276,7 +289,7 @@ public sealed class MapCanvas : Control
         }
 
         // selection rectangle (cyan)
-        if (_selectDragging || (_selectStart != _selectEnd && Mode == ToolMode.Select))
+        if (_selectDragging || (_selectStart != _selectEnd && (Mode == ToolMode.Select || Mode == ToolMode.Move)))
         {
             var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
             var tl = WorldToScreen(x0, y0);
@@ -391,6 +404,14 @@ public sealed class MapCanvas : Control
         switch (Mode)
         {
             case ToolMode.Select:
+            case ToolMode.Move:
+                if (Mode == ToolMode.Move && HasSelection)
+                {
+                    // a region is already armed; this click is the move target
+                    MoveAt(cell);
+                    ClearSelection();
+                    break;
+                }
                 _selectDragging = true;
                 _selectStart = cell;
                 _selectEnd = cell;

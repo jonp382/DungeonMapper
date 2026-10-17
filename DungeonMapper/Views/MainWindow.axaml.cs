@@ -28,6 +28,7 @@ public partial class MainWindow : Window
 
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
+        ToolMove.Click += (_, _) => SetTool(ToolMode.Move);
         ToolRoom.Click += (_, _) => SetTool(ToolMode.Room);
         ToolFloor.Click += (_, _) => SetTool(ToolMode.Floor);
         ToolWall.Click += (_, _) => SetTool(ToolMode.Wall);
@@ -95,6 +96,7 @@ public partial class MainWindow : Window
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
+            ToolMode.Move => "move: drag a region to select, then click the destination to move it",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: click-drag a rectangle. fills cells, clears interior walls/doors/stairs/labels, draws no walls",
             ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",
@@ -127,6 +129,11 @@ public partial class MainWindow : Window
                 ToolPanel.Clear("Select options");
                 ToolPanel.AddHint("copy/paste the selection with Ctrl+C / Ctrl+V.");
                 ToolPanel.AddCheck("show paste ghost on hover", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); });
+                break;
+
+            case ToolMode.Move:
+                ToolPanel.Clear("Move options");
+                ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move.");
                 break;
 
             default:
