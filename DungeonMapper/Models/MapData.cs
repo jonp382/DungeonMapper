@@ -133,21 +133,45 @@ public sealed class MapDocument
     /// Adds a rectangular room: fills cells, sets walls on the outer boundary,
     /// and removes walls strictly inside the region. Drawing a room over adjacent
     /// rooms merges them (boolean union) - the shared interior walls disappear.
-    public void AddRoom(int x0, int y0, int x1, int y1)
+    /// When passageway is true, a boundary edge is left OPEN (no wall) if the cell
+    /// across that edge is an existing room cell, so a room grown out of an existing
+    /// room connects as a passageway rather than being sealed off.
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false)
     {
+        // existing cells outside the new region, captured before we add new cells
+        var existing = new HashSet<CellKey>();
+        if (passageway)
+            foreach (var c in Cells)
+                if (c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1)
+                    existing.Add(c);
+
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
                 Cells.Add(new CellKey(x, y));
+
+        bool Open(int cx, int cy, Side side)
+        {
+            if (!passageway) return false;
+            var (nx, ny) = side switch
+            {
+                Side.North => (cx, cy - 1),
+                Side.South => (cx, cy + 1),
+                Side.East => (cx + 1, cy),
+                Side.West => (cx - 1, cy),
+            };
+            return existing.Contains(new CellKey(nx, ny));
+        }
+
         // outer boundary walls
         for (int x = x0; x <= x1; x++)
         {
-            SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
-            SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
+            if (!Open(x, y0, Side.North)) SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
+            if (!Open(x, y1, Side.South)) SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
         }
         for (int y = y0; y <= y1; y++)
         {
-            SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
-            SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
+            if (!Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
+            if (!Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
         }
         // interior walls removed so adjacent rooms merge
         for (int x = x0 + 1; x <= x1; x++)

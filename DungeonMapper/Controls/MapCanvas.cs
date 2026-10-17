@@ -589,7 +589,11 @@ public sealed class MapCanvas : Control
             case ToolMode.Room:
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
-                Document.AddRoom(x0, y0, x1, y1);
+                // passageway: if the drag started inside an existing room, the
+                // shared boundary stays open so the new region connects as a
+                // passageway instead of being sealed off.
+                bool passageway = Document.Cells.Contains(_dragStart);
+                Document.AddRoom(x0, y0, x1, y1, passageway);
                 Commit();
                 break;
             }

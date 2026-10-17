@@ -270,6 +270,33 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(!m.Stairs.ContainsKey(new CellKey(0, 0)), "move: source stair cleared");
 }
 
+// --- room passageway (grow out of existing room keeps shared edge open) ---
+{
+    bool W(MapDocument m, int x, int y, Side side)
+    {
+        var k = EdgeKey.Normalize(new CellKey(x, y), side);
+        return m.Walls.ContainsKey(k) && m.Walls[k];
+    }
+    var m = new MapDocument();
+    m.AddRoom(0, 0, 2, 2);
+    // grow a hallway out of the room: start inside (2,1), drag east to (4,1)
+    m.AddRoom(2, 1, 4, 1, passageway: true);
+    Check(m.Cells.Contains(new CellKey(3, 1)) && m.Cells.Contains(new CellKey(4, 1)), "passageway: new cells added");
+    // the new region's WEST boundary at (2,1) touches existing room cell (1,1):
+    // passageway leaves it open so the hallway connects to the room
+    Check(!W(m, 2, 1, Side.West), "passageway: shared boundary open");
+    // far end of hallway is walled
+    Check(W(m, 4, 1, Side.East), "passageway: far end walled");
+    // top/bottom of hallway walled
+    Check(W(m, 3, 1, Side.North), "passageway: hallway top walled");
+    Check(W(m, 3, 1, Side.South), "passageway: hallway bottom walled");
+    // non-passageway room over same spot seals the shared boundary
+    var m2 = new MapDocument();
+    m2.AddRoom(0, 0, 2, 2);
+    m2.AddRoom(2, 1, 4, 1, passageway: false);
+    Check(W(m2, 2, 1, Side.West), "non-passageway: shared boundary walled");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });
