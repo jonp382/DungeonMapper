@@ -297,6 +297,25 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(W(m2, 2, 1, Side.West), "non-passageway: shared boundary walled");
 }
 
+// --- multi-map project round-trip ---
+{
+    var proj = new MapProject();
+    proj.Maps[0].Name = "Cavern";
+    proj.Maps[0].Doc.AddRoom(0, 0, 1, 1);
+    proj.AddMap("Upper");
+    proj.Maps[1].Doc.AddRoom(3, 3, 4, 4);
+    proj.Maps[1].Doc.Stairs[new CellKey(3, 3)] = new Stair { Direction = StairDirection.Up, TargetMap = "Cavern" };
+    proj.SetActive(0);
+    string pjson = MapSerializer.ProjectToJson(proj);
+    var back = MapSerializer.ProjectFromJson(pjson);
+    Check(back.Maps.Count == 2, "project: two maps round-trip");
+    Check(back.Maps[0].Name == "Cavern" && back.Maps[1].Name == "Upper", "project: names round-trip");
+    Check(back.ActiveIndex == 0, "project: active index round-trip");
+    Check(back.Maps[0].Doc.Cells.Contains(new CellKey(0, 0)), "project: map0 cells round-trip");
+    Check(back.Maps[1].Doc.Cells.Contains(new CellKey(4, 4)), "project: map1 cells round-trip");
+    Check(back.Maps[1].Doc.Stairs[new CellKey(3, 3)].TargetMap == "Cavern", "project: stair target map round-trip");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

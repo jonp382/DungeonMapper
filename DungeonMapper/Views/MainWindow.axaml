@@ -20,6 +20,10 @@
                 <Button x:Name="ToolLabel" Content="Label" />
                 <Button x:Name="ToolErase" Content="Erase" />
                 <Separator />
+                <ComboBox x:Name="MapList" MinWidth="120" />
+                <Button x:Name="BtnAddMap" Content="+Map" />
+                <Button x:Name="BtnRenameMap" Content="Rename" />
+                <Separator />
                 <Button x:Name="BtnUndo" Content="Undo" />
                 <Button x:Name="BtnRedo" Content="Redo" />
                 <Separator />

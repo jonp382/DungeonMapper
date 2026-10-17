@@ -40,6 +40,20 @@ public sealed class LabelDto
     [JsonPropertyName("text")] public string Text { get; set; } = "";
 }
 
+/// Wire format for a multi-map project: a list of named maps plus the active index.
+public sealed class ProjectFileDto
+{
+    [JsonPropertyName("version")] public int Version { get; set; } = 2;
+    [JsonPropertyName("active")] public int Active { get; set; } = 0;
+    [JsonPropertyName("maps")] public List<NamedMapDto> Maps { get; set; } = new();
+}
+
+public sealed class NamedMapDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "Map 1";
+    [JsonPropertyName("map")] public MapFileDto Map { get; set; } = new();
+}
+
 public static class MapSerializer
 {
     private static readonly JsonSerializerOptions Opts = new()
@@ -124,4 +138,77 @@ public static class MapSerializer
     public static void Save(MapDocument doc, string path) => File.WriteAllText(path, ToJson(doc));
 
     public static MapDocument Load(string path) => FromJson(File.ReadAllText(path));
+
+    public static string ProjectToJson(MapProject project)
+    {
+        var dto = new ProjectFileDto { Active = project.ActiveIndex };
+        foreach (var m in project.Maps)
+            dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
+        return JsonSerializer.Serialize(dto, Opts);
+    }
+
+    public static MapProject ProjectFromJson(string json)
+    {
+        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json)
+            ?? throw new InvalidDataException("project file is empty or not a project object");
+        var project = new MapProject();
+        project.Maps.Clear();
+        foreach (var m in dto.Maps)
+            project.Maps.Add(new MapEntry { Name = string.IsNullOrWhiteSpace(m.Name) ? "Map" : m.Name, Doc = FromDto(m.Map) });
+        if (project.Maps.Count == 0) project.Maps.Add(new MapEntry { Name = "Map 1" });
+        project.ActiveIndex = (dto.Active >= 0 && dto.Active < project.Maps.Count) ? dto.Active : 0;
+        return project;
+    }
+
+    public static void SaveProject(MapProject project, string path) => File.WriteAllText(path, ProjectToJson(project));
+
+    public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
+
+    // build a MapFileDto from a document (shared by ToJson and ProjectToJson)
+    private static MapFileDto ToDto(MapDocument doc)
+    {
+        var dto = new MapFileDto();
+        foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
+        foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
+        foreach (var (e, d) in doc.Doors)
+            dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        foreach (var (c, s) in doc.Stairs)
+            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
+        foreach (var l in doc.Labels)
+            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
+        return dto;
+    }
+
+    private static MapDocument FromDto(MapFileDto dto)
+    {
+        var doc = new MapDocument();
+        foreach (var s in dto.Cells)
+            if (TryParseCell(s, out var c)) doc.Cells.Add(c);
+        foreach (var s in dto.Walls)
+            if (TryParseEdge(s, out var e)) doc.SetWall(e, true);
+        foreach (var d in dto.Doors)
+        {
+            if (!TryParseEdge(d.Edge, out var e)) continue;
+            if (!doc.HasWall(e)) continue;
+            var door = new Door { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            door.State = Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st) ? st : DoorState.Closed;
+            doc.Doors[EdgeKey.Normalize(e.Cell, e.Side)] = door;
+        }
+        foreach (var s in dto.Stairs)
+        {
+            if (!TryParseCell(s.Cell, out var c)) continue;
+            var stair = new Stair
+            {
+                Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
+                TargetMap = s.TargetMap,
+            };
+            doc.Stairs[c] = stair;
+        }
+        foreach (var l in dto.Labels)
+        {
+            if (!TryParseCell(l.Cell, out var c)) continue;
+            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
+        }
+        return doc;
+    }
 }

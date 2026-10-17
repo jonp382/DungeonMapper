@@ -14,7 +14,8 @@ namespace DungeonMapper.Views;
 
 public partial class MainWindow : Window
 {
-    private readonly MapDocument _doc = new();
+    private MapProject _project = new();
+    private MapDocument _doc => _project.Active;
     private readonly History _history = new();
     private readonly AppSettings _settings = AppSettings.Load();
 
@@ -25,6 +26,16 @@ public partial class MainWindow : Window
         Canvas.Document = _doc;
         Canvas.Settings = _settings;
         _history.Initialize(_doc);
+
+        // map list (item 8)
+        RefreshMapList();
+        MapList.SelectionChanged += (_, _) =>
+        {
+            int idx = MapList.SelectedIndex;
+            if (idx >= 0 && idx != _project.ActiveIndex) SwitchMap(idx);
+        };
+        BtnAddMap.Click += (_, _) => AddMap();
+        BtnRenameMap.Click += (_, _) => RenameActiveMap();
 
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
@@ -143,6 +154,57 @@ public partial class MainWindow : Window
         }
     }
 
+    // Rebuilds the map dropdown from the project, keeping the active map selected.
+    private void RefreshMapList()
+    {
+        MapList.Items.Clear();
+        foreach (var m in _project.Maps) MapList.Items.Add(m.Name);
+        MapList.SelectedIndex = _project.ActiveIndex;
+    }
+
+    // Switches the canvas to a map by index. History is reset to the new map.
+    private void SwitchMap(int index)
+    {
+        _project.SetActive(index);
+        Canvas.Document = _doc;
+        _history.Initialize(_doc);
+        Canvas.ClearSelection();
+        Canvas.AutoFit();
+        RefreshMapList();
+        StatusText.Text = $"switched to {_project.ActiveName}";
+        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        Canvas.Refresh();
+    }
+
+    private void AddMap()
+    {
+        string name = $"Map {_project.Maps.Count + 1}";
+        _project.AddMap(name);
+        Canvas.Document = _doc;
+        _history.Initialize(_doc);
+        Canvas.ClearSelection();
+        Canvas.AutoFit();
+        RefreshMapList();
+        StatusText.Text = $"added {name}";
+        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        Canvas.Refresh();
+    }
+
+    private void RenameActiveMap()
+    {
+        var active = _project.Active;
+        int idx = _project.ActiveIndex;
+        string baseName = _project.Maps[idx].Name;
+        // rename via the floating panel: a text field prefilled with the current name
+        ToolPanel.Clear("Rename map");
+        ToolPanel.AddText("map name", baseName, v =>
+        {
+            _project.Maps[idx].Name = string.IsNullOrWhiteSpace(v) ? baseName : v;
+            RefreshMapList();
+            StatusText.Text = $"renamed to {_project.Maps[idx].Name}";
+        });
+    }
+
     private void DoUndo()
     {
         var snap = _history.Undo();
@@ -165,11 +227,11 @@ public partial class MainWindow : Window
     {
         var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            SuggestedFileName = "map.json",
+            SuggestedFileName = "project.json",
             DefaultExtension = "json",
         });
         if (file is null) return;
-        MapSerializer.Save(_doc, file.Path.LocalPath);
+        MapSerializer.SaveProject(_project, file.Path.LocalPath);
         StatusText.Text = $"saved {file.Path.LocalPath}";
     }
 
@@ -182,11 +244,24 @@ public partial class MainWindow : Window
         if (files.Count == 0) return;
         try
         {
-            var loaded = MapSerializer.Load(files[0].Path.LocalPath);
-            _doc.ApplyFrom(loaded);
+            var path = files[0].Path.LocalPath;
+            string text = System.IO.File.ReadAllText(path);
+            // accept both single-map files and multi-map projects
+            if (text.Contains("\"maps\""))
+            {
+                _project = MapSerializer.LoadProject(path);
+            }
+            else
+            {
+                _project = new MapProject();
+                _project.Maps[0].Doc = MapSerializer.Load(path);
+            }
+            Canvas.Document = _doc;
             _history.Initialize(_doc);
+            Canvas.ClearSelection();
             Canvas.AutoFit();
-            StatusText.Text = $"loaded {files[0].Path.LocalPath}";
+            RefreshMapList();
+            StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
         }
         catch (Exception ex)
         {
