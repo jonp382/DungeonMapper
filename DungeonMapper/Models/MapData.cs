@@ -136,11 +136,14 @@ public sealed class MapDocument
     /// When passageway is true, a boundary edge is left OPEN (no wall) if the cell
     /// across that edge is an existing room cell, so a room grown out of an existing
     /// room connects as a passageway rather than being sealed off.
-    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false)
+    /// When strict is true, every outer boundary edge gets a wall regardless of
+    /// existing cells, and interior walls are NOT removed - so a sub-room drawn
+    /// inside an existing room gets its own visible walls.
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false)
     {
         // existing cells outside the new region, captured before we add new cells
         var existing = new HashSet<CellKey>();
-        if (passageway)
+        if (passageway && !strict)
             foreach (var c in Cells)
                 if (c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1)
                     existing.Add(c);
@@ -151,6 +154,7 @@ public sealed class MapDocument
 
         bool Open(int cx, int cy, Side side)
         {
+            if (strict) return false; // strict: every outer edge is walled
             if (!passageway) return false;
             var (nx, ny) = side switch
             {
@@ -173,13 +177,16 @@ public sealed class MapDocument
             if (!Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
             if (!Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
         }
-        // interior walls removed so adjacent rooms merge
-        for (int x = x0 + 1; x <= x1; x++)
-            for (int y = y0; y <= y1; y++)
-                SetWall(new EdgeKey(new CellKey(x - 1, y), Side.East), false);
-        for (int y = y0 + 1; y <= y1; y++)
-            for (int x = x0; x <= x1; x++)
-                SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+        // interior walls removed so adjacent rooms merge (skipped in strict mode)
+        if (!strict)
+        {
+            for (int x = x0 + 1; x <= x1; x++)
+                for (int y = y0; y <= y1; y++)
+                    SetWall(new EdgeKey(new CellKey(x - 1, y), Side.East), false);
+            for (int y = y0 + 1; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                    SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+        }
     }
 
     /// Adds a rectangular floor region: fills cells, removes walls strictly inside

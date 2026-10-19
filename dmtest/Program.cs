@@ -380,6 +380,36 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(map2b.Cells.Contains(new CellKey(8, 8)), "cross-map move: origin maps to target cell");
 }
 
+// --- room strict toggle (sub-room inside a room gets walls when strict) ---
+{
+    bool W(MapDocument m, int x, int y, Side side)
+    {
+        var k = EdgeKey.Normalize(new CellKey(x, y), side);
+        return m.Walls.ContainsKey(k) && m.Walls[k];
+    }
+    // passageway (auto when drag starts inside a room): sub-room fully inside a
+    // room has every boundary edge open -> no walls, sub-room invisible.
+    var m = new MapDocument();
+    m.AddRoom(0, 0, 3, 3);
+    m.AddRoom(1, 1, 2, 2, passageway: true, strict: false);
+    Check(!W(m, 1, 1, Side.North), "passageway: sub-room top wall open (invisible sub-room)");
+    Check(!W(m, 1, 1, Side.West), "passageway: sub-room left wall open");
+
+    // strict overrides passageway: outer walls drawn regardless
+    var m2 = new MapDocument();
+    m2.AddRoom(0, 0, 3, 3);
+    m2.AddRoom(1, 1, 2, 2, passageway: true, strict: true);
+    Check(W(m2, 1, 1, Side.North), "strict on: sub-room top wall drawn inside room");
+    Check(W(m2, 1, 1, Side.West), "strict on: sub-room left wall drawn inside room");
+    Check(W(m2, 2, 2, Side.South), "strict on: sub-room bottom wall drawn inside room");
+    Check(W(m2, 2, 2, Side.East), "strict on: sub-room right wall drawn inside room");
+    // strict over an existing room: outer border walled regardless
+    var m3 = new MapDocument();
+    m3.AddRoom(0, 0, 1, 1);
+    m3.AddRoom(0, 0, 1, 1, passageway: false, strict: true);
+    Check(W(m3, 0, 0, Side.North), "strict on: outer border walled over existing room");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

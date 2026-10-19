@@ -132,6 +132,15 @@ public partial class MainWindow : Window
         return f is TextBox;
     }
 
+    // Returns keyboard focus to the canvas after toolbar/panel interactions.
+    // A ComboBox, ScrollBar, or CheckBox that keeps focus consumes Ctrl+V and
+    // tool-letter keys (type-ahead), so hotkeys stop working until the canvas
+    // is refocused. The canvas is Focusable, so this restores the hotkeys.
+    private void FocusCanvas()
+    {
+        Canvas.Focus();
+    }
+
     // "Tool (K)" button label from the configurable hotkey table.
     private void LabelTool(Button b, string modeName)
     {
@@ -171,6 +180,7 @@ public partial class MainWindow : Window
         };
         PopulatePanel(mode);
         Canvas.Refresh();
+        FocusCanvas(); // restore hotkey focus after the tool button click
         System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
     }
 
@@ -196,7 +206,13 @@ public partial class MainWindow : Window
             case ToolMode.Move:
                 ToolPanel.Clear("Move options");
                 ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move. works across maps: select on one map, switch, click the target.");
-                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); });
+                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
+                break;
+
+            case ToolMode.Room:
+                ToolPanel.Clear("Room settings");
+                ToolPanel.AddHint("normal: drawing over existing rooms merges them (shared walls removed); a room grown out of a room opens a passageway.");
+                ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
                 break;
 
             case ToolMode.Door:
@@ -243,6 +259,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"switched to {_project.ActiveName}";
         System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
+        FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
 
     private void AddMap()
@@ -258,6 +275,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"added {name}";
         System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
+        FocusCanvas();
     }
 
     private void RenameActiveMap()

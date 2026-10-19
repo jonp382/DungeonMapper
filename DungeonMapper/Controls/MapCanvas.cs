@@ -29,6 +29,15 @@ public sealed class EraseFilter
 /// raises config requests for door/stair/label dialogs.
 public sealed class MapCanvas : Control
 {
+    public MapCanvas()
+    {
+        // focusable so keyboard hotkeys (Ctrl+C/V/X, tool letters, Delete) reach
+        // the window: we return focus here after toolbar/panel interactions that
+        // would otherwise leave focus on a ComboBox/ScrollBar/CheckBox, which
+        // consume those keys (type-ahead) and break the hotkeys.
+        Focusable = true;
+    }
+
     public MapDocument Document { get; set; } = new();
     public ToolMode Mode { get; set; } = ToolMode.Select;
     public AppSettings Settings { get; set; } = AppSettings.Default();
@@ -49,6 +58,7 @@ public sealed class MapCanvas : Control
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
+    public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -644,11 +654,14 @@ public sealed class MapCanvas : Control
             case ToolMode.Room:
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                // strict: draw walls on the outer border regardless of existing
+                // cells, keep interior walls (sub-room inside a room gets walls).
                 // passageway: if the drag started inside an existing room, the
                 // shared boundary stays open so the new region connects as a
                 // passageway instead of being sealed off.
-                bool passageway = Document.Cells.Contains(_dragStart);
-                Document.AddRoom(x0, y0, x1, y1, passageway);
+                bool strict = RoomStrict;
+                bool passageway = !strict && Document.Cells.Contains(_dragStart);
+                Document.AddRoom(x0, y0, x1, y1, passageway, strict);
                 Commit();
                 break;
             }
