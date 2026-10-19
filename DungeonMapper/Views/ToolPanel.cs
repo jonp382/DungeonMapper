@@ -16,6 +16,7 @@ public sealed class ToolPanel : Border
 {
     private readonly TextBlock _title = new() { FontSize = 14, Foreground = Brushes.White };
     private readonly StackPanel _content = new() { Spacing = 6 };
+    private readonly ScrollViewer _scroll;
 
     public ToolPanel()
     {
@@ -25,18 +26,32 @@ public sealed class ToolPanel : Border
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Top;
         Margin = new Thickness(0, 48, 8, 0); // sits below the toolbar, over the canvas
-        // content scrolls so long panels (pawn grid, settings) fit at low resolutions
-        var scroll = new ScrollViewer
+        // content scrolls so long panels (pawn grid, settings) fit at low resolutions.
+        // MaxHeight tracks the window height so the scrollbar appears when content
+        // exceeds the visible area (the window is fixed-size on VRAM-limited setups).
+        _scroll = new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-            MaxHeight = 1150,
             Content = _content,
         };
         var root = new StackPanel { Spacing = 8 };
         root.Children.Add(_title);
-        root.Children.Add(scroll);
+        root.Children.Add(_scroll);
         Child = root;
+    }
+
+    protected override void OnAttachedToVisualTree(Avalonia.VisualTreeAttachmentEventArgs e)
+    {
+        base.OnAttachedToVisualTree(e);
+        var top = TopLevel.GetTopLevel(this);
+        if (top is not null)
+        {
+            // 48 = toolbar margin, ~40 = title + padding
+            _scroll.MaxHeight = Math.Max(200, top.Bounds.Height - 48 - 40);
+            top.SizeChanged += (_, _) =>
+                _scroll.MaxHeight = Math.Max(200, top.Bounds.Height - 48 - 40);
+        }
     }
 
     public void Clear(string title)
