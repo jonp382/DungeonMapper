@@ -122,12 +122,14 @@ public partial class MainWindow : Window
         base.OnKeyDown(e);
     }
 
-    // True when keyboard focus sits in a text field, combobox, or checkbox -
-    // typing there must not fire tool hotkeys.
+    // True when keyboard focus sits in a text field - typing there must not
+    // fire tool hotkeys. ComboBox/CheckBox focus is NOT guarded: clicking a
+    // checkbox (e.g. paste ghost toggle) leaves focus on it, and Ctrl+V /
+    // hotkeys must still work. Ctrl+ shortcuts are never blocked.
     private bool IsTyping()
     {
         var f = this.FocusManager.GetFocusedElement();
-        return f is TextBox || f is ComboBox || f is CheckBox;
+        return f is TextBox;
     }
 
     // "Tool (K)" button label from the configurable hotkey table.
@@ -188,13 +190,13 @@ public partial class MainWindow : Window
 
             case ToolMode.Select:
                 ToolPanel.Clear("Select options");
-                ToolPanel.AddHint("copy/paste the selection with Ctrl+C / Ctrl+V.");
-                ToolPanel.AddCheck("show paste ghost on hover", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); });
+                ToolPanel.AddHint("copy/paste the selection with Ctrl+C / Ctrl+V. the paste ghost follows the cursor.");
                 break;
 
             case ToolMode.Move:
                 ToolPanel.Clear("Move options");
-                ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move.");
+                ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move. works across maps: select on one map, switch, click the target.");
+                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); });
                 break;
 
             case ToolMode.Door:
@@ -234,7 +236,8 @@ public partial class MainWindow : Window
         _project.SetActive(index);
         Canvas.Document = _doc;
         _history.Initialize(_doc);
-        Canvas.ClearSelection();
+        // keep the armed selection + clipboard so cross-map move and cut/paste
+        // work: select on map1, switch to map2, click the destination.
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"switched to {_project.ActiveName}";

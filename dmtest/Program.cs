@@ -340,7 +340,7 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(d.Labels.Count == 0, "delete: labels removed");
 }
 
-// --- cross-map cut guard (cut source deletes only on its own map) ---
+// --- cross-map cut (cut source deletes from ITS map, not the target map) ---
 {
     var map1 = new MapDocument();
     var map2 = new MapDocument();
@@ -349,14 +349,8 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     var cutSource = (0, 0, 1, 1);
     MapDocument? cutSourceDoc = map1;
 
-    // paste into map2: source must NOT be deleted from map2
+    // paste into map2: source deletes from map1 (its own map), map2 keeps paste
     map2.PasteRegion(snap, 5, 5);
-    if (cutSourceDoc == map2) { /* would clear map2's region - must not happen */ }
-    Check(map2.Cells.Contains(new CellKey(5, 5)), "cross-map cut: paste lands on map2");
-    Check(map2.Cells.Count == 4, "cross-map cut: map2 source not deleted on paste");
-
-    // paste back into map1: source deletes there
-    map1.PasteRegion(snap, 3, 3);
     if (cutSourceDoc == map1)
         for (int x = 0; x <= 1; x++)
             for (int y = 0; y <= 1; y++)
@@ -368,9 +362,22 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                     map1.SetWall(new EdgeKey(c, side), false);
             }
-    Check(map1.Cells.Contains(new CellKey(3, 3)), "cross-map cut: paste copy on map1 kept");
-    Check(!map1.Cells.Contains(new CellKey(0, 0)), "cross-map cut: source deleted on its own map");
-    Check(map2.Cells.Count == 4, "cross-map cut: map2 untouched by map1 source clear");
+    Check(map2.Cells.Count == 4, "cross-map cut: paste lands on map2, map2 untouched elsewhere");
+    Check(!map1.Cells.Contains(new CellKey(0, 0)), "cross-map cut: source deleted from its own map");
+    Check(map2.Cells.Contains(new CellKey(5, 5)), "cross-map cut: pasted cells on map2");
+
+    // cross-map move: capture from map1, paste on map2, clear map1 source
+    var map1b = new MapDocument();
+    var map2b = new MapDocument();
+    map1b.AddRoom(2, 2, 3, 3);
+    var snap2 = map1b.CaptureRegion(2, 2, 3, 3);
+    map2b.PasteRegion(snap2, 8, 8);
+    for (int x = 2; x <= 3; x++)
+        for (int y = 2; y <= 3; y++)
+            map1b.Cells.Remove(new CellKey(x, y));
+    Check(map1b.Cells.Count == 0, "cross-map move: source cleared on map1");
+    Check(map2b.Cells.Count == 4, "cross-map move: region lands on map2");
+    Check(map2b.Cells.Contains(new CellKey(8, 8)), "cross-map move: origin maps to target cell");
 }
 
 // --- serialization round-trip ---
