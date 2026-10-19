@@ -528,6 +528,14 @@ public sealed class MapCanvas : Control
                     ClearSelection();
                     break;
                 }
+                // Select tool: clicking a cell that has a pawn shows its read-only
+                // info (name, affiliation, instances) + Delete + Change Pawn. The
+                // select tool must not modify the pawn, so no editing here.
+                if (Mode == ToolMode.Select && Document.Pawns.TryGetValue(cell, out var selPawn))
+                {
+                    PawnConfigRequested?.Invoke(selPawn);
+                    break;
+                }
                 _selectDragging = true;
                 _selectStart = cell;
                 _selectEnd = cell;

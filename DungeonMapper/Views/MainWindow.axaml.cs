@@ -625,12 +625,15 @@ public partial class MainWindow : Window
         ToolPanel.Clear("Edit template");
         var presets = PresetColors();
 
+        // NOTE: do NOT call PopulatePanel(Canvas.Mode) here. In Pawn mode that
+        // rebuilds the placement panel and wipes this edit panel (the "Edit"
+        // button bounced back to the selection menu). Canvas.Refresh updates the
+        // map; the library grid is rebuilt when the user returns to the library.
         ToolPanel.AddText("Name", t.Name, name =>
         {
             t.Name = name;
             _pawnLibrary.Save();
             Canvas.Refresh();
-            PopulatePanel(Canvas.Mode);
         });
         ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
             PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
@@ -639,7 +642,6 @@ public partial class MainWindow : Window
                 if (!t.ColorOverride) t.ApplyAffiliationDefaults();
                 _pawnLibrary.Save();
                 Canvas.Refresh();
-                PopulatePanel(Canvas.Mode);
             });
 
         ToolPanel.AddCheck("custom colors", t.ColorOverride, on =>
@@ -673,7 +675,6 @@ public partial class MainWindow : Window
             t.Status = s;
             _pawnLibrary.Save();
             Canvas.Refresh();
-            PopulatePanel(Canvas.Mode);
         });
 
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
