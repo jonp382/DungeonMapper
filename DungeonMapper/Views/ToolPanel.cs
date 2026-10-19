@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -24,9 +25,17 @@ public sealed class ToolPanel : Border
         HorizontalAlignment = HorizontalAlignment.Right;
         VerticalAlignment = VerticalAlignment.Top;
         Margin = new Thickness(0, 48, 8, 0); // sits below the toolbar, over the canvas
+        // content scrolls so long panels (pawn grid, settings) fit at low resolutions
+        var scroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            MaxHeight = 1150,
+            Content = _content,
+        };
         var root = new StackPanel { Spacing = 8 };
         root.Children.Add(_title);
-        root.Children.Add(_content);
+        root.Children.Add(scroll);
         Child = root;
     }
 
