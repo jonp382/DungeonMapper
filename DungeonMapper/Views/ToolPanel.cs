@@ -72,6 +72,7 @@ public sealed class ToolPanel : Border
             SelectedItem = Array.IndexOf(options, initial) >= 0 ? initial : options[0],
         };
         cb.SelectionChanged += (_, _) => onChange((string?)cb.SelectedItem ?? options[0]);
+        panel.Children.Add(cb);
         _content.Children.Add(panel);
     }
 

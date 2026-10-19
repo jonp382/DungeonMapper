@@ -31,6 +31,7 @@ public partial class MainWindow : Window
         RefreshMapList();
         MapList.SelectionChanged += (_, _) =>
         {
+            if (_suppressMapSelect) return;
             int idx = MapList.SelectedIndex;
             if (idx >= 0 && idx != _project.ActiveIndex) SwitchMap(idx);
         };
@@ -155,11 +156,19 @@ public partial class MainWindow : Window
     }
 
     // Rebuilds the map dropdown from the project, keeping the active map selected.
+    // Deselects before mutating items so the selection model never enumerates a
+    // stale index against a cleared list (avoids ArgumentOutOfRangeException), and
+    // suppresses the SelectionChanged handler so a programmatic reselect does not
+    // re-trigger SwitchMap.
+    private bool _suppressMapSelect;
     private void RefreshMapList()
     {
+        _suppressMapSelect = true;
+        MapList.SelectedIndex = -1;
         MapList.Items.Clear();
         foreach (var m in _project.Maps) MapList.Items.Add(m.Name);
         MapList.SelectedIndex = _project.ActiveIndex;
+        _suppressMapSelect = false;
     }
 
     // Switches the canvas to a map by index. History is reset to the new map.
