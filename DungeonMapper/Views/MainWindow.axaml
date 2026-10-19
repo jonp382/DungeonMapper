@@ -9,7 +9,8 @@
 
     <DockPanel>
         <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6">
-            <StackPanel Orientation="Horizontal" Spacing="6">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button x:Name="ToolSelect" Content="Select" />
                 <Button x:Name="ToolMove" Content="Move" />
                 <Button x:Name="ToolRoom" Content="Room" />
@@ -32,7 +33,8 @@
                 <Button x:Name="BtnFit" Content="Fit" />
                 <Separator />
                 <Button x:Name="BtnSettings" Content="Settings" />
-            </StackPanel>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <Panel>

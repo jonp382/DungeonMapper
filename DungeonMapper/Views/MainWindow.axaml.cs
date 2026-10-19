@@ -27,6 +27,17 @@ public partial class MainWindow : Window
         Canvas.Settings = _settings;
         _history.Initialize(_doc);
 
+        // hotkey labels on tool buttons (item: show hotkeys in tool text)
+        LabelTool(ToolSelect, "Select");
+        LabelTool(ToolMove, "Move");
+        LabelTool(ToolRoom, "Room");
+        LabelTool(ToolFloor, "Floor");
+        LabelTool(ToolWall, "Wall");
+        LabelTool(ToolDoor, "Door");
+        LabelTool(ToolStair, "Stair");
+        LabelTool(ToolLabel, "Label");
+        LabelTool(ToolErase, "Erase");
+
         // map list (item 8)
         RefreshMapList();
         MapList.SelectionChanged += (_, _) =>
@@ -72,6 +83,10 @@ public partial class MainWindow : Window
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        // typing in a field (label text, rename, settings, dropdowns) must not
+        // trigger tool hotkeys
+        if (IsTyping()) { base.OnKeyDown(e); return; }
+
         if (e.KeyModifiers == KeyModifiers.Control)
         {
             switch (e.Key)
@@ -82,6 +97,11 @@ public partial class MainWindow : Window
                 case Key.V: Canvas.PasteAtCursor(); Canvas.Refresh(); e.Handled = true; return;
                 case Key.X: Canvas.CutSelection(); Canvas.Refresh(); e.Handled = true; return;
             }
+        }
+        else if (e.Key == Key.Delete)
+        {
+            // delete = erase the current selection with everything selected
+            Canvas.DeleteSelection(); Canvas.Refresh(); e.Handled = true; return;
         }
         else if (e.KeyModifiers == KeyModifiers.None)
         {
@@ -102,6 +122,35 @@ public partial class MainWindow : Window
         base.OnKeyDown(e);
     }
 
+    // True when keyboard focus sits in a text field, combobox, or checkbox -
+    // typing there must not fire tool hotkeys.
+    private bool IsTyping()
+    {
+        var f = this.FocusManager.GetFocusedElement();
+        return f is TextBox || f is ComboBox || f is CheckBox;
+    }
+
+    // "Tool (K)" button label from the configurable hotkey table.
+    private void LabelTool(Button b, string modeName)
+    {
+        string key = _settings.ToolHotkeys.TryGetValue(modeName, out var k) ? k : "";
+        b.Content = string.IsNullOrEmpty(key) ? modeName : $"{modeName} ({key})";
+    }
+
+    // Re-label all tool buttons after a hotkey edit.
+    private void RefreshToolLabels()
+    {
+        LabelTool(ToolSelect, "Select");
+        LabelTool(ToolMove, "Move");
+        LabelTool(ToolRoom, "Room");
+        LabelTool(ToolFloor, "Floor");
+        LabelTool(ToolWall, "Wall");
+        LabelTool(ToolDoor, "Door");
+        LabelTool(ToolStair, "Stair");
+        LabelTool(ToolLabel, "Label");
+        LabelTool(ToolErase, "Erase");
+    }
+
     private void SetTool(ToolMode mode)
     {
         Canvas.Mode = mode;
@@ -115,7 +164,7 @@ public partial class MainWindow : Window
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
             ToolMode.Label => "label: click a cell to place, click a label to edit",
-            ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels",
+            ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             _ => "",
         };
         PopulatePanel(mode);
@@ -200,6 +249,7 @@ public partial class MainWindow : Window
         Canvas.Document = _doc;
         _history.Initialize(_doc);
         Canvas.ClearSelection();
+        Canvas.ResetClipboard(); // new empty map: a cut from the old map must not paste/delete here
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"added {name}";
@@ -276,6 +326,7 @@ public partial class MainWindow : Window
             Canvas.Document = _doc;
             _history.Initialize(_doc);
             Canvas.ClearSelection();
+            Canvas.ResetClipboard(); // loaded project replaces all maps; old cut sources are stale
             Canvas.AutoFit();
             RefreshMapList();
             StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
@@ -366,6 +417,7 @@ public partial class MainWindow : Window
                 {
                     _settings.ToolHotkeys[captured] = k;
                     _settings.Save();
+                    RefreshToolLabels();
                 }
             });
         }

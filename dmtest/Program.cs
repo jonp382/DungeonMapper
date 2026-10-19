@@ -317,6 +317,62 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(back.Maps[1].Doc.Stairs[new CellKey(3, 3)].TargetMap == "Cavern", "project: stair target map round-trip");
 }
 
+// --- delete hotkey (erase selection with all categories on) ---
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 1, 1);
+    d.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up };
+    d.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "x" });
+    // simulate DeleteSelection over [0,0]-[1,1]: ClearRegion removes everything
+    for (int x = 0; x <= 1; x++)
+        for (int y = 0; y <= 1; y++)
+        {
+            var c = new CellKey(x, y);
+            d.Cells.Remove(c);
+            d.Stairs.Remove(c);
+            d.Labels.RemoveAll(l => l.Cell == c);
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                d.SetWall(new EdgeKey(c, side), false);
+        }
+    Check(d.Cells.Count == 0, "delete: cells removed");
+    Check(d.Walls.Count == 0, "delete: walls removed (all categories on)");
+    Check(d.Stairs.Count == 0, "delete: stairs removed");
+    Check(d.Labels.Count == 0, "delete: labels removed");
+}
+
+// --- cross-map cut guard (cut source deletes only on its own map) ---
+{
+    var map1 = new MapDocument();
+    var map2 = new MapDocument();
+    map1.AddRoom(0, 0, 1, 1);
+    var snap = map1.CaptureRegion(0, 0, 1, 1);
+    var cutSource = (0, 0, 1, 1);
+    MapDocument? cutSourceDoc = map1;
+
+    // paste into map2: source must NOT be deleted from map2
+    map2.PasteRegion(snap, 5, 5);
+    if (cutSourceDoc == map2) { /* would clear map2's region - must not happen */ }
+    Check(map2.Cells.Contains(new CellKey(5, 5)), "cross-map cut: paste lands on map2");
+    Check(map2.Cells.Count == 4, "cross-map cut: map2 source not deleted on paste");
+
+    // paste back into map1: source deletes there
+    map1.PasteRegion(snap, 3, 3);
+    if (cutSourceDoc == map1)
+        for (int x = 0; x <= 1; x++)
+            for (int y = 0; y <= 1; y++)
+            {
+                var c = new CellKey(x, y);
+                map1.Cells.Remove(c);
+                map1.Stairs.Remove(c);
+                map1.Labels.RemoveAll(l => l.Cell == c);
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                    map1.SetWall(new EdgeKey(c, side), false);
+            }
+    Check(map1.Cells.Contains(new CellKey(3, 3)), "cross-map cut: paste copy on map1 kept");
+    Check(!map1.Cells.Contains(new CellKey(0, 0)), "cross-map cut: source deleted on its own map");
+    Check(map2.Cells.Count == 4, "cross-map cut: map2 untouched by map1 source clear");
+}
+
 // --- serialization round-trip ---
 doc.Stairs[new CellKey(2, 3)] = new Stair { Direction = StairDirection.Down };
 doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "throne room" });

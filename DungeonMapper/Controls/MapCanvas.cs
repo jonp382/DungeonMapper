@@ -73,23 +73,26 @@ public sealed class MapCanvas : Control
         if (snap.Empty) { StatusMessage?.Invoke("nothing to cut - select a region first"); return; }
         _clipboard = snap;
         _cutSource = (x0, y0, x1, y1);
+        _cutSourceDoc = Document; // remember which map the source lives on
         StatusMessage?.Invoke($"cut {snap.Cells.Count} cells");
     }
 
     private (int x0, int y0, int x1, int y1)? _cutSource; // region to delete on the next paste
+    private MapDocument? _cutSourceDoc; // the map the cut source lives on; paste deletes it only on that map
 
-    /// Deletes all elements in a rectangle (cells, walls, doors, stairs, labels).
-    private void ClearRegion(int x0, int y0, int x1, int y1)
+    /// Deletes all elements in a rectangle (cells, walls, doors, stairs, labels)
+    /// from the given document.
+    private void ClearRegion(MapDocument doc, int x0, int y0, int x1, int y1)
     {
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
             {
                 var c = new CellKey(x, y);
-                Document.Cells.Remove(c);
-                Document.Stairs.Remove(c);
-                Document.Labels.RemoveAll(l => l.Cell == c);
+                doc.Cells.Remove(c);
+                doc.Stairs.Remove(c);
+                doc.Labels.RemoveAll(l => l.Cell == c);
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
-                    Document.SetWall(new EdgeKey(c, side), false);
+                    doc.SetWall(new EdgeKey(c, side), false);
             }
     }
 
@@ -102,9 +105,15 @@ public sealed class MapCanvas : Control
         // subsequent pastes act as normal paste (source cleared).
         if (_cutSource is (int cx0, int cy0, int cx1, int cy1))
         {
-            ClearRegion(cx0, cy0, cx1, cy1);
+            // the cut source lives on a specific map; delete it only when
+            // pasting back into that same map, never the current map's cells
+            if (_cutSourceDoc == Document)
+            {
+                ClearRegion(Document, cx0, cy0, cx1, cy1);
+                StatusMessage?.Invoke("pasted (cut source removed)");
+            }
             _cutSource = null;
-            StatusMessage?.Invoke("pasted (cut source removed)");
+            _cutSourceDoc = null;
         }
         Commit();
     }
@@ -116,8 +125,9 @@ public sealed class MapCanvas : Control
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var snap = Document.CaptureRegion(x0, y0, x1, y1);
         if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
+        _clipboard = snap; // armed region shows as the paste ghost at the cursor
         Document.PasteRegion(snap, target.X, target.Y);
-        ClearRegion(x0, y0, x1, y1);
+        ClearRegion(Document, x0, y0, x1, y1);
         StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
         Commit();
     }
@@ -127,6 +137,28 @@ public sealed class MapCanvas : Control
     {
         if (_pasteCursor is Point p)
             PasteAt(new CellKey((int)Math.Floor(p.X), (int)Math.Floor(p.Y)));
+    }
+
+    /// Delete hotkey: erase the current selection region with every category
+    /// on (cells, walls+doors, stairs, labels), like the eraser tool fully on.
+    public void DeleteSelection()
+    {
+        if (!HasSelection) { StatusMessage?.Invoke("nothing to delete - select a region first"); return; }
+        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+        ClearRegion(Document, x0, y0, x1, y1);
+        StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells");
+        Commit();
+    }
+
+    /// Clears the clipboard and any remembered cut source. The clipboard is
+    /// per-map: pasting a cut from another map must not delete a region of the
+    /// current map, so this fires on every map switch/load.
+    public void ResetClipboard()
+    {
+        _clipboard = null;
+        _cutSource = null;
+        _pasteCursor = null;
+        _ghostVisible = false;
     }
 
     public void ClearSelection()
@@ -298,8 +330,12 @@ public sealed class MapCanvas : Control
             ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(80, 200, 220)), 2), rect);
         }
 
-        // paste ghost: clipboard preview at the cursor cell
-        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && Mode == ToolMode.Select && _ghostVisible && GhostEnabled)
+        // paste ghost: clipboard preview at the cursor cell. Shown in Select
+        // mode, and in Move mode when a region is armed (not mid-drag), so the
+        // user sees where the move will land.
+        bool ghostMode = Mode == ToolMode.Select
+            || (Mode == ToolMode.Move && HasSelection && !_dragging);
+        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && _ghostVisible && GhostEnabled)
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
             int dx = origin.X - _clipboard.OriginX, dy = origin.Y - _clipboard.OriginY;
@@ -503,7 +539,7 @@ public sealed class MapCanvas : Control
         {
             _ghostVisible = true;
             // redraw so the paste ghost tracks the cursor on hover
-            if (_clipboard is not null && !_clipboard.Empty && Mode == ToolMode.Select)
+            if (_clipboard is not null && !_clipboard.Empty && (Mode == ToolMode.Select || Mode == ToolMode.Move))
                 InvalidateVisual();
         }
 
@@ -563,6 +599,14 @@ public sealed class MapCanvas : Control
             var world = ScreenToWorld(e.GetPosition(this));
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
             _selectEnd = cell;
+            if (Mode == ToolMode.Move && _selectStart != _selectEnd)
+            {
+                // arm the move: capture the region so the paste ghost previews
+                // it at the cursor until the destination click
+                var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+                _clipboard = Document.CaptureRegion(x0, y0, x1, y1);
+                _cutSource = null;
+            }
             if (_selectStart == _selectEnd)
             {
                 // single cell: manage the element under the cursor
