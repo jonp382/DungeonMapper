@@ -231,7 +231,8 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     var s = AppSettings.Default();
     Check(s.GridDrawSpacing == 1, "settings: default grid spacing 1");
     Check(s.ToolHotkeys["Room"] == "R", "settings: room hotkey R");
-    Check(s.DoorTypes.Count == 5, "settings: 5 default door types");
+    Check(s.DoorTypes.Count == 4, "settings: 4 default door types (locked type removed)");
+    Check(!s.DoorTypes.Any(t => t.Name == "locked"), "settings: no locked door type (state covers it)");
     Check(s.FindDoorType("portcullis").R == 180, "settings: door color lookup");
     Check(s.FindDoorType("nonexistent").Name == "standard", "settings: unknown type falls back");
     Check(s.DefaultLabelText == "label", "settings: default label text non-blank");

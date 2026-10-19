@@ -50,12 +50,12 @@ public sealed class AppSettings
             ["Label"] = "L",
             ["Erase"] = "E",
         };
+        // no "locked" door type: locked is a door STATE, a type is redundant.
         s.DoorTypes = new List<DoorType>
         {
             new("standard", 245, 220, 60),
             new("portcullis", 180, 180, 190),
             new("bricked", 160, 100, 60),
-            new("locked", 220, 80, 80),
             new("magical", 180, 120, 240),
         };
         return s;

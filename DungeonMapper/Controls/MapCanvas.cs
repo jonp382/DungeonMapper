@@ -679,24 +679,23 @@ public sealed class MapCanvas : Control
         ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
         var brush = DoorBrush(door.Type);
         double s2 = Math.Max(4, _scale * 0.18);
-        // symbol: square for closed, diamond for open, square+dot for locked
+        // symbol: solid square for closed, hollow square (outline only,
+        // transparent core) for open, square + big inner square for locked.
+        // The inner square is 30% of the door side, so it scales with zoom.
         if (door.State == DoorState.Open)
         {
-            var geo = new StreamGeometry();
-            using var g = geo.Open();
-            g.BeginFigure(new Point(mid.X, mid.Y - s2), true);
-            g.LineTo(new Point(mid.X + s2, mid.Y));
-            g.LineTo(new Point(mid.X, mid.Y + s2));
-            g.LineTo(new Point(mid.X - s2, mid.Y));
-            g.EndFigure(true);
-            ctx.DrawGeometry(brush, null, geo);
+            var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
+            ctx.DrawRectangle(pen, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
         }
         else
         {
             ctx.FillRectangle(brush, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
             if (door.State == DoorState.Locked)
+            {
+                double inner = s2 * 2 * 0.3;
                 ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(30, 30, 30)),
-                    new Rect(mid.X - 2, mid.Y - 2, 4, 4));
+                    new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+            }
         }
     }
 }
