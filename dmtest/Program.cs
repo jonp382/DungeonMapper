@@ -483,5 +483,28 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(m3.Pawns.Count == 1, "undo restores pawn");
 }
 
+// --- overlapping move (excel-style shift): clear source BEFORE paste ---
+{
+    var m = new MapDocument();
+    m.AddRoom(0, 0, 3, 3); // 4x4 room
+    // move 1 cell left: source [0,0]-[3,3], target origin (-1,0), overlap 3 columns
+    m.MoveRegion(0, 0, 3, 3, -1, 0);
+    bool all = true;
+    for (int x = -1; x <= 2; x++)
+        for (int y = 0; y <= 3; y++)
+            if (!m.Cells.Contains(new CellKey(x, y))) all = false;
+    Check(all, "overlap move: full shifted region present (no voided overlap)");
+    Check(m.Cells.Count == 16, "overlap move: exactly 16 cells");
+    // walls follow the shifted room: left edge at x=-1, right edge at x=2
+    bool W(int x, int y, Side s)
+    {
+        var k = EdgeKey.Normalize(new CellKey(x, y), s);
+        return m.Walls.ContainsKey(k) && m.Walls[k];
+    }
+    Check(W(-1, 0, Side.West), "overlap move: new left wall");
+    Check(W(2, 0, Side.East), "overlap move: new right wall");
+    Check(!W(3, 0, Side.East), "overlap move: old right wall gone");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

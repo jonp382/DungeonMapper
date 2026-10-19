@@ -96,19 +96,7 @@ public sealed class MapCanvas : Control
     /// Deletes all elements in a rectangle (cells, walls, doors, stairs, labels)
     /// from the given document.
     private void ClearRegion(MapDocument doc, int x0, int y0, int x1, int y1)
-    {
-        for (int x = x0; x <= x1; x++)
-            for (int y = y0; y <= y1; y++)
-            {
-                var c = new CellKey(x, y);
-                doc.Cells.Remove(c);
-                doc.Stairs.Remove(c);
-                doc.Pawns.Remove(c);
-                doc.Labels.RemoveAll(l => l.Cell == c);
-                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
-                    doc.SetWall(new EdgeKey(c, side), false);
-            }
-    }
+        => doc.ClearRegion(x0, y0, x1, y1);
 
     /// Pastes the clipboard at the given world cell (origin maps to that cell).
     public void PasteAt(CellKey target)
@@ -119,10 +107,18 @@ public sealed class MapCanvas : Control
         // it was cut from - works cross-map (cut on map1, paste on map2).
         if (_cutSource is (int cx0, int cy0, int cx1, int cy1))
         {
+            // clear the cut source BEFORE pasting so a paste overlapping the
+            // source region survives (Excel-style shift); the snapshot is a
+            // deep clone, so clearing the source does not affect it.
             ClearRegion(_cutSourceDoc ?? Document, cx0, cy0, cx1, cy1);
-            StatusMessage?.Invoke("pasted (cut source removed from its map)");
             _cutSource = null;
             _cutSourceDoc = null;
+            Document.PasteRegion(_clipboard, target.X, target.Y);
+            StatusMessage?.Invoke("pasted (cut source removed from its map)");
+        }
+        else
+        {
+            Document.PasteRegion(_clipboard, target.X, target.Y);
         }
         Commit();
     }
@@ -137,8 +133,15 @@ public sealed class MapCanvas : Control
         var snap = src.CaptureRegion(x0, y0, x1, y1);
         if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
         _clipboard = snap; // armed region shows as the paste ghost at the cursor
-        Document.PasteRegion(snap, target.X, target.Y);
-        ClearRegion(src, x0, y0, x1, y1);
+        // clear the source BEFORE pasting so a move overlapping its own source
+        // survives (Excel-style shift); the snapshot is a deep clone.
+        if (ReferenceEquals(src, Document))
+            Document.MoveRegion(x0, y0, x1, y1, target.X, target.Y);
+        else
+        {
+            Document.PasteRegion(snap, target.X, target.Y);
+            src.ClearRegion(x0, y0, x1, y1);
+        }
         StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
         Commit();
     }

@@ -382,6 +382,34 @@ public sealed class MapDocument
         foreach (var (c, p) in other.Pawns) Pawns[c] = p;
     }
 
+    /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
+    /// pawns, labels, and walls on every edge of each cell (doors auto-removed
+    /// by SetWall). Used by erase, floor, move, and cut.
+    public void ClearRegion(int x0, int y0, int x1, int y1)
+    {
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+            {
+                var c = new CellKey(x, y);
+                Cells.Remove(c);
+                Stairs.Remove(c);
+                Pawns.Remove(c);
+                Labels.RemoveAll(l => l.Cell == c);
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                    SetWall(new EdgeKey(c, side), false);
+            }
+    }
+
+    /// Moves a rectangular region: captures it, clears the source, then pastes
+    /// at the target origin. Clearing BEFORE pasting means a move that overlaps
+    /// its own source survives (Excel-style shift) - the snapshot is a deep clone.
+    public void MoveRegion(int x0, int y0, int x1, int y1, int targetX, int targetY)
+    {
+        var snap = CaptureRegion(x0, y0, x1, y1);
+        ClearRegion(x0, y0, x1, y1);
+        PasteRegion(snap, targetX, targetY);
+    }
+
     /// Bounding box of all drawn content, in cell units. Null when empty.
     public (int minX, int minY, int maxX, int maxY)? ContentBounds()
     {
