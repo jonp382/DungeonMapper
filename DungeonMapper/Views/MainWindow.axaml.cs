@@ -244,20 +244,23 @@ public partial class MainWindow : Window
                     // list; reading the live library by index can go out of range
                     // if the library changes after the grid is built (add/delete).
                     var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
-                    // instance count per template id from the placed pawns
-                    var counts = new Dictionary<string, int>();
-                    foreach (var p in Canvas.Document.Pawns.Values)
-                        counts[p.TemplateId] = counts.TryGetValue(p.TemplateId, out var n) ? n + 1 : 1;
-                    var items = new List<(string, string, int, int, int, int, int, int, int)>();
+                    var items = new List<(string, string, string, int, int, int, int, int, int)>();
                     foreach (var t in snapshot)
                     {
                         var (eo, ei) = t.Effective(_settings);
-                        int cnt = counts.TryGetValue(t.Id, out var n) ? n : 0;
-                        items.Add((string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
-                                   PawnTemplate.NormalizeAffiliation(t.Affiliation), cnt,
+                        items.Add((t.Id, string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
+                                   PawnTemplate.NormalizeAffiliation(t.Affiliation),
                                    eo.r, eo.g, eo.b, ei.r, ei.g, ei.b));
                     }
-                    ToolPanel.AddSwatchGrid("pawns", items, i =>
+                    // live count: recomputed on each hover from the live placed pawns
+                    Func<string, int> liveCount = id =>
+                    {
+                        int n = 0;
+                        foreach (var p in Canvas.Document.Pawns.Values)
+                            if (p.TemplateId == id) n++;
+                        return n;
+                    };
+                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, i =>
                     {
                         if (i < 0 || i >= snapshot.Count) return;
                         Canvas.ArmedPawn = snapshot[i];

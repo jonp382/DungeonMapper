@@ -126,14 +126,16 @@ public sealed class ToolPanel : Border
     /// placement submenu. Each swatch shows a template's outer/inner colors; a
     /// broken/empty entry shows an X. Clicking arms that template for placement.
     /// Hovering shows a tooltip: name, affiliation, and instance count ("Nx").
-    public void AddSwatchGrid(string label, IReadOnlyList<(string name, string affiliation, int count, int outerR, int outerG, int outerB, int innerR, int innerG, int innerB)> items, Action<int> onPick)
+    /// The count is recomputed live on each hover via liveCount(templateId) so it
+    /// reflects pawns placed since the panel was built.
+    public void AddSwatchGrid(string label, IReadOnlyList<(string id, string name, string affiliation, int outerR, int outerG, int outerB, int innerR, int innerG, int innerB)> items, Func<string, int> liveCount, Action<int> onPick)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
         var grid = new WrapPanel { MaxWidth = 200 };
         for (int i = 0; i < items.Count; i++)
         {
-            var (name, affiliation, count, oR, oG, oB, iR, iG, iB) = items[i];
+            var (id, name, affiliation, oR, oG, oB, iR, iG, iB) = items[i];
             var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
             var canvas = new Avalonia.Controls.Canvas { Width = 26, Height = 26 };
             var center = new Point(13, 13);
@@ -149,7 +151,10 @@ public sealed class ToolPanel : Border
             var cap = new TextBlock { Text = name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 30, TextWrapping = TextWrapping.Wrap };
             cell.Children.Add(canvas);
             cell.Children.Add(cap);
-            ToolTip.SetTip(cell, $"{name}, {affiliation} ({count}x)");
+            // recompute the count on every hover so it reflects pawns placed since
+            // the panel was built (the panel is not rebuilt on each placement).
+            cell.PointerEntered += (_, _) =>
+                ToolTip.SetTip(cell, $"{name}, {affiliation} ({liveCount(id)}x)");
             grid.Children.Add(cell);
         }
         panel.Children.Add(grid);
