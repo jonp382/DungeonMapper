@@ -9,14 +9,13 @@
         <local:ViewLocator />
     </Application.DataTemplates>
 
+    <Application.Resources>
+        <!-- thin scrollbar: ScrollBarSize drives the thumb height, arrow-button
+             size, and min-height, and it expands on hover. Slim it to 8. -->
+        <x:Double x:Key="ScrollBarSize">8</x:Double>
+    </Application.Resources>
+
     <Application.Styles>
         <FluentTheme />
-
-        <!-- thin horizontal scrollbar: the default FluentTheme bar is tall.
-             the ScrollViewer template names its horizontal bar PART_HorizontalScrollBar,
-             sized by its Height, so a template selector slims it. -->
-        <Style Selector="ScrollViewer /template/ ScrollBar#PART_HorizontalScrollBar">
-            <Setter Property="Height" Value="8" />
-        </Style>
     </Application.Styles>
 </Application>
