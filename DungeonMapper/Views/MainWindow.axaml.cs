@@ -638,28 +638,8 @@ public partial class MainWindow : Window
         ToolPanel.Clear("Pawn management");
         var presets = PresetColors();
 
-        // Global affiliation coloring: templates inherit these unless ColorOverride.
-        ToolPanel.AddHint("affiliation colors (outer + inner):");
-        foreach (var ac in _settings.AffiliationColors)
-        {
-            var captured = ac;
-            ToolPanel.AddColorField($"{captured.Name} outer", captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
-            {
-                captured.OuterR = c.r; captured.OuterG = c.g; captured.OuterB = c.b;
-                _settings.Save();
-                Canvas.Refresh();
-            });
-            ToolPanel.AddColorField($"{captured.Name} inner", captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
-            {
-                captured.InnerR = c.r; captured.InnerG = c.g; captured.InnerB = c.b;
-                _settings.Save();
-                Canvas.Refresh();
-            });
-        }
-
-        AddPawnStatusEditor();
-
-        // Library: add a new template, delete existing ones.
+        // Library first so "+ add pawn" is the top control, not buried below the
+        // long affiliation-color and status-style sections.
         ToolPanel.AddHint("library:");
         ToolPanel.AddButton("+ add pawn", () =>
         {
@@ -683,6 +663,27 @@ public partial class MainWindow : Window
                 PopulatePanel(Canvas.Mode);
             });
         }
+
+        // Global affiliation coloring: templates inherit these unless ColorOverride.
+        ToolPanel.AddHint("affiliation colors (outer + inner):");
+        foreach (var ac in _settings.AffiliationColors)
+        {
+            var captured = ac;
+            ToolPanel.AddColorField($"{captured.Name} outer", captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
+            {
+                captured.OuterR = c.r; captured.OuterG = c.g; captured.OuterB = c.b;
+                _settings.Save();
+                Canvas.Refresh();
+            });
+            ToolPanel.AddColorField($"{captured.Name} inner", captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
+            {
+                captured.InnerR = c.r; captured.InnerG = c.g; captured.InnerB = c.b;
+                _settings.Save();
+                Canvas.Refresh();
+            });
+        }
+
+        AddPawnStatusEditor();
     }
 
     // Pawn status styles editor, same pattern as the door category editor:
