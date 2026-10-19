@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -20,6 +20,7 @@ public sealed class EraseFilter
     public bool Walls = true;
     public bool Stairs = true;
     public bool Labels = true;
+    public bool Pawns = true;
 }
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
@@ -46,6 +47,7 @@ public sealed class MapCanvas : Control
     public event Action<Door>? DoorConfigRequested;
     public event Action<Stair>? StairConfigRequested;
     public event Action<MapLabel>? LabelConfigRequested;
+    public event Action<Pawn>? PawnConfigRequested;
     public event Action<string>? StatusMessage;
 
     public void Refresh() => InvalidateVisual();
@@ -101,6 +103,7 @@ public sealed class MapCanvas : Control
                 var c = new CellKey(x, y);
                 doc.Cells.Remove(c);
                 doc.Stairs.Remove(c);
+                doc.Pawns.Remove(c);
                 doc.Labels.RemoveAll(l => l.Cell == c);
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                     doc.SetWall(new EdgeKey(c, side), false);
@@ -160,6 +163,7 @@ public sealed class MapCanvas : Control
                 var c = new CellKey(x, y);
                 if (f.Cells) Document.Cells.Remove(c);
                 if (f.Stairs) Document.Stairs.Remove(c);
+                if (f.Pawns) Document.Pawns.Remove(c);
                 if (f.Labels) Document.Labels.RemoveAll(l => l.Cell == c);
                 if (f.Walls)
                     foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
@@ -303,6 +307,27 @@ public sealed class MapCanvas : Control
                 new Typeface("Inter"), Math.Max(10, _scale * 0.35), LabelBrush);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             ctx.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
+        }
+
+        // Pawns: concentric circles (outer + inner) + outer status border, scaled
+        // by zoom. Drawn after labels so they sit on top.
+        foreach (var (c, p) in Document.Pawns)
+        {
+            var p0 = WorldToScreen(c.X, c.Y);
+            var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
+            double outerR = _scale * 0.42;
+            double innerR = _scale * 0.22;
+            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)p.OuterR, (byte)p.OuterG, (byte)p.OuterB));
+            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)p.InnerR, (byte)p.InnerG, (byte)p.InnerB));
+            ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
+            ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
+            // status border ring on the outer edge
+            var st = Settings.FindPawnStatus(p.Status);
+            if (st.Thickness > 0)
+            {
+                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
+                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
+            }
         }
 
         DrawPreview(ctx);
@@ -554,6 +579,32 @@ public sealed class MapCanvas : Control
                     LabelConfigRequested?.Invoke(lbl);
                 }
                 break;
+
+            case ToolMode.Pawn:
+                if (Document.Pawns.TryGetValue(cell, out var existingPawn))
+                {
+                    PawnConfigRequested?.Invoke(existingPawn);
+                }
+                else
+                {
+                    var pawn = new Pawn { Cell = cell, Name = Settings.DefaultPawnName };
+                    pawn.Class = Enum.TryParse<PawnClass>(Settings.DefaultPawnClass, ignoreCase: true, out var pc)
+                        ? pc : PawnClass.Neutral;
+                    pawn.ApplyClassDefaults();
+                    pawn.Status = string.IsNullOrWhiteSpace(Settings.DefaultPawnStatus)
+                        ? "none" : Settings.DefaultPawnStatus;
+                    // explicit colors (e.g. loaded from the library) override class defaults
+                    var ic = Settings.DefaultPawnInner.Split(',');
+                    var oc = Settings.DefaultPawnOuter.Split(',');
+                    if (ic.Length == 3 && int.TryParse(ic[0], out int ir) && int.TryParse(ic[1], out int ig) && int.TryParse(ic[2], out int ib))
+                    { pawn.InnerR = ir; pawn.InnerG = ig; pawn.InnerB = ib; }
+                    if (oc.Length == 3 && int.TryParse(oc[0], out int or) && int.TryParse(oc[1], out int og) && int.TryParse(oc[2], out int ob))
+                    { pawn.OuterR = or; pawn.OuterG = og; pawn.OuterB = ob; }
+                    Document.PlacePawn(pawn);
+                    Commit();
+                    PawnConfigRequested?.Invoke(pawn);
+                }
+                break;
         }
         InvalidateVisual();
     }
@@ -730,6 +781,7 @@ public sealed class MapCanvas : Control
                         var c = new CellKey(x, y);
                         if (f.Cells) Document.Cells.Remove(c);
                         if (f.Stairs) Document.Stairs.Remove(c);
+                        if (f.Pawns) Document.Pawns.Remove(c);
                         if (f.Labels) Document.Labels.RemoveAll(l => l.Cell == c);
                         // remove walls on all four edges of the cell (doors auto-removed)
                         if (f.Walls)

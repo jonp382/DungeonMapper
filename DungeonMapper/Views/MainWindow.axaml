@@ -20,6 +20,7 @@
                 <Button x:Name="ToolStair" Content="Stair" />
                 <Button x:Name="ToolLabel" Content="Label" />
                 <Button x:Name="ToolErase" Content="Erase" />
+                <Button x:Name="ToolPawn" Content="Pawn" />
                 <Separator />
                 <ComboBox x:Name="MapList" MinWidth="120" />
                 <Button x:Name="BtnAddMap" Content="+Map" />

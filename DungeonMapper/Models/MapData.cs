@@ -68,6 +68,38 @@ public sealed class MapLabel
     public string Text { get; set; } = "";
 }
 
+public enum PawnClass { Player, Friendly, Hostile, Neutral }
+
+/// A pawn: a circular checker for a player/NPC, anchored to one cell. Concentric
+/// circles (outer + inner color) plus an outer status border (status = a named
+/// PawnStatus in settings, e.g. paralyzed, fear). No stats/health - position only.
+/// Default outer/inner colors per class; Player inner is customizable per character.
+public sealed class Pawn
+{
+    public CellKey Cell { get; set; }
+    public string Name { get; set; } = "";
+    public PawnClass Class { get; set; } = PawnClass.Neutral;
+    public int InnerR, InnerG, InnerB;
+    public int OuterR, OuterG, OuterB;
+    public string Status { get; set; } = "none";
+
+    // class default colors: outer bright, inner dark accent
+    public static ((int r, int g, int b) outer, (int r, int g, int b) inner) DefaultColors(PawnClass c) => c switch
+    {
+        PawnClass.Player   => ((60, 120, 220), (30, 60, 160)),   // blue outer, dark blue inner
+        PawnClass.Friendly => ((120, 220, 120), (30, 120, 40)),  // light green outer, dark green inner
+        PawnClass.Hostile  => ((220, 120, 120), (120, 30, 30)),  // light red outer, dark red inner
+        _ => ((230, 190, 90), (150, 110, 40)),                   // yellow/orange outer, darker inner
+    };
+
+    public void ApplyClassDefaults()
+    {
+        var (o, i) = DefaultColors(Class);
+        OuterR = o.r; OuterG = o.g; OuterB = o.b;
+        InnerR = i.r; InnerG = i.g; InnerB = i.b;
+    }
+}
+
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.
 public sealed class MapDocument
 {
@@ -76,6 +108,16 @@ public sealed class MapDocument
     public Dictionary<EdgeKey, Door> Doors { get; } = new();
     public Dictionary<CellKey, Stair> Stairs { get; } = new();
     public List<MapLabel> Labels { get; } = new();
+    public Dictionary<CellKey, Pawn> Pawns { get; } = new();
+
+    /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
+    /// occupied cell replaces the existing pawn.
+    public void PlacePawn(Pawn pawn)
+    {
+        Pawns[pawn.Cell] = pawn;
+    }
+
+    public void RemovePawn(CellKey cell) => Pawns.Remove(cell);
 
     public bool HasWall(EdgeKey edge) => Walls.TryGetValue(EdgeKey.Normalize(edge.Cell, edge.Side), out var w) && w;
 
@@ -205,10 +247,13 @@ public sealed class MapDocument
         for (int y = y0 + 1; y <= y1; y++)
             for (int x = x0; x <= x1; x++)
                 SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
-        // stairs and labels inside the region are cleared
+        // stairs, labels, and pawns inside the region are cleared
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
+            {
                 Stairs.Remove(new CellKey(x, y));
+                Pawns.Remove(new CellKey(x, y));
+            }
         Labels.RemoveAll(l => l.Cell.X >= x0 && l.Cell.X <= x1 && l.Cell.Y >= y0 && l.Cell.Y <= y1);
     }
 
@@ -249,8 +294,9 @@ public sealed class MapDocument
         public Dictionary<EdgeKey, Door> Doors = new();
         public Dictionary<CellKey, Stair> Stairs = new();
         public List<MapLabel> Labels = new();
+        public List<Pawn> Pawns = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
-                              && Stairs.Count == 0 && Labels.Count == 0;
+                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -284,6 +330,7 @@ public sealed class MapDocument
         foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
+        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(p);
         return snap;
     }
 
@@ -300,6 +347,15 @@ public sealed class MapDocument
             Stairs[new CellKey(c.X + dx, c.Y + dy)] = new Stair { Direction = s.Direction, TargetMap = s.TargetMap };
         foreach (var l in snap.Labels)
             Labels.Add(new MapLabel { Cell = new CellKey(l.Cell.X + dx, l.Cell.Y + dy), Text = l.Text });
+        foreach (var p in snap.Pawns)
+            Pawns[new CellKey(p.Cell.X + dx, p.Cell.Y + dy)] = new Pawn
+            {
+                Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
+                Name = p.Name, Class = p.Class,
+                InnerR = p.InnerR, InnerG = p.InnerG, InnerB = p.InnerB,
+                OuterR = p.OuterR, OuterG = p.OuterG, OuterB = p.OuterB,
+                Status = p.Status,
+            };
         foreach (var (e, d) in snap.Doors)
         {
             var edge = new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side);
@@ -322,6 +378,8 @@ public sealed class MapDocument
         foreach (var (c, s) in other.Stairs) Stairs[c] = s;
         Labels.Clear();
         foreach (var l in other.Labels) Labels.Add(l);
+        Pawns.Clear();
+        foreach (var (c, p) in other.Pawns) Pawns[c] = p;
     }
 
     /// Bounding box of all drawn content, in cell units. Null when empty.

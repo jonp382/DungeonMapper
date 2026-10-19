@@ -18,6 +18,7 @@ public sealed class MapFileDto
     [JsonPropertyName("doors")] public List<DoorDto> Doors { get; set; } = new();
     [JsonPropertyName("stairs")] public List<StairDto> Stairs { get; set; } = new();
     [JsonPropertyName("labels")] public List<LabelDto> Labels { get; set; } = new();
+    [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
 }
 
 public sealed class DoorDto
@@ -38,6 +39,16 @@ public sealed class LabelDto
 {
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
     [JsonPropertyName("text")] public string Text { get; set; } = "";
+}
+
+public sealed class PawnDto
+{
+    [JsonPropertyName("cell")] public string Cell { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("class")] public string Class { get; set; } = "neutral";
+    [JsonPropertyName("inner")] public string Inner { get; set; } = "";
+    [JsonPropertyName("outer")] public string Outer { get; set; } = "";
+    [JsonPropertyName("status")] public string Status { get; set; } = "none";
 }
 
 /// Wire format for a multi-map project: a list of named maps plus the active index.
@@ -86,6 +97,18 @@ public static class MapSerializer
         return true;
     }
 
+    // "r,g,b" <-> (r,g,b)
+    private static string Color(int r, int g, int b) => $"{r},{g},{b}";
+    private static bool TryParseColor(string s, out (int r, int g, int b) c)
+    {
+        c = default;
+        var parts = s.Split(',');
+        if (parts.Length != 3) return false;
+        if (!int.TryParse(parts[0], out int r) || !int.TryParse(parts[1], out int g) || !int.TryParse(parts[2], out int b)) return false;
+        c = (r, g, b);
+        return true;
+    }
+
     public static string ToJson(MapDocument doc)
     {
         var dto = new MapFileDto();
@@ -97,7 +120,34 @@ public static class MapSerializer
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
+        foreach (var (c, p) in doc.Pawns)
+            dto.Pawns.Add(PawnToDto(c, p));
         return JsonSerializer.Serialize(dto, Opts);
+    }
+
+    private static PawnDto PawnToDto(CellKey c, Pawn p) => new PawnDto
+    {
+        Cell = Key(c),
+        Name = p.Name,
+        Class = p.Class.ToString().ToLowerInvariant(),
+        Inner = Color(p.InnerR, p.InnerG, p.InnerB),
+        Outer = Color(p.OuterR, p.OuterG, p.OuterB),
+        Status = p.Status,
+    };
+
+    private static void AddPawns(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var d in dto.Pawns)
+        {
+            if (!TryParseCell(d.Cell, out var c)) continue;
+            var p = new Pawn { Cell = c, Name = d.Name, Status = string.IsNullOrWhiteSpace(d.Status) ? "none" : d.Status };
+            p.Class = Enum.TryParse<PawnClass>(d.Class, ignoreCase: true, out var pc) ? pc : PawnClass.Neutral;
+            if (TryParseColor(d.Inner, out var ic)) { p.InnerR = ic.r; p.InnerG = ic.g; p.InnerB = ic.b; }
+            else p.ApplyClassDefaults();
+            if (TryParseColor(d.Outer, out var oc)) { p.OuterR = oc.r; p.OuterG = oc.g; p.OuterB = oc.b; }
+            else p.ApplyClassDefaults();
+            doc.Pawns[c] = p;
+        }
     }
 
     public static MapDocument FromJson(string json)
@@ -132,6 +182,7 @@ public static class MapSerializer
             if (!TryParseCell(l.Cell, out var c)) continue;
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
+        AddPawns(dto, doc);
         return doc;
     }
 
@@ -176,6 +227,8 @@ public static class MapSerializer
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
+        foreach (var (c, p) in doc.Pawns)
+            dto.Pawns.Add(PawnToDto(c, p));
         return dto;
     }
 
@@ -209,6 +262,7 @@ public static class MapSerializer
             if (!TryParseCell(l.Cell, out var c)) continue;
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
+        AddPawns(dto, doc);
         return doc;
     }
 }
