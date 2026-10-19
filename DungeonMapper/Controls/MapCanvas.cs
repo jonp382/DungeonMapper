@@ -196,6 +196,7 @@ public sealed class MapCanvas : Control
     private static readonly IBrush Background = new SolidColorBrush(Color.FromRgb(20, 20, 25));
     private static readonly IBrush CellFill = new SolidColorBrush(Color.FromRgb(60, 75, 105));
     private static readonly IBrush GridLine = new SolidColorBrush(Color.FromRgb(45, 52, 66));
+    private static readonly IBrush FaintGridLine = new SolidColorBrush(Color.FromArgb(120, 45, 52, 66));
     private static readonly IPen WallPen = new Pen(new SolidColorBrush(Color.FromRgb(235, 235, 240)), 3);
     private static readonly IBrush StairUp = new SolidColorBrush(Color.FromRgb(120, 220, 120));
     private static readonly IBrush StairDown = new SolidColorBrush(Color.FromRgb(230, 160, 80));
@@ -247,10 +248,13 @@ public sealed class MapCanvas : Control
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
             ctx.FillRectangle(CellFill, rect);
-            // vertical grid line at this cell's left edge if it's a spacing boundary
+            // faint grid line at EVERY 5ft cell edge (always visible, respects the
+            // 5ft unit), so a room drawn at a 5ft offset is never split between two
+            // spacing lines. Strong line at spacing boundaries (GridDrawSpacing).
+            ctx.DrawLine(new Pen(FaintGridLine, 1), rect.TopLeft, rect.BottomLeft);
+            ctx.DrawLine(new Pen(FaintGridLine, 1), rect.TopLeft, rect.TopRight);
             if (FloorMod(c.X, sp) == 0)
                 ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.BottomLeft);
-            // horizontal grid line at this cell's top edge if it's a spacing boundary
             if (FloorMod(c.Y, sp) == 0)
                 ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.TopRight);
         }
@@ -330,6 +334,19 @@ public sealed class MapCanvas : Control
                 ? new Pen(new SolidColorBrush(Color.FromRgb(220, 60, 60)), 2)
                 : new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2);
             ctx.DrawRectangle(border, rect);
+
+            // ruler: current size in feet above the cursor. 1 grid cell = 5ft, so
+            // a 2-displayed-cell room at 10ft spacing = 4 cells = 20ft.
+            int wCells = x1 - x0 + 1, hCells = y1 - y0 + 1;
+            var rulerText = $"{wCells * 5}x{hCells * 5}ft";
+            var rulerFt = new FormattedText(rulerText, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                new Typeface("Inter"), Math.Max(11, _scale * 0.4), LabelBrush);
+            var cursor = WorldToScreen(_dragEnd.X + 0.5, _dragEnd.Y);
+            var tx = cursor.X - rulerFt.Width / 2;
+            var ty = cursor.Y - rulerFt.Height - 4;
+            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(180, 20, 20, 25)),
+                new Rect(tx - 3, ty - 1, rulerFt.Width + 6, rulerFt.Height + 2));
+            ctx.DrawText(rulerFt, new Point(tx, ty));
         }
         if (_previewEdge is EdgeKey pe && (Mode == ToolMode.Wall || Mode == ToolMode.Door))
         {
