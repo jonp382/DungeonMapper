@@ -240,14 +240,19 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    // snapshot the templates so the swatch closure reads a stable
+                    // list; reading the live library by index can go out of range
+                    // if the library changes after the grid is built (add/delete).
+                    var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
                     var items = new List<(string, int, int, int, int, int, int)>();
-                    foreach (var t in _pawnLibrary.Pawns)
+                    foreach (var t in snapshot)
                         items.Add((string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
                                    t.OuterR, t.OuterG, t.OuterB, t.InnerR, t.InnerG, t.InnerB));
                     ToolPanel.AddSwatchGrid("pawns", items, i =>
                     {
-                        Canvas.ArmedPawn = _pawnLibrary.Pawns[i];
-                        StatusText.Text = $"armed {(_pawnLibrary.Pawns[i].Name ?? "pawn")} - click a cell to place";
+                        if (i < 0 || i >= snapshot.Count) return;
+                        Canvas.ArmedPawn = snapshot[i];
+                        StatusText.Text = $"armed {(snapshot[i].Name ?? "pawn")} - click a cell to place";
                     });
                 }
                 ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
