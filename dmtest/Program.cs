@@ -465,6 +465,12 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     m.PlacePawn(p2);
     Check(m.Pawns.Count == 1 && m.Pawns[new CellKey(2, 2)].TemplateId == "p9", "no stacking: replace on occupied cell");
 
+    // change pawn: re-point a placed pawn to a different template, cell unchanged
+    var p3 = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" };
+    m.PlacePawn(p3);
+    p3.TemplateId = "p2";
+    Check(m.Pawns[new CellKey(2, 2)].TemplateId == "p2" && m.Pawns.Count == 1, "change pawn: reference swaps, cell stays");
+
     // broken reference: a TemplateId missing from the library resolves to null (X render)
     Check(lib.Find("p9") is null, "broken reference resolves to null");
 

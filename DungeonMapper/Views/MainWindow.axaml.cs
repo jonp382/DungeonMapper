@@ -75,7 +75,7 @@ public partial class MainWindow : Window
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
         Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
-        Canvas.PawnConfigRequested += p => ShowPawnConfig(p);
+        Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
@@ -556,16 +556,21 @@ public partial class MainWindow : Window
         return false;
     }
 
-    // Pawn config: edits the library template the pawn references (hard reference).
-    // Changing it updates every pawn on the map that points to the same template.
-    // A pawn whose template is missing shows a broken-reference notice.
-    private void ShowPawnConfig(Pawn pawn)
+    // Placed-pawn click: READ-ONLY info view (name, affiliation, instance count,
+    // status) + Delete + Change Pawn. Editing the template is done in the
+    // management menu, not here (the select tool must not modify the pawn).
+    private void ShowPawnInfo(Pawn pawn)
     {
         var t = _pawnLibrary.Find(pawn.TemplateId);
         ToolPanel.Clear("Pawn");
+        int count = 0;
+        foreach (var p in _doc.Pawns.Values)
+            if (p.TemplateId == pawn.TemplateId) count++;
+
         if (t is null)
         {
             ToolPanel.AddHint("broken reference - this pawn's template is missing from the library (shown as X).");
+            ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
             ToolPanel.AddButton("delete pawn", () =>
             {
                 _doc.RemovePawn(pawn.Cell);
@@ -576,12 +581,56 @@ public partial class MainWindow : Window
             return;
         }
 
+        ToolPanel.AddHint($"name: {t.Name}");
+        ToolPanel.AddHint($"affiliation: {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
+        ToolPanel.AddHint($"instances on map: {count}");
+        ToolPanel.AddHint($"status: {t.Status}");
+        ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
+        ToolPanel.AddButton("delete pawn", () =>
+        {
+            _doc.RemovePawn(pawn.Cell);
+            _history.Commit(_doc);
+            Canvas.Refresh();
+            StatusText.Text = "pawn deleted";
+        });
+    }
+
+    // Change Pawn: replace this placed pawn's template reference with a different
+    // library template. The placed pawn keeps its cell; only the reference changes.
+    private void ShowChangePawn(Pawn pawn)
+    {
+        ToolPanel.Clear("Change pawn");
+        ToolPanel.AddHint("pick a template to replace this pawn with:");
+        foreach (var t in _pawnLibrary.Pawns)
+        {
+            var captured = t;
+            var label = string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name;
+            ToolPanel.AddButton(label, () =>
+            {
+                pawn.TemplateId = captured.Id;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+                StatusText.Text = $"pawn changed to {captured.Name}";
+                ShowPawnInfo(pawn);
+            });
+        }
+        ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
+    }
+
+    // Template editor: edits a library template (name, affiliation, custom colors,
+    // inner/outer, status). Reached from the management menu. Editing a template
+    // propagates to every placed pawn that references it (hard reference).
+    private void ShowTemplateEditor(PawnTemplate t)
+    {
+        ToolPanel.Clear("Edit template");
+        var presets = PresetColors();
+
         ToolPanel.AddText("Name", t.Name, name =>
         {
             t.Name = name;
             _pawnLibrary.Save();
-            _history.Commit(_doc);
             Canvas.Refresh();
+            PopulatePanel(Canvas.Mode);
         });
         ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
             PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
@@ -589,17 +638,15 @@ public partial class MainWindow : Window
                 t.Affiliation = aff;
                 if (!t.ColorOverride) t.ApplyAffiliationDefaults();
                 _pawnLibrary.Save();
-                _history.Commit(_doc);
                 Canvas.Refresh();
+                PopulatePanel(Canvas.Mode);
             });
 
-        var presets = PresetColors();
         ToolPanel.AddCheck("custom colors", t.ColorOverride, on =>
         {
             t.ColorOverride = on;
             if (!on) t.ApplyAffiliationDefaults();
             _pawnLibrary.Save();
-            _history.Commit(_doc);
             Canvas.Refresh();
             PopulatePanel(Canvas.Mode);
         });
@@ -609,14 +656,12 @@ public partial class MainWindow : Window
             {
                 t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
                 _pawnLibrary.Save();
-                _history.Commit(_doc);
                 Canvas.Refresh();
             });
             ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
             {
                 t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
                 _pawnLibrary.Save();
-                _history.Commit(_doc);
                 Canvas.Refresh();
             });
         }
@@ -627,17 +672,11 @@ public partial class MainWindow : Window
         {
             t.Status = s;
             _pawnLibrary.Save();
-            _history.Commit(_doc);
             Canvas.Refresh();
+            PopulatePanel(Canvas.Mode);
         });
 
-        ToolPanel.AddButton("delete pawn", () =>
-        {
-            _doc.RemovePawn(pawn.Cell);
-            _history.Commit(_doc);
-            Canvas.Refresh();
-            StatusText.Text = "pawn deleted";
-        });
+        ToolPanel.AddButton("back to library", () => ShowPawnManagement());
     }
 
     // The 10 preset colors for the color picker (MS Paint palette style).
@@ -672,6 +711,7 @@ public partial class MainWindow : Window
         {
             var captured = t;
             var label = string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name;
+            ToolPanel.AddButton($"edit {label}", () => ShowTemplateEditor(captured));
             ToolPanel.AddButton($"delete {label}", () =>
             {
                 _pawnLibrary.Remove(captured.Id);
