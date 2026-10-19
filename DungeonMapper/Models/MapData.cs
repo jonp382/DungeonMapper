@@ -68,36 +68,16 @@ public sealed class MapLabel
     public string Text { get; set; } = "";
 }
 
-public enum PawnClass { Player, Friendly, Hostile, Neutral }
+public enum Affiliation { Player, Ally, Enemy, Neutral }
 
-/// A pawn: a circular checker for a player/NPC, anchored to one cell. Concentric
-/// circles (outer + inner color) plus an outer status border (status = a named
-/// PawnStatus in settings, e.g. paralyzed, fear). No stats/health - position only.
-/// Default outer/inner colors per class; Player inner is customizable per character.
+/// A pawn placed on the map. It is a HARD REFERENCE to a library template by Id:
+/// all visual data (name, affiliation, colors, status) is resolved from the
+/// PawnLibrary at render time. TemplateId null/missing = broken reference,
+/// rendered as an X. No stats/health - position only.
 public sealed class Pawn
 {
     public CellKey Cell { get; set; }
-    public string Name { get; set; } = "";
-    public PawnClass Class { get; set; } = PawnClass.Neutral;
-    public int InnerR, InnerG, InnerB;
-    public int OuterR, OuterG, OuterB;
-    public string Status { get; set; } = "none";
-
-    // class default colors: outer bright, inner dark accent
-    public static ((int r, int g, int b) outer, (int r, int g, int b) inner) DefaultColors(PawnClass c) => c switch
-    {
-        PawnClass.Player   => ((60, 120, 220), (30, 60, 160)),   // blue outer, dark blue inner
-        PawnClass.Friendly => ((120, 220, 120), (30, 120, 40)),  // light green outer, dark green inner
-        PawnClass.Hostile  => ((220, 120, 120), (120, 30, 30)),  // light red outer, dark red inner
-        _ => ((230, 190, 90), (150, 110, 40)),                   // yellow/orange outer, darker inner
-    };
-
-    public void ApplyClassDefaults()
-    {
-        var (o, i) = DefaultColors(Class);
-        OuterR = o.r; OuterG = o.g; OuterB = o.b;
-        InnerR = i.r; InnerG = i.g; InnerB = i.b;
-    }
+    public string TemplateId { get; set; } = "";
 }
 
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.
@@ -351,10 +331,7 @@ public sealed class MapDocument
             Pawns[new CellKey(p.Cell.X + dx, p.Cell.Y + dy)] = new Pawn
             {
                 Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
-                Name = p.Name, Class = p.Class,
-                InnerR = p.InnerR, InnerG = p.InnerG, InnerB = p.InnerB,
-                OuterR = p.OuterR, OuterG = p.OuterG, OuterB = p.OuterB,
-                Status = p.Status,
+                TemplateId = p.TemplateId,
             };
         foreach (var (e, d) in snap.Doors)
         {

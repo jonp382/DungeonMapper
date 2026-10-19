@@ -26,6 +26,7 @@ public partial class MainWindow : Window
 
         Canvas.Document = _doc;
         Canvas.Settings = _settings;
+        Canvas.Library = _pawnLibrary;
         _history.Initialize(_doc);
 
         // hotkey labels on tool buttons (item: show hotkeys in tool text)
@@ -231,21 +232,25 @@ public partial class MainWindow : Window
                 break;
 
             case ToolMode.Pawn:
-                ToolPanel.Clear("Pawn settings");
-                ToolPanel.AddHint("defaults apply to every pawn you place next. click a placed pawn to configure it, or pick a saved pawn from the library.");
-                ToolPanel.AddText("default pawn name", _settings.DefaultPawnName, t =>
+                ToolPanel.Clear("Pawn");
+                ToolPanel.AddHint("pick a pawn below, then click a cell to place it. click a placed pawn to edit its template.");
+                if (_pawnLibrary.Pawns.Count == 0)
                 {
-                    _settings.DefaultPawnName = t;
-                    _settings.Save();
-                });
-                ToolPanel.AddChoice("default pawn class", new[] { "Player", "Friendly", "Hostile", "Neutral" },
-                    _settings.DefaultPawnClass, c =>
+                    ToolPanel.AddHint("library is empty - add pawns in the pawn menu.");
+                }
+                else
+                {
+                    var items = new List<(string, int, int, int, int, int, int)>();
+                    foreach (var t in _pawnLibrary.Pawns)
+                        items.Add((string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
+                                   t.OuterR, t.OuterG, t.OuterB, t.InnerR, t.InnerG, t.InnerB));
+                    ToolPanel.AddSwatchGrid("pawns", items, i =>
                     {
-                        _settings.DefaultPawnClass = c;
-                        _settings.Save();
+                        Canvas.ArmedPawn = _pawnLibrary.Pawns[i];
+                        StatusText.Text = $"armed {(_pawnLibrary.Pawns[i].Name ?? "pawn")} - click a cell to place";
                     });
-                AddPawnStatusEditor();
-                AddPawnLibrarySection();
+                }
+                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
                 break;
 
             default:
@@ -534,63 +539,81 @@ public partial class MainWindow : Window
         return false;
     }
 
-    // Pawn config: name, class, inner/outer colors, status. Fields apply live.
-    // "save to library" persists the pawn as a reusable template in pawn_library.json.
+    // Pawn config: edits the library template the pawn references (hard reference).
+    // Changing it updates every pawn on the map that points to the same template.
+    // A pawn whose template is missing shows a broken-reference notice.
     private void ShowPawnConfig(Pawn pawn)
     {
+        var t = _pawnLibrary.Find(pawn.TemplateId);
         ToolPanel.Clear("Pawn");
-        ToolPanel.AddText("Name", pawn.Name, t =>
+        if (t is null)
         {
-            pawn.Name = t;
-            _history.Commit(_doc);
-        });
-        ToolPanel.AddChoice("Class", new[] { "Player", "Friendly", "Hostile", "Neutral" },
-            pawn.Class.ToString(), c =>
+            ToolPanel.AddHint("broken reference - this pawn's template is missing from the library (shown as X).");
+            ToolPanel.AddButton("delete pawn", () =>
             {
-                pawn.Class = Enum.Parse<PawnClass>(c);
-                pawn.ApplyClassDefaults();
+                _doc.RemovePawn(pawn.Cell);
                 _history.Commit(_doc);
                 Canvas.Refresh();
+                StatusText.Text = "pawn deleted";
             });
-        ToolPanel.AddText("Inner color", $"#{pawn.InnerR:X2}{pawn.InnerG:X2}{pawn.InnerB:X2}", hex =>
+            return;
+        }
+
+        ToolPanel.AddText("Name", t.Name, name =>
         {
-            if (TryHex(hex, out var c))
-            {
-                pawn.InnerR = c.r; pawn.InnerG = c.g; pawn.InnerB = c.b;
-                _history.Commit(_doc);
-                Canvas.Refresh();
-            }
-        });
-        ToolPanel.AddText("Outer color", $"#{pawn.OuterR:X2}{pawn.OuterG:X2}{pawn.OuterB:X2}", hex =>
-        {
-            if (TryHex(hex, out var c))
-            {
-                pawn.OuterR = c.r; pawn.OuterG = c.g; pawn.OuterB = c.b;
-                _history.Commit(_doc);
-                Canvas.Refresh();
-            }
-        });
-        var names = new List<string>();
-        foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
-        ToolPanel.AddChoice("Status", names.ToArray(), pawn.Status, s =>
-        {
-            pawn.Status = s;
+            t.Name = name;
+            _pawnLibrary.Save();
             _history.Commit(_doc);
             Canvas.Refresh();
         });
-        ToolPanel.AddButton("save to library", () =>
-        {
-            _pawnLibrary.Add(new PawnTemplate
+        ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
+            PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
             {
-                Name = string.IsNullOrWhiteSpace(pawn.Name) ? "pawn" : pawn.Name,
-                Class = pawn.Class.ToString(),
-                InnerR = pawn.InnerR, InnerG = pawn.InnerG, InnerB = pawn.InnerB,
-                OuterR = pawn.OuterR, OuterG = pawn.OuterG, OuterB = pawn.OuterB,
-                Status = pawn.Status,
+                t.Affiliation = aff;
+                if (!t.ColorOverride) t.ApplyAffiliationDefaults();
+                _pawnLibrary.Save();
+                _history.Commit(_doc);
+                Canvas.Refresh();
             });
+
+        var presets = PresetColors();
+        ToolPanel.AddCheck("custom colors", t.ColorOverride, on =>
+        {
+            t.ColorOverride = on;
+            if (!on) t.ApplyAffiliationDefaults();
             _pawnLibrary.Save();
-            StatusText.Text = $"saved {pawn.Name} to pawn library";
+            _history.Commit(_doc);
+            Canvas.Refresh();
+            PopulatePanel(Canvas.Mode);
         });
+        if (t.ColorOverride)
+        {
+            ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
+            {
+                t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
+                _pawnLibrary.Save();
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
+            ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
+            {
+                t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
+                _pawnLibrary.Save();
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
+        }
+
+        var names = new List<string>();
+        foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
+        ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
+        {
+            t.Status = s;
+            _pawnLibrary.Save();
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+
         ToolPanel.AddButton("delete pawn", () =>
         {
             _doc.RemovePawn(pawn.Cell);
@@ -598,6 +621,68 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             StatusText.Text = "pawn deleted";
         });
+    }
+
+    // The 10 preset colors for the color picker (MS Paint palette style).
+    private static List<(int r, int g, int b)> PresetColors() => new()
+    {
+        (0, 0, 0), (255, 255, 255), (128, 128, 128), (60, 120, 220),
+        (30, 60, 160), (120, 220, 120), (30, 120, 40), (220, 120, 120),
+        (120, 30, 30), (230, 190, 90),
+    };
+
+    // Pawn management menu: global affiliation colors, status styles, and the
+    // library (add / delete templates). Opened from the pawn tool panel.
+    private void ShowPawnManagement()
+    {
+        ToolPanel.Clear("Pawn management");
+        var presets = PresetColors();
+
+        // Global affiliation coloring: templates inherit these unless ColorOverride.
+        ToolPanel.AddHint("affiliation colors (outer + inner):");
+        foreach (var ac in _settings.AffiliationColors)
+        {
+            var captured = ac;
+            ToolPanel.AddColorField($"{captured.Name} outer", captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
+            {
+                captured.OuterR = c.r; captured.OuterG = c.g; captured.OuterB = c.b;
+                _settings.Save();
+                Canvas.Refresh();
+            });
+            ToolPanel.AddColorField($"{captured.Name} inner", captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
+            {
+                captured.InnerR = c.r; captured.InnerG = c.g; captured.InnerB = c.b;
+                _settings.Save();
+                Canvas.Refresh();
+            });
+        }
+
+        AddPawnStatusEditor();
+
+        // Library: add a new template, delete existing ones.
+        ToolPanel.AddHint("library:");
+        ToolPanel.AddButton("+ add pawn", () =>
+        {
+            var t = new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
+            t.ApplyAffiliationDefaults();
+            _pawnLibrary.Add(t);
+            _pawnLibrary.Save();
+            Canvas.ArmedPawn = t;
+            StatusText.Text = $"added {t.Name} - armed for placement";
+            PopulatePanel(Canvas.Mode);
+        });
+        foreach (var t in _pawnLibrary.Pawns)
+        {
+            var captured = t;
+            var label = string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name;
+            ToolPanel.AddButton($"delete {label}", () =>
+            {
+                _pawnLibrary.Remove(captured.Id);
+                _pawnLibrary.Save();
+                Canvas.Refresh();
+                PopulatePanel(Canvas.Mode);
+            });
+        }
     }
 
     // Pawn status styles editor, same pattern as the door category editor:
@@ -629,32 +714,6 @@ public partial class MainWindow : Window
             _settings.PawnStatuses.Add(new PawnStatus("new", 245, 220, 60, 2));
             _settings.Save();
             PopulatePanel(Canvas.Mode);
-        });
-    }
-
-    // The saved pawn library: picking a name sets the pawn defaults (name, class,
-    // colors, status), so the next pawn placed on the map is that saved pawn.
-    private void AddPawnLibrarySection()
-    {
-        var libNames = new List<string>();
-        foreach (var t in _pawnLibrary.Pawns) libNames.Add(t.Name);
-        if (libNames.Count == 0)
-        {
-            ToolPanel.AddHint("library: empty. save pawns from the pawn config panel.");
-            return;
-        }
-        ToolPanel.AddHint("library: pick a saved pawn to load its defaults, then click a cell to place it.");
-        ToolPanel.AddChoice("saved pawns", libNames.ToArray(), libNames[0], name =>
-        {
-            var t = _pawnLibrary.Find(name);
-            if (t is null) return;
-            _settings.DefaultPawnName = t.Name;
-            _settings.DefaultPawnClass = t.Class;
-            _settings.DefaultPawnStatus = t.Status;
-            _settings.DefaultPawnInner = $"{t.InnerR},{t.InnerG},{t.InnerB}";
-            _settings.DefaultPawnOuter = $"{t.OuterR},{t.OuterG},{t.OuterB}";
-            _settings.Save();
-            StatusText.Text = $"loaded {name} from library";
         });
     }
 }

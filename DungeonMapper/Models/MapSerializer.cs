@@ -44,11 +44,13 @@ public sealed class LabelDto
 public sealed class PawnDto
 {
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
+    [JsonPropertyName("template_id")] public string TemplateId { get; set; } = "";
+    // legacy fields (pre-hard-reference map files); ignored on load
     [JsonPropertyName("name")] public string Name { get; set; } = "";
-    [JsonPropertyName("class")] public string Class { get; set; } = "neutral";
+    [JsonPropertyName("class")] public string Class { get; set; } = "";
     [JsonPropertyName("inner")] public string Inner { get; set; } = "";
     [JsonPropertyName("outer")] public string Outer { get; set; } = "";
-    [JsonPropertyName("status")] public string Status { get; set; } = "none";
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
 }
 
 /// Wire format for a multi-map project: a list of named maps plus the active index.
@@ -128,11 +130,7 @@ public static class MapSerializer
     private static PawnDto PawnToDto(CellKey c, Pawn p) => new PawnDto
     {
         Cell = Key(c),
-        Name = p.Name,
-        Class = p.Class.ToString().ToLowerInvariant(),
-        Inner = Color(p.InnerR, p.InnerG, p.InnerB),
-        Outer = Color(p.OuterR, p.OuterG, p.OuterB),
-        Status = p.Status,
+        TemplateId = p.TemplateId,
     };
 
     private static void AddPawns(MapFileDto dto, MapDocument doc)
@@ -140,13 +138,7 @@ public static class MapSerializer
         foreach (var d in dto.Pawns)
         {
             if (!TryParseCell(d.Cell, out var c)) continue;
-            var p = new Pawn { Cell = c, Name = d.Name, Status = string.IsNullOrWhiteSpace(d.Status) ? "none" : d.Status };
-            p.Class = Enum.TryParse<PawnClass>(d.Class, ignoreCase: true, out var pc) ? pc : PawnClass.Neutral;
-            if (TryParseColor(d.Inner, out var ic)) { p.InnerR = ic.r; p.InnerG = ic.g; p.InnerB = ic.b; }
-            else p.ApplyClassDefaults();
-            if (TryParseColor(d.Outer, out var oc)) { p.OuterR = oc.r; p.OuterG = oc.g; p.OuterB = oc.b; }
-            else p.ApplyClassDefaults();
-            doc.Pawns[c] = p;
+            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId };
         }
     }
 

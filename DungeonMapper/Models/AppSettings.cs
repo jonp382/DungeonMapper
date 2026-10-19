@@ -28,15 +28,59 @@ public sealed class PawnStatus
     { Name = name; R = r; G = g; B = b; Thickness = thickness; }
 }
 
-/// A reusable pawn template stored in a separate JSON database (pawn_library.json),
-/// so named pawns ("Thorin") and generic ones ("Skeleton") can be placed repeatedly.
+/// A reusable pawn template in the library (pawn_library.json). Identified by a
+/// stable Id; map pawns reference it by Id (hard reference). Colors inherit from
+/// the affiliation unless ColorOverride is on. Extra fields can be added over time.
 public sealed class PawnTemplate
 {
+    public string Id = "";
     public string Name = "";
-    public string Class = "Neutral";
+    public string Affiliation = "Neutral";
+    public bool ColorOverride = false;
     public int InnerR, InnerG, InnerB;
     public int OuterR, OuterG, OuterB;
     public string Status = "none";
+
+    /// Affiliation default colors: outer bright, inner dark accent.
+    public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch
+    {
+        "Player"  => ((60, 120, 220), (30, 60, 160)),   // blue outer, dark blue inner
+        "Ally"    => ((120, 220, 120), (30, 120, 40)),  // light green outer, dark green inner
+        "Enemy"   => ((220, 120, 120), (120, 30, 30)),  // light red outer, dark red inner
+        _ => ((230, 190, 90), (150, 110, 40)),          // yellow/orange outer, darker inner
+    };
+
+    /// Normalizes legacy affiliation names (Friendly->Ally, Hostile->Enemy).
+    public static string NormalizeAffiliation(string a) => a switch
+    {
+        "Friendly" => "Ally",
+        "Hostile" => "Enemy",
+        _ => a,
+    };
+
+    public void ApplyAffiliationDefaults()
+    {
+        var (o, i) = AffiliationColors(NormalizeAffiliation(Affiliation));
+        OuterR = o.r; OuterG = o.g; OuterB = o.b;
+        InnerR = i.r; InnerG = i.g; InnerB = i.b;
+    }
+}
+
+/// Global affiliation coloring: outer + inner color per affiliation name.
+/// Configurable in the pawn management menu; templates inherit these unless
+/// they have ColorOverride on.
+public sealed class AffiliationColor
+{
+    public string Name = "Neutral";
+    public int OuterR, OuterG, OuterB;
+    public int InnerR, InnerG, InnerB;
+
+    public AffiliationColor() { }
+    public AffiliationColor(string name, (int r, int g, int b) outer, (int r, int g, int b) inner)
+    {
+        Name = name; OuterR = outer.r; OuterG = outer.g; OuterB = outer.b;
+        InnerR = inner.r; InnerG = inner.g; InnerB = inner.b;
+    }
 }
 
 /// App-wide settings: grid draw spacing, tool hotkeys, door categories,
@@ -57,20 +101,16 @@ public sealed class AppSettings
     // color + thickness. "none" = no border. Addable via the UI like door types.
     public List<PawnStatus> PawnStatuses = new();
 
+    // Global affiliation coloring (Player/Ally/Enemy/Neutral). Templates inherit
+    // these unless ColorOverride is on. Configurable in the pawn management menu.
+    public List<AffiliationColor> AffiliationColors = new();
+
     // New doors take these properties automatically (item 3).
     public string DefaultDoorType = "standard";
     public string DefaultDoorState = "closed";
 
     // New labels start with this text so a placed label is visible (item 1).
     public string DefaultLabelText = "label";
-
-    // New pawns take these properties automatically.
-    public string DefaultPawnClass = "Neutral";
-    public string DefaultPawnName = "";
-    public string DefaultPawnStatus = "none";
-    // "" = use class defaults; "r,g,b" = explicit color for the next placed pawn.
-    public string DefaultPawnInner = "";
-    public string DefaultPawnOuter = "";
 
     public static AppSettings Default()
     {
@@ -102,6 +142,13 @@ public sealed class AppSettings
             new("none", 255, 255, 255, 0),
             new("paralyzed", 230, 120, 200, 3),  // pink + thick
             new("fear", 245, 245, 245, 3),        // white + thick
+        };
+        s.AffiliationColors = new List<AffiliationColor>
+        {
+            new("Player", (60, 120, 220), (30, 60, 160)),
+            new("Ally", (120, 220, 120), (30, 120, 40)),
+            new("Enemy", (220, 120, 120), (120, 30, 30)),
+            new("Neutral", (230, 190, 90), (150, 110, 40)),
         };
         return s;
     }
@@ -138,6 +185,7 @@ public sealed class AppSettings
                 if (!s.ToolHotkeys.ContainsKey(k)) s.ToolHotkeys[k] = v;
             if (s.DoorTypes.Count == 0) s.DoorTypes = Default().DoorTypes;
             if (s.PawnStatuses.Count == 0) s.PawnStatuses = Default().PawnStatuses;
+            if (s.AffiliationColors.Count == 0) s.AffiliationColors = Default().AffiliationColors;
             return s;
         }
         catch { return Default(); }
@@ -174,13 +222,28 @@ public sealed class PawnLibrary
         catch { return new PawnLibrary(); }
     }
 
-    public PawnTemplate? Find(string name) => Pawns.Find(p => p.Name == name);
+    public PawnTemplate? Find(string id) => Pawns.Find(p => p.Id == id);
 
-    /// Adds a template, replacing any existing entry with the same name.
+    /// Adds a template, assigning a fresh Id if it has none, and replacing any
+    /// existing entry with the same Id.
     public void Add(PawnTemplate t)
     {
-        var existing = Pawns.Find(p => p.Name == t.Name);
+        if (string.IsNullOrEmpty(t.Id)) t.Id = NewId();
+        var existing = Pawns.Find(p => p.Id == t.Id);
         if (existing is not null) Pawns[Pawns.IndexOf(existing)] = t;
         else Pawns.Add(t);
+    }
+
+    public void Remove(string id) => Pawns.RemoveAll(p => p.Id == id);
+
+    /// Ids are stable across sessions: a counter persisted with the library.
+    private int _nextId = 1;
+    public string NewId() => $"p{_nextId++}";
+
+    /// Backfills Ids for templates loaded from a legacy library (no Id field).
+    public void EnsureIds()
+    {
+        foreach (var p in Pawns)
+            if (string.IsNullOrEmpty(p.Id)) p.Id = NewId();
     }
 }

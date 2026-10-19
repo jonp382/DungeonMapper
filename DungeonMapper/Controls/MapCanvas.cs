@@ -42,6 +42,10 @@ public sealed class MapCanvas : Control
     public MapDocument Document { get; set; } = new();
     public ToolMode Mode { get; set; } = ToolMode.Select;
     public AppSettings Settings { get; set; } = AppSettings.Default();
+    public PawnLibrary Library { get; set; } = new();
+    /// Template armed for placement from the floating submenu. Clicking a cell
+    /// places a pawn referencing this template. Null = no pawn armed.
+    public PawnTemplate? ArmedPawn { get; set; }
 
     public event Action? ActionCompleted;
     public event Action<Door>? DoorConfigRequested;
@@ -313,19 +317,30 @@ public sealed class MapCanvas : Control
         }
 
         // Pawns: concentric circles (outer + inner) + outer status border, scaled
-        // by zoom. Drawn after labels so they sit on top.
+        // by zoom. Visual data resolves from the library template (hard reference);
+        // a missing template renders an X (broken reference). Drawn after labels.
         foreach (var (c, p) in Document.Pawns)
         {
             var p0 = WorldToScreen(c.X, c.Y);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
+            var t = Library.Find(p.TemplateId);
+            if (t is null)
+            {
+                // broken reference: X symbol
+                var xPen = new Pen(Brushes.Red, Math.Max(2, _scale * 0.08));
+                double r = _scale * 0.3;
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y - r), new Point(center.X + r, center.Y + r));
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y + r), new Point(center.X + r, center.Y - r));
+                continue;
+            }
             double outerR = _scale * 0.42;
             double innerR = _scale * 0.22;
-            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)p.OuterR, (byte)p.OuterG, (byte)p.OuterB));
-            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)p.InnerR, (byte)p.InnerG, (byte)p.InnerB));
+            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)t.OuterR, (byte)t.OuterG, (byte)t.OuterB));
+            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)t.InnerR, (byte)t.InnerG, (byte)t.InnerB));
             ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
             ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
             // status border ring on the outer edge
-            var st = Settings.FindPawnStatus(p.Status);
+            var st = Settings.FindPawnStatus(t.Status);
             if (st.Thickness > 0)
             {
                 var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
@@ -588,24 +603,15 @@ public sealed class MapCanvas : Control
                 {
                     PawnConfigRequested?.Invoke(existingPawn);
                 }
+                else if (ArmedPawn is not null)
+                {
+                    // place a pawn that hard-references the armed library template
+                    Document.PlacePawn(new Pawn { Cell = cell, TemplateId = ArmedPawn.Id });
+                    Commit();
+                }
                 else
                 {
-                    var pawn = new Pawn { Cell = cell, Name = Settings.DefaultPawnName };
-                    pawn.Class = Enum.TryParse<PawnClass>(Settings.DefaultPawnClass, ignoreCase: true, out var pc)
-                        ? pc : PawnClass.Neutral;
-                    pawn.ApplyClassDefaults();
-                    pawn.Status = string.IsNullOrWhiteSpace(Settings.DefaultPawnStatus)
-                        ? "none" : Settings.DefaultPawnStatus;
-                    // explicit colors (e.g. loaded from the library) override class defaults
-                    var ic = Settings.DefaultPawnInner.Split(',');
-                    var oc = Settings.DefaultPawnOuter.Split(',');
-                    if (ic.Length == 3 && int.TryParse(ic[0], out int ir) && int.TryParse(ic[1], out int ig) && int.TryParse(ic[2], out int ib))
-                    { pawn.InnerR = ir; pawn.InnerG = ig; pawn.InnerB = ib; }
-                    if (oc.Length == 3 && int.TryParse(oc[0], out int or) && int.TryParse(oc[1], out int og) && int.TryParse(oc[2], out int ob))
-                    { pawn.OuterR = or; pawn.OuterG = og; pawn.OuterB = ob; }
-                    Document.PlacePawn(pawn);
-                    Commit();
-                    PawnConfigRequested?.Invoke(pawn);
+                    StatusMessage?.Invoke("select a pawn in the pawn menu first");
                 }
                 break;
         }

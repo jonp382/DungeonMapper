@@ -436,43 +436,50 @@ var afterRedo = history.Redo();
 doc.ApplyFrom(afterRedo!);
 Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wall");
 
-// --- pawns ---
+// --- pawns (hard-reference model: pawn stores a TemplateId, visuals resolve from library) ---
 {
+    var lib = new PawnLibrary();
+    var t = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy", Status = "paralyzed" };
+    t.ApplyAffiliationDefaults();
+    lib.Add(t);
+    Check(t.Id == "p1", "library assigns stable Id");
+
     var m = new MapDocument();
-    var p = new Pawn { Cell = new CellKey(2, 2), Name = "Skeleton", Class = PawnClass.Hostile, Status = "paralyzed" };
-    p.ApplyClassDefaults();
+    var p = new Pawn { Cell = new CellKey(2, 2), TemplateId = t.Id };
     m.PlacePawn(p);
     Check(m.Pawns.Count == 1, "pawn placed");
-    Check(m.Pawns[new CellKey(2, 2)].Name == "Skeleton", "pawn name stored");
-    Check(m.Pawns[new CellKey(2, 2)].OuterR == 220, "hostile outer color default");
-    // capture/paste carries pawns (before the stacking replace below)
+    Check(m.Pawns[new CellKey(2, 2)].TemplateId == t.Id, "pawn stores template reference");
+    Check(lib.Find(t.Id)!.OuterR == 220, "enemy outer color default");
+
+    // capture/paste carries the template reference (before the stacking replace below)
     m.AddRoom(0, 0, 3, 3);
     var snap = m.CaptureRegion(0, 0, 3, 3);
     Check(snap.Pawns.Count == 1, "capture includes pawn");
     var m2 = new MapDocument();
     m2.PasteRegion(snap, 5, 5);
     Check(m2.Pawns.ContainsKey(new CellKey(7, 7)), "paste offsets pawn");
-    Check(m2.Pawns[new CellKey(7, 7)].Status == "paralyzed", "paste preserves status");
+    Check(m2.Pawns[new CellKey(7, 7)].TemplateId == t.Id, "paste preserves template reference");
+
     // no stacking: placing on an occupied cell replaces
-    var p2 = new Pawn { Cell = new CellKey(2, 2), Name = "Thorin", Class = PawnClass.Player };
-    p2.ApplyClassDefaults();
+    var p2 = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p9" };
     m.PlacePawn(p2);
-    Check(m.Pawns.Count == 1 && m.Pawns[new CellKey(2, 2)].Name == "Thorin", "no stacking: replace on occupied cell");
+    Check(m.Pawns.Count == 1 && m.Pawns[new CellKey(2, 2)].TemplateId == "p9", "no stacking: replace on occupied cell");
+
+    // broken reference: a TemplateId missing from the library resolves to null (X render)
+    Check(lib.Find("p9") is null, "broken reference resolves to null");
+
     // AddFloor clears pawns in the region (same clearing path as erase)
     m2.AddFloor(5, 5, 7, 7);
     Check(m2.Pawns.Count == 0, "floor clear removes pawns");
-    // serialization round-trip
+
+    // serialization round-trip preserves the template reference
     var m3 = new MapDocument();
-    var p3 = new Pawn { Cell = new CellKey(1, 1), Name = "Goblin", Class = PawnClass.Hostile,
-                        InnerR = 12, InnerG = 34, InnerB = 56, OuterR = 200, OuterG = 150, OuterB = 100, Status = "fear" };
-    m3.PlacePawn(p3);
+    m3.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "p42" });
     string j = MapSerializer.ToJson(m3);
     var l3 = MapSerializer.FromJson(j);
     Check(l3.Pawns.Count == 1, "pawn round-trip count");
-    Check(l3.Pawns[new CellKey(1, 1)].Name == "Goblin", "pawn round-trip name");
-    Check(l3.Pawns[new CellKey(1, 1)].InnerR == 12 && l3.Pawns[new CellKey(1, 1)].OuterB == 100, "pawn round-trip colors");
-    Check(l3.Pawns[new CellKey(1, 1)].Status == "fear", "pawn round-trip status");
-    Check(l3.Pawns[new CellKey(1, 1)].Class == PawnClass.Hostile, "pawn round-trip class");
+    Check(l3.Pawns[new CellKey(1, 1)].TemplateId == "p42", "pawn round-trip template reference");
+
     // undo restores pawns through snapshots
     var h = new History();
     h.Initialize(m3);
@@ -481,6 +488,32 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(m3.Pawns.Count == 0, "pawn removed");
     m3.ApplyFrom(h.Undo()!);
     Check(m3.Pawns.Count == 1, "undo restores pawn");
+}
+
+// --- pawn library: Ids, affiliation rename, inheritance ---
+{
+    var lib = new PawnLibrary();
+    var a = new PawnTemplate { Name = "Ally", Affiliation = "Friendly" };
+    a.ApplyAffiliationDefaults();
+    lib.Add(a);
+    Check(a.Id == "p1", "first template gets p1");
+    Check(PawnTemplate.NormalizeAffiliation("Friendly") == "Ally", "legacy Friendly normalizes to Ally");
+    Check(PawnTemplate.NormalizeAffiliation("Hostile") == "Enemy", "legacy Hostile normalizes to Enemy");
+    Check(a.OuterR == 120, "Ally outer color default (green)");
+
+    var b = new PawnTemplate { Name = "Boss", Affiliation = "Enemy" };
+    b.ApplyAffiliationDefaults();
+    lib.Add(b);
+    Check(b.Id == "p2", "second template gets p2");
+    Check(lib.Find("p2")!.Name == "Boss", "Find by Id");
+
+    lib.Remove("p1");
+    Check(lib.Pawns.Count == 1 && lib.Find("p1") is null, "Remove by Id drops template");
+
+    // adding a template with an existing Id replaces it (no duplicate)
+    var c = new PawnTemplate { Id = "p2", Name = "Boss2", Affiliation = "Neutral" };
+    lib.Add(c);
+    Check(lib.Pawns.Count == 1 && lib.Find("p2")!.Name == "Boss2", "Add replaces same-Id template");
 }
 
 // --- overlapping move (excel-style shift): clear source BEFORE paste ---
