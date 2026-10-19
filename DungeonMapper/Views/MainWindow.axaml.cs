@@ -148,6 +148,14 @@ public partial class MainWindow : Window
                 ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move.");
                 break;
 
+            case ToolMode.Door:
+                // global door defaults: shown before placing any door, and every
+                // placed door inherits them (MapCanvas reads Settings at placement).
+                ToolPanel.Clear("Door settings");
+                ToolPanel.AddHint("defaults apply to every door you place next.");
+                AddDoorDefaultsSection();
+                break;
+
             default:
                 ToolPanel.Clear("Tool options");
                 ToolPanel.AddHint("no options for this tool.");
@@ -278,18 +286,12 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowSettings()
+    // Builds the global door settings fields: default type, default state, and the
+    // door category editor. Shared by the Settings menu and the Door tool panel so
+    // the door tool shows the same fields before placing, and placed doors inherit
+    // them (MapCanvas reads Settings.DefaultDoorType/State at placement time).
+    private void AddDoorDefaultsSection()
     {
-        ToolPanel.Clear("Settings");
-
-        // grid draw spacing (item 6)
-        ToolPanel.AddNumber("grid draw spacing (cells between lines)", _settings.GridDrawSpacing, v =>
-        {
-            _settings.GridDrawSpacing = Math.Max(1, v);
-            Canvas.Refresh();
-            _settings.Save();
-        });
-
         // default door properties (item 3)
         var names = new List<string>();
         foreach (var t in _settings.DoorTypes) names.Add(t.Name);
@@ -304,13 +306,6 @@ public partial class MainWindow : Window
                 _settings.DefaultDoorState = s;
                 _settings.Save();
             });
-
-        // default label text (item 1)
-        ToolPanel.AddText("default label text", _settings.DefaultLabelText, t =>
-        {
-            _settings.DefaultLabelText = t;
-            _settings.Save();
-        });
 
         // door categories editor (item 4)
         ToolPanel.AddHint("door categories (name + color):");
@@ -333,7 +328,30 @@ public partial class MainWindow : Window
         {
             _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
             _settings.Save();
-            ShowSettings();
+            // rebuild for the active tool so the Door tool panel keeps its context
+            PopulatePanel(Canvas.Mode);
+        });
+    }
+
+    private void ShowSettings()
+    {
+        ToolPanel.Clear("Settings");
+
+        // grid draw spacing (item 6)
+        ToolPanel.AddNumber("grid draw spacing (cells between lines)", _settings.GridDrawSpacing, v =>
+        {
+            _settings.GridDrawSpacing = Math.Max(1, v);
+            Canvas.Refresh();
+            _settings.Save();
+        });
+
+        AddDoorDefaultsSection();
+
+        // default label text (item 1)
+        ToolPanel.AddText("default label text", _settings.DefaultLabelText, t =>
+        {
+            _settings.DefaultLabelText = t;
+            _settings.Save();
         });
 
         // tool hotkeys editor (item 7)
