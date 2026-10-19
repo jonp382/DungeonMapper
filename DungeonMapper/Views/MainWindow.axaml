@@ -8,7 +8,7 @@
         Width="1100" Height="700">
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6">
+        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,12">
             <ScrollViewer HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled">
                 <StackPanel Orientation="Horizontal" Spacing="6">
                 <Button x:Name="ToolSelect" Content="Select" />
