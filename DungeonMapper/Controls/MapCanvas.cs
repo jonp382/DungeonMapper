@@ -335,8 +335,9 @@ public sealed class MapCanvas : Control
             }
             double outerR = _scale * 0.42;
             double innerR = _scale * 0.22;
-            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)t.OuterR, (byte)t.OuterG, (byte)t.OuterB));
-            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)t.InnerR, (byte)t.InnerG, (byte)t.InnerB));
+            var (effOuter, effInner) = t.Effective(Settings);
+            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
+            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
             ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
             ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
             // status border ring on the outer edge

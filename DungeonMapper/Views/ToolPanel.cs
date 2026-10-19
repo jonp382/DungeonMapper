@@ -160,15 +160,19 @@ public sealed class ToolPanel : Border
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
+        var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}" };
         var row = new WrapPanel { MaxWidth = 200 };
         foreach (var (pr, pg, pb) in presets)
         {
             var sw = new Rectangle { Width = 18, Height = 18, Margin = new Thickness(1), Fill = new SolidColorBrush(Color.FromRgb((byte)pr, (byte)pg, (byte)pb)) };
-            sw.PointerPressed += (_, _) => onChange((pr, pg, pb));
+            sw.PointerPressed += (_, _) =>
+            {
+                tb.Text = $"#{pr:X2}{pg:X2}{pb:X2}";
+                onChange((pr, pg, pb));
+            };
             row.Children.Add(sw);
         }
         panel.Children.Add(row);
-        var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}" };
         tb.TextChanged += (_, _) =>
         {
             if (TryHexColor(tb.Text, out var c)) onChange(c);

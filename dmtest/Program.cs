@@ -516,6 +516,22 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(lib.Pawns.Count == 1 && lib.Find("p2")!.Name == "Boss2", "Add replaces same-Id template");
 }
 
+// --- global affiliation color propagates to inheriting templates at render time ---
+{
+    var s = AppSettings.Default();
+    var t = new PawnTemplate { Name = "grunt", Affiliation = "Enemy", ColorOverride = false };
+    t.ApplyAffiliationDefaults();
+    Check(t.Effective(s).outer.r == 220, "inheriting template uses global Enemy outer (220)");
+
+    var enemy = s.AffiliationColors.Find(c => c.Name == "Enemy")!;
+    enemy.OuterR = 255; enemy.OuterG = 255; enemy.OuterB = 255;
+    Check(t.Effective(s).outer.r == 255, "global Enemy change propagates to inheriting template");
+
+    var o = new PawnTemplate { Name = "boss", Affiliation = "Enemy", ColorOverride = true };
+    o.OuterR = 10; o.OuterG = 20; o.OuterB = 30;
+    Check(o.Effective(s).outer.r == 10, "override template keeps own color despite global change");
+}
+
 // --- overlapping move (excel-style shift): clear source BEFORE paste ---
 {
     var m = new MapDocument();

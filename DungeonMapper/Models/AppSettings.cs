@@ -64,6 +64,20 @@ public sealed class PawnTemplate
         OuterR = o.r; OuterG = o.g; OuterB = o.b;
         InnerR = i.r; InnerG = i.g; InnerB = i.b;
     }
+
+    /// Effective colors for rendering: when ColorOverride is off, resolve from the
+    /// GLOBAL affiliation color table so editing a global affiliation propagates to
+    /// every inheriting template at render time. When on, use the template's own
+    /// stored colors.
+    public ((int r, int g, int b) outer, (int r, int g, int b) inner) Effective(AppSettings s)
+    {
+        if (!ColorOverride)
+        {
+            var ac = s.FindAffiliationColor(Affiliation);
+            return ((ac.OuterR, ac.OuterG, ac.OuterB), (ac.InnerR, ac.InnerG, ac.InnerB));
+        }
+        return ((OuterR, OuterG, OuterB), (InnerR, InnerG, InnerB));
+    }
 }
 
 /// Global affiliation coloring: outer + inner color per affiliation name.
@@ -158,6 +172,11 @@ public sealed class AppSettings
 
     public PawnStatus FindPawnStatus(string name)
         => PawnStatuses.Find(t => t.Name == name) ?? PawnStatuses[0];
+
+    public AffiliationColor FindAffiliationColor(string name)
+        => AffiliationColors.Find(c => c.Name == name)
+           ?? AffiliationColors.Find(c => c.Name == "Neutral")
+           ?? new AffiliationColor("Neutral", (230, 190, 90), (150, 110, 40));
 
     public string SettingsPath()
     {

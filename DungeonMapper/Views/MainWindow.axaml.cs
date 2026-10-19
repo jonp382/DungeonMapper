@@ -246,8 +246,11 @@ public partial class MainWindow : Window
                     var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
                     var items = new List<(string, int, int, int, int, int, int)>();
                     foreach (var t in snapshot)
+                    {
+                        var (eo, ei) = t.Effective(_settings);
                         items.Add((string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
-                                   t.OuterR, t.OuterG, t.OuterB, t.InnerR, t.InnerG, t.InnerB));
+                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b));
+                    }
                     ToolPanel.AddSwatchGrid("pawns", items, i =>
                     {
                         if (i < 0 || i >= snapshot.Count) return;
