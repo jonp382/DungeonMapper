@@ -694,12 +694,12 @@ public partial class MainWindow : Window
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
     }
 
-    // The 10 preset colors for the color picker (MS Paint palette style).
+    // The 10 preset colors for the color picker popup (MS Paint palette style):
+    // red, orange, yellow, green, blue, purple, white, black, gray, brown.
     private static List<(int r, int g, int b)> PresetColors() => new()
     {
-        (0, 0, 0), (255, 255, 255), (128, 128, 128), (60, 120, 220),
-        (30, 60, 160), (120, 220, 120), (30, 120, 40), (220, 120, 120),
-        (120, 30, 30), (230, 190, 90),
+        (255, 0, 0), (255, 128, 0), (255, 255, 0), (0, 128, 0), (0, 0, 255),
+        (128, 0, 128), (255, 255, 255), (0, 0, 0), (128, 128, 128), (128, 64, 0),
     };
 
     // Pawn management: a modal popup centered over the map. The library grid is

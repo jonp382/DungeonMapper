@@ -167,30 +167,66 @@ public sealed class ToolPanel : Border
         Target.Children.Add(panel);
     }
 
-    /// A color field: 10 preset swatches (clickable) plus a #hex text box. Picking
-    /// a swatch or typing a hex calls onChange with the RGB.
+    /// A color field: a #hex text box (king) plus a palette button that opens a
+    /// popup flyout containing a 2x5 preset grid and a full color picker. Clicking
+    /// a preset sets the hex; the picker sets a custom color. Both call onChange.
     public void AddColorField(string label, int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
+
         var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}" };
-        var row = new WrapPanel { MaxWidth = 200 };
+        var palette = new Button { Content = "🎨", Width = 38, Height = 28 };
+
+        // 2 row x 5 column preset grid (MS Paint style): colored squares, click sets it.
+        var grid = new UniformGrid { Rows = 2, Columns = 5 };
         foreach (var (pr, pg, pb) in presets)
         {
-            var sw = new Rectangle { Width = 18, Height = 18, Margin = new Thickness(1), Fill = new SolidColorBrush(Color.FromRgb((byte)pr, (byte)pg, (byte)pb)) };
+            var sw = new Rectangle { Width = 28, Height = 28, Margin = new Thickness(2), Fill = new SolidColorBrush(Color.FromRgb((byte)pr, (byte)pg, (byte)pb)) };
             sw.PointerPressed += (_, _) =>
             {
                 tb.Text = $"#{pr:X2}{pg:X2}{pb:X2}";
                 onChange((pr, pg, pb));
             };
-            row.Children.Add(sw);
+            grid.Children.Add(sw);
         }
-        panel.Children.Add(row);
+
+        // full color picker for custom colors, seeded from the current hex.
+        var picker = new ColorPicker { Color = Color.FromRgb((byte)r, (byte)g, (byte)b), IsAlphaVisible = false };
+
+        // guard so picker<->hex updates don't feed back into each other
+        bool syncing = false;
+        picker.ColorChanged += (_, _) =>
+        {
+            if (syncing) return;
+            syncing = true;
+            var c = picker.Color;
+            tb.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            onChange((c.R, c.G, c.B));
+            syncing = false;
+        };
         tb.TextChanged += (_, _) =>
         {
-            if (TryHexColor(tb.Text, out var c)) onChange(c);
+            if (syncing) return;
+            if (TryHexColor(tb.Text, out var c))
+            {
+                syncing = true;
+                picker.Color = Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b);
+                syncing = false;
+                onChange(c);
+            }
         };
-        panel.Children.Add(tb);
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(grid);
+        popup.Children.Add(picker);
+        palette.Flyout = new Flyout { Content = popup };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        row.Children.Add(palette);
+        row.Children.Add(tb);
+        panel.Children.Add(row);
+
         Target.Children.Add(panel);
     }
 
