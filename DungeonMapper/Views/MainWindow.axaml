@@ -54,8 +54,11 @@
                         <Button x:Name="ModalClose" Content="close" Margin="8,0,0,0" />
                     </StackPanel>
                     <!-- body scrolls so affiliations + status styles fit at low
-                         resolutions; the header (title + close) stays fixed -->
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                         resolutions; the header (title + close) stays fixed.
+                         explicit Height gives the ScrollViewer a real viewport (a
+                         ScrollViewer reports desired height 0, so a content-sized
+                         Border collapses it to zero and it never scrolls). -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
                         <StackPanel Spacing="8">
                             <Button x:Name="ModalAddPawn" Content="+ add pawn" />
                             <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
