@@ -128,6 +128,9 @@ public sealed class ToolPanel : Border
         Target.Children.Add(b);
     }
 
+    // Append a pre-built control (e.g. a button with its own flyout).
+    public void AddButtonRaw(Control c) => Target.Children.Add(c);
+
     /// A grid of clickable pawn swatches (concentric circles) for the pawn tool's
     /// placement submenu. Each swatch shows a template's outer/inner colors; a
     /// broken/empty entry shows an X. Clicking arms that template for placement.

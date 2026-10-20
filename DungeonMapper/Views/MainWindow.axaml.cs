@@ -699,6 +699,56 @@ public partial class MainWindow : Window
         });
 
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
+
+        // Delete template. If live placed pawns reference it, warn first (they
+        // render as X after deletion - broken reference - and can be replaced via
+        // Change Pawn). The warning is a confirmation flyout anchored on the button.
+        var delBtn = new Button { Content = "delete template" };
+        delBtn.Click += (_, _) => DeleteTemplateWithWarning(t, delBtn);
+        ToolPanel.AddButtonRaw(delBtn);
+    }
+
+    // Delete a template, warning if live pawns reference it. Counting live pawns
+    // from the canvas document; a confirmation flyout requires an explicit "delete".
+    private void DeleteTemplateWithWarning(PawnTemplate t, Control anchor)
+    {
+        int live = 0;
+        foreach (var p in Canvas.Document.Pawns.Values)
+            if (p.TemplateId == t.Id) live++;
+
+        void doDelete()
+        {
+            _pawnLibrary.Remove(t.Id);
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        }
+
+        if (live == 0)
+        {
+            doDelete();
+            return;
+        }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting removes {live} live pawn(s) on the map. they will render as X (broken reference) and can be replaced with Change Pawn. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
     }
 
     // The 10 preset colors for the color picker popup (MS Paint palette style):
