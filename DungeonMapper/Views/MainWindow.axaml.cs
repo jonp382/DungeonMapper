@@ -303,7 +303,8 @@ public partial class MainWindow : Window
 
             case ToolMode.Polygon:
                 ToolPanel.Clear("Polygon");
-                ToolPanel.AddHint("click grid intersections to add vertices. the fill preview shows which cells will fill. click the FIRST vertex, or press Enter, to close the polygon. straight edges become walls, diagonal edges become angled walls.");
+                ToolPanel.AddHint("angled room tool: click grid intersections to add vertices. the fill preview shows which cells will fill. click the FIRST vertex, or press Enter, to close the polygon. straight edges become walls, diagonal edges become angled walls. drawing over existing rooms merges them (shared walls removed); a polygon grown out of a room opens a passageway.");
+                ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 

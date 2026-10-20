@@ -593,26 +593,68 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     src.PasteRegion(snap, 5, 5);
     Check(src.AngledWalls.Any(w => w == new AngledWall(7, 5, 5, 6)), "polygon paste: angled wall translated by offset");
 
-    // capture excludes angled walls NOT fully inside the region
+    // capture grabs angled walls that overlap ANY part of the region
     var p2 = new MapDocument();
-    p2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3), (0, 3) });
-    // add a long diagonal spanning outside a small region
+    p2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) });
+    // long diagonal passes through the corner of the small region -> overlaps
     p2.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
     var snap2 = p2.CaptureRegion(0, 0, 3, 2);
-    Check(!snap2.AngledWalls.Any(w => w == new AngledWall(0, 0, 10, 10)), "polygon capture: angled wall not fully inside region excluded");
+    Check(snap2.AngledWalls.Any(w => w == new AngledWall(0, 0, 10, 10)), "polygon capture: angled wall overlapping region captured (any-part rule)");
 
-    // clear removes angled walls fully inside the rect
+    // capture excludes angled walls that do NOT touch the region
+    var p2b = new MapDocument();
+    p2b.AngledWalls.Add(new AngledWall(10, 10, 12, 12));
+    var snap2b = p2b.CaptureRegion(0, 0, 3, 2);
+    Check(!snap2b.AngledWalls.Any(w => w == new AngledWall(10, 10, 12, 12)), "polygon capture: angled wall fully outside region excluded");
+
+    // clear removes angled walls that overlap ANY part of the rect
     var p3 = new MapDocument();
     p3.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
     p3.AngledWalls.Add(new AngledWall(5, 5, 7, 7)); // fully inside [0,0]-[8,8]
     p3.ClearRegion(0, 0, 8, 8);
     Check(p3.AngledWalls.Count == 0, "polygon clear: angled walls fully inside rect removed");
 
-    // clear keeps angled walls NOT fully inside
+    // clear removes angled walls that straddle the rect edge
     var p4 = new MapDocument();
     p4.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
     p4.ClearRegion(0, 0, 3, 3);
-    Check(p4.AngledWalls.Count == 1, "polygon clear: angled wall not fully inside rect kept");
+    Check(p4.AngledWalls.Count == 0, "polygon clear: angled wall straddling rect edge removed (any-part rule)");
+
+    // clear keeps angled walls fully outside the rect
+    var p4b = new MapDocument();
+    p4b.AngledWalls.Add(new AngledWall(10, 10, 12, 12));
+    p4b.ClearRegion(0, 0, 3, 3);
+    Check(p4b.AngledWalls.Count == 1, "polygon clear: angled wall fully outside rect kept");
+
+    // polygon union: drawing a polygon spanning two rooms removes the shared
+    // interior walls (the polygon acts as an angled room tool, same as AddRoom)
+    var u = new MapDocument();
+    u.AddRoom(0, 0, 1, 1);
+    u.AddRoom(1, 0, 2, 1);
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: shared wall exists before polygon union");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: shared wall exists before union (row 1)");
+    // polygon spanning [0,0]-[3,2] = 3x2 cells, union over both rooms
+    u.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) });
+    Check(u.Cells.Count == 6, "union: polygon spanning fills 6 cells");
+    Check(!u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: interior wall x=1 removed (row 0)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: interior wall x=1 removed (row 1)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(1, 0), Side.East)), "union: interior wall x=2 removed (row 0)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(1, 1), Side.East)), "union: interior wall x=2 removed (row 1)");
+    // outer boundary walls remain
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "union: top wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 1), Side.South)), "union: bottom wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.West)), "union: left wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "union: right wall exists");
+
+    // polygon strict: interior walls present before the polygon are kept when strict.
+    // The shared wall at x=1 (East of cell (0,0)) exists (set by the second room's
+    // west boundary); strict keeps it, non-strict union would remove it.
+    var s = new MapDocument();
+    s.AddRoom(0, 0, 1, 1);
+    s.AddRoom(1, 0, 2, 1);
+    Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: shared wall x=1 exists before polygon");
+    s.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, true); // strict
+    Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: interior wall x=1 kept in strict mode");
 
     // round-trip preserves angled walls
     var p5 = new MapDocument();

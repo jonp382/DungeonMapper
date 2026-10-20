@@ -69,6 +69,7 @@ public sealed class MapCanvas : Control
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
+    public bool PolygonStrict { get; set; } = false; // Polygon tool: same as RoomStrict - outer walls always, interior walls kept
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -181,7 +182,7 @@ public sealed class MapCanvas : Control
                         Document.SetWall(new EdgeKey(c, side), false);
             }
         if (f.Walls)
-            Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallInRect(w, x0, y0, x1, y1));
+            Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -204,7 +205,11 @@ public sealed class MapCanvas : Control
         if (_polyVerts.Count < 3) return;
         var first = _polyVerts[0];
         if (_polyVerts[^1] != first) _polyVerts.Add(first);
-        Document.AddPolygon(_polyVerts);
+        // passageway: if the closing vertex sits inside an existing room cell, the
+        // shared boundary stays open so the polygon connects as a passageway.
+        bool strict = PolygonStrict;
+        bool passageway = !strict && Document.Cells.Contains(new CellKey(first.x, first.y));
+        Document.AddPolygon(_polyVerts, passageway, strict);
         _polyVerts.Clear();
         Commit();
     }
@@ -732,7 +737,9 @@ public sealed class MapCanvas : Control
                 {
                     // clicking the first vertex closes the polygon
                     if (_polyVerts[^1] != (vx, vy)) _polyVerts.Add((vx, vy));
-                    Document.AddPolygon(_polyVerts);
+                    bool strict = PolygonStrict;
+                    bool passageway = !strict && Document.Cells.Contains(new CellKey(vx, vy));
+                    Document.AddPolygon(_polyVerts, passageway, strict);
                     _polyVerts.Clear();
                     Commit();
                     StatusMessage?.Invoke("polygon closed");
@@ -937,7 +944,7 @@ public sealed class MapCanvas : Control
                     }
                 // angled walls fully inside the erase rect are removed (Walls filter)
                 if (f.Walls)
-                    Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallInRect(w, x0, y0, x1, y1));
+                    Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
                 Commit();
                 break;
             }
