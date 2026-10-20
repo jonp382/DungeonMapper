@@ -255,23 +255,31 @@ public sealed class MapCanvas : Control
         var bottomRight = ScreenToWorld(new Point(Bounds.Width, Bounds.Height));
 
         // Cell fills + grid lines. Grid is always 5ft (1 cell); GridDrawSpacing
-        // controls how many cells between drawn lines (1 = every 5ft, 2 = 10ft).
+        // is the MAJOR spacing (how many cells between major lines). Minor lines
+        // sit at every 5ft cell edge (system default). At sp==1 major and minor
+        // coincide, so only major is drawn. Colors come from settings.
         int sp = Math.Max(1, Settings.GridDrawSpacing);
+        var majorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
+        var minorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
         foreach (var c in Document.Cells)
         {
             if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
             ctx.FillRectangle(CellFill, rect);
-            // faint grid line at EVERY 5ft cell edge (always visible, respects the
-            // 5ft unit), so a room drawn at a 5ft offset is never split between two
-            // spacing lines. Strong line at spacing boundaries (GridDrawSpacing).
-            ctx.DrawLine(new Pen(FaintGridLine, 1), rect.TopLeft, rect.BottomLeft);
-            ctx.DrawLine(new Pen(FaintGridLine, 1), rect.TopLeft, rect.TopRight);
+            // minor line at EVERY 5ft cell edge (system default), so a room drawn
+            // at a 5ft offset is never split between two major lines. At sp==1 the
+            // minor lines coincide with major, so skip them and draw only major.
+            if (sp > 1)
+            {
+                ctx.DrawLine(minorPen, rect.TopLeft, rect.BottomLeft);
+                ctx.DrawLine(minorPen, rect.TopLeft, rect.TopRight);
+            }
+            // major line at spacing boundaries (GridDrawSpacing), user-configurable.
             if (FloorMod(c.X, sp) == 0)
-                ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.BottomLeft);
+                ctx.DrawLine(majorPen, rect.TopLeft, rect.BottomLeft);
             if (FloorMod(c.Y, sp) == 0)
-                ctx.DrawLine(new Pen(GridLine, 1), rect.TopLeft, rect.TopRight);
+                ctx.DrawLine(majorPen, rect.TopLeft, rect.TopRight);
         }
 
         // Stairs: fill tint + arrow glyph

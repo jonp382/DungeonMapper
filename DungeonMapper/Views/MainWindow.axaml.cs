@@ -482,6 +482,22 @@ public partial class MainWindow : Window
             _settings.Save();
         });
 
+        // gridline colors (item 3): major at spacing boundaries, minor at every
+        // 5ft cell edge. At 1x spacing they coincide so only major is drawn.
+        var gpresets = PresetColors();
+        ToolPanel.AddColorField("major gridline color", _settings.MajorGridR, _settings.MajorGridG, _settings.MajorGridB, gpresets, c =>
+        {
+            _settings.MajorGridR = c.r; _settings.MajorGridG = c.g; _settings.MajorGridB = c.b;
+            Canvas.Refresh();
+            _settings.Save();
+        });
+        ToolPanel.AddColorField("minor gridline color", _settings.MinorGridR, _settings.MinorGridG, _settings.MinorGridB, gpresets, c =>
+        {
+            _settings.MinorGridR = c.r; _settings.MinorGridG = c.g; _settings.MinorGridB = c.b;
+            Canvas.Refresh();
+            _settings.Save();
+        });
+
         AddDoorDefaultsSection();
 
         // default label text (item 1)

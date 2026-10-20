@@ -103,8 +103,15 @@ public sealed class AffiliationColor
 public sealed class AppSettings
 {
     // Grid is always 5ft (1 cell). This is how many cells between drawn grid
-    // lines: 1 = every 5ft, 2 = every 10ft, etc.
+    // lines: 1 = every 5ft, 2 = every 10ft, etc. This is the MAJOR spacing.
     public int GridDrawSpacing = 1;
+
+    // Gridline colors. Major lines sit at the GridDrawSpacing boundaries; minor
+    // lines sit at every 5ft cell edge (system default). At 1x spacing (sp==1)
+    // major and minor coincide, so only major is drawn. Defaults: major dark grey,
+    // minor lighter grey, both visible against the flooring fill.
+    public int MajorGridR = 30, MajorGridG = 30, MajorGridB = 35;
+    public int MinorGridR = 90, MinorGridG = 90, MinorGridB = 100;
 
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     public Dictionary<string, string> ToolHotkeys = new();
