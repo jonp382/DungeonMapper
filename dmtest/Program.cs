@@ -656,6 +656,21 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     s.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, true); // strict
     Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: interior wall x=1 kept in strict mode");
 
+    // room grown over a polygon removes the polygon's interior diagonal (union
+    // handles angled walls, not just EdgeKey walls)
+    var rp = new MapDocument();
+    rp.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // triangle, diagonal (2,0)->(0,2)
+    Check(rp.AngledWalls.Count == 1, "room over polygon: diagonal present before union");
+    rp.AddRoom(0, 0, 2, 2); // 3x3 room covering the triangle fully
+    Check(rp.AngledWalls.Count == 0, "room over polygon: interior diagonal removed by union");
+
+    // room grown over a polygon keeps a diagonal that is NOT fully interior
+    var rp2 = new MapDocument();
+    rp2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 4), (0, 4) });
+    rp2.AngledWalls.Add(new AngledWall(4, 4, 6, 6)); // diagonal extends outside the room
+    rp2.AddRoom(0, 0, 3, 3); // room covers part of the polygon, not the far diagonal
+    Check(rp2.AngledWalls.Count == 1, "room over polygon: non-interior diagonal kept");
+
     // round-trip preserves angled walls
     var p5 = new MapDocument();
     p5.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });

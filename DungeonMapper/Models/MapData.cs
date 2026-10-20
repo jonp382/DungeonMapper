@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DungeonMapper.Models;
 
@@ -215,7 +216,39 @@ public sealed class MapDocument
             for (int y = y0 + 1; y <= y1; y++)
                 for (int x = x0; x <= x1; x++)
                     SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+
+            // angled walls that become interior to the merged region are removed
+            // too, so a room grown over a polygon's diagonal merges cleanly.
+            // A diagonal is interior when EVERY cell it passes through is a room
+            // cell (the segment runs through room-cell interiors on both sides).
+            AngledWalls.RemoveAll(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
+                .All(c => Cells.Contains(c)));
         }
+    }
+
+    /// Enumerates the cells whose INTERIOR a lattice segment passes through, via
+    /// a DDA grid walk from (ax,ay) to (bx,by). Axis-aligned segments lie on grid
+    /// lines (cell boundaries) and cross no cell interior, so they return empty
+    /// (their walls are EdgeKey edges, handled separately). Diagonal segments
+    /// return the sequence of cells the line cuts through.
+    public static HashSet<CellKey> CellsCrossed(int ax, int ay, int bx, int by)
+    {
+        var cells = new HashSet<CellKey>();
+        double dx = bx - ax, dy = by - ay;
+        if (dx == 0 || dy == 0) return cells; // axis-aligned: on a grid line
+        int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+        int cx = ax + (sx > 0 ? 0 : -1), cy = ay + (sy > 0 ? 0 : -1);
+        double tMaxX = sx > 0 ? 1.0 / dx : -1.0 / dx;
+        double tMaxY = sy > 0 ? 1.0 / dy : -1.0 / dy;
+        double tDeltaX = Math.Abs(1.0 / dx), tDeltaY = Math.Abs(1.0 / dy);
+        double t = 0;
+        while (t < 1.0)
+        {
+            cells.Add(new CellKey(cx, cy));
+            if (tMaxX < tMaxY) { cx += sx; tMaxX += tDeltaX; t = tMaxX - tDeltaX; }
+            else { cy += sy; tMaxY += tDeltaY; t = tMaxY - tDeltaY; }
+        }
+        return cells;
     }
 
     /// Adds a polygon room from a closed loop of LATTICE vertices (integer grid
