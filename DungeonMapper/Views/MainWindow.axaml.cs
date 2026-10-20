@@ -642,12 +642,14 @@ public partial class MainWindow : Window
         // NOTE: do NOT call PopulatePanel(Canvas.Mode) here. In Pawn mode that
         // rebuilds the placement panel and wipes this edit panel (the "Edit"
         // button bounced back to the selection menu). Canvas.Refresh updates the
-        // map; the library grid is rebuilt when the user returns to the library.
+        // map; BuildLibraryGrid refreshes the management modal's swatches so the
+        // edit panel (side) and the modal (library) stay in sync live.
         ToolPanel.AddText("Name", t.Name, name =>
         {
             t.Name = name;
             _pawnLibrary.Save();
             Canvas.Refresh();
+            BuildLibraryGrid();
         });
         ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
             PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
@@ -656,6 +658,7 @@ public partial class MainWindow : Window
                 if (!t.ColorOverride) t.ApplyAffiliationDefaults();
                 _pawnLibrary.Save();
                 Canvas.Refresh();
+                BuildLibraryGrid();
             });
 
         ToolPanel.AddCheck("custom colors", t.ColorOverride, on =>
@@ -664,6 +667,7 @@ public partial class MainWindow : Window
             if (!on) t.ApplyAffiliationDefaults();
             _pawnLibrary.Save();
             Canvas.Refresh();
+            BuildLibraryGrid();
             PopulatePanel(Canvas.Mode);
         });
         if (t.ColorOverride)
@@ -673,12 +677,14 @@ public partial class MainWindow : Window
                 t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
                 _pawnLibrary.Save();
                 Canvas.Refresh();
+                BuildLibraryGrid();
             });
             ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
             {
                 t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
                 _pawnLibrary.Save();
                 Canvas.Refresh();
+                BuildLibraryGrid();
             });
         }
 
@@ -689,6 +695,7 @@ public partial class MainWindow : Window
             t.Status = s;
             _pawnLibrary.Save();
             Canvas.Refresh();
+            BuildLibraryGrid();
         });
 
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
