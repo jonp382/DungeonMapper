@@ -362,6 +362,7 @@ public sealed class MapCanvas : Control
     private EdgeKey? _previewEdge;
     private EdgeKey? _wallDragStart;
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
+    private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
 
     private void DrawPreview(DrawingContext ctx)
     {
@@ -560,20 +561,25 @@ public sealed class MapCanvas : Control
                 var we = HitEdge(world);
                 if (we is null) break;
                 var wallEdge = we.Value;
+                _wallDragStart = wallEdge;
+                _wallDragHorizontal = wallEdge.Side == Side.North || wallEdge.Side == Side.South;
                 if (Document.HasWall(wallEdge))
                 {
-                    Document.SetWall(wallEdge, false); // toggle off
+                    // pressing an existing wall: start a DELETE drag so dragging
+                    // over existing walls removes them (Excel-style erase drag).
+                    _wallDragDelete = true;
+                    Document.SetWall(wallEdge, false);
                     Commit();
                 }
                 else
                 {
-                    _dragging = true;
-                    _wallDragStart = wallEdge;
-                    _wallDragHorizontal = wallEdge.Side == Side.North || wallEdge.Side == Side.South;
+                    // pressing empty: start an ADD drag.
+                    _wallDragDelete = false;
                     Document.SetWall(wallEdge, true);
                     Commit();
-                    e.Pointer.Capture(this);
                 }
+                _dragging = true;
+                e.Pointer.Capture(this);
                 break;
 
             case ToolMode.Door:
@@ -675,7 +681,15 @@ public sealed class MapCanvas : Control
                     if (e2 != _wallDragStart)
                     {
                         _wallDragStart = e2;
-                        if (!Document.HasWall(e2))
+                        if (_wallDragDelete)
+                        {
+                            if (Document.HasWall(e2))
+                            {
+                                Document.SetWall(e2, false);
+                                Commit();
+                            }
+                        }
+                        else if (!Document.HasWall(e2))
                         {
                             Document.SetWall(e2, true);
                             Commit();
