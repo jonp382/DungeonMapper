@@ -53,21 +53,29 @@
                         <TextBlock Text="Pawn management" FontSize="15" Foreground="White" VerticalAlignment="Center" />
                         <Button x:Name="ModalClose" Content="close" Margin="8,0,0,0" />
                     </StackPanel>
-                    <Button x:Name="ModalAddPawn" Content="+ add pawn" />
-                    <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
-                        <ItemsControl x:Name="LibraryGrid">
-                            <ItemsControl.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <VirtualizingStackPanel />
-                                </ItemsPanelTemplate>
-                            </ItemsControl.ItemsPanel>
-                        </ItemsControl>
+                    <!-- body scrolls so affiliations + status styles fit at low
+                         resolutions; the header (title + close) stays fixed -->
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Spacing="8">
+                            <Button x:Name="ModalAddPawn" Content="+ add pawn" />
+                            <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
+                            <!-- inner ScrollViewer gives the VirtualizingStackPanel a
+                                 bounded viewport so only visible rows render -->
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+                                <ItemsControl x:Name="LibraryGrid">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <VirtualizingStackPanel />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <TextBlock Text="affiliation colors (outer + inner):" Foreground="White" FontSize="12" />
+                            <StackPanel x:Name="ModalAffiliations" Spacing="4" />
+                            <TextBlock Text="status styles (name -> #hex, thickness):" Foreground="White" FontSize="12" />
+                            <StackPanel x:Name="ModalStatuses" Spacing="4" />
+                        </StackPanel>
                     </ScrollViewer>
-                    <TextBlock Text="affiliation colors (outer + inner):" Foreground="White" FontSize="12" />
-                    <StackPanel x:Name="ModalAffiliations" Spacing="4" />
-                    <TextBlock Text="status styles (name -> #hex, thickness):" Foreground="White" FontSize="12" />
-                    <StackPanel x:Name="ModalStatuses" Spacing="4" />
                 </StackPanel>
             </Border>
             <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
