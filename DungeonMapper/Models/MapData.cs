@@ -6,6 +6,12 @@ namespace DungeonMapper.Models;
 /// A cell coordinate. 1 unit = 5ft. Y increases downward (screen space).
 public readonly record struct CellKey(int X, int Y);
 
+/// An angled wall: a line segment between two LATTICE vertices (integer grid
+/// points = cell corners). Endpoints are grid-anchored (the "never free-floating"
+/// rule); the segment itself may cut diagonally through cells. Axis-aligned edges
+/// are stored as EdgeKey walls, so this type only holds diagonal segments.
+public readonly record struct AngledWall(int Ax, int Ay, int Bx, int By);
+
 public enum Side { North, East, South, West }
 
 /// A cell edge, keyed by cell + side. Normalized so shared edges have one key:
@@ -89,6 +95,7 @@ public sealed class MapDocument
     public Dictionary<CellKey, Stair> Stairs { get; } = new();
     public List<MapLabel> Labels { get; } = new();
     public Dictionary<CellKey, Pawn> Pawns { get; } = new();
+    public List<AngledWall> AngledWalls { get; } = new();
 
     /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
     /// occupied cell replaces the existing pawn.
@@ -211,6 +218,84 @@ public sealed class MapDocument
         }
     }
 
+    /// Adds a polygon room from a closed loop of LATTICE vertices (integer grid
+    /// points = cell corners). Cells whose CENTER (x+0.5, y+0.5) is inside the
+    /// polygon are filled (cell-center point-in-polygon, preserving the 5x5
+    /// cell/formation model). Each edge is decomposed: axis-aligned edges become
+    /// unit EdgeKey walls on the boundary; diagonal edges become AngledWall
+    /// segments. The polygon boundary IS the room's wall - no interior removal.
+    public void AddPolygon(List<(int x, int y)> verts)
+    {
+        if (verts.Count < 3) return;
+        foreach (var c in PolygonFillCells(verts)) Cells.Add(c);
+
+        // decompose each edge
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (ax == bx) // vertical edge at x=ax
+            {
+                int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+                for (int y = y0; y < y1; y++)
+                    SetWall(new EdgeKey(new CellKey(ax - 1, y), Side.East), true);
+            }
+            else if (ay == by) // horizontal edge at y=ay
+            {
+                int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+                for (int x = x0; x < x1; x++)
+                    SetWall(new EdgeKey(new CellKey(x, ay), Side.North), true);
+            }
+            else
+            {
+                AngledWalls.Add(new AngledWall(ax, ay, bx, by));
+            }
+        }
+    }
+
+    /// The cells whose CENTER (x+0.5, y+0.5) lies inside the closed polygon.
+    /// Shared by AddPolygon and the Polygon tool's live fill preview.
+    public HashSet<CellKey> PolygonFillCells(List<(int x, int y)> verts)
+    {
+        var cells = new HashSet<CellKey>();
+        if (verts.Count < 3) return cells;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var (vx, vy) in verts)
+        {
+            if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+            if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+        }
+        for (int x = minX; x < maxX; x++)
+            for (int y = minY; y < maxY; y++)
+                if (PointInPolygon(x + 0.5, y + 0.5, verts))
+                    cells.Add(new CellKey(x, y));
+        return cells;
+    }
+
+    /// True when the angled wall segment lies FULLY inside the rectangle
+    /// [x0,y0]-[x1,y1] (world bounds x in [x0, x1+1], y in [y0, y1+1]).
+    /// Used by erase, capture, and clear.
+    public static bool AngledWallInRect(AngledWall w, int x0, int y0, int x1, int y1)
+        => w.Ax >= x0 && w.Ax <= x1 + 1 && w.Ay >= y0 && w.Ay <= y1 + 1
+           && w.Bx >= x0 && w.Bx <= x1 + 1 && w.By >= y0 && w.By <= y1 + 1;
+
+    /// Ray-casting point-in-polygon. True when (px,py) is inside the closed
+    /// polygon `verts`.
+    private static bool PointInPolygon(double px, double py, List<(int x, int y)> verts)
+    {
+        bool inside = false;
+        int n = verts.Count;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+        {
+            var (xi, yi) = verts[i];
+            var (xj, yj) = verts[j];
+            if (((yi > py) != (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+                inside = !inside;
+        }
+        return inside;
+    }
+
     /// Adds a rectangular floor region: fills cells, removes walls strictly inside
     /// the region (and any doors on them), and removes stairs/labels in the cells.
     /// Unlike AddRoom it draws NO walls, and it leaves the boundary walls of the
@@ -275,8 +360,10 @@ public sealed class MapDocument
         public Dictionary<CellKey, Stair> Stairs = new();
         public List<MapLabel> Labels = new();
         public List<Pawn> Pawns = new();
+        public List<AngledWall> AngledWalls = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
-                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0;
+                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
+                              && AngledWalls.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -311,6 +398,8 @@ public sealed class MapDocument
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
         foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(p);
+        foreach (var w in AngledWalls)
+            if (AngledWallInRect(w, x0, y0, x1, y1)) snap.AngledWalls.Add(w);
         return snap;
     }
 
@@ -339,6 +428,8 @@ public sealed class MapDocument
             SetWall(edge, true);
             Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State };
         }
+        foreach (var w in snap.AngledWalls)
+            AngledWalls.Add(new AngledWall(w.Ax + dx, w.Ay + dy, w.Bx + dx, w.By + dy));
     }
 
     /// Replaces all content of this document with the content of another.
@@ -357,6 +448,8 @@ public sealed class MapDocument
         foreach (var l in other.Labels) Labels.Add(l);
         Pawns.Clear();
         foreach (var (c, p) in other.Pawns) Pawns[c] = p;
+        AngledWalls.Clear();
+        foreach (var w in other.AngledWalls) AngledWalls.Add(w);
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -375,6 +468,7 @@ public sealed class MapDocument
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                     SetWall(new EdgeKey(c, side), false);
             }
+        AngledWalls.RemoveAll(w => AngledWallInRect(w, x0, y0, x1, y1));
     }
 
     /// Moves a rectangular region: captures it, clears the source, then pastes
@@ -398,6 +492,14 @@ public sealed class MapDocument
             if (c.Y < minY) minY = c.Y;
             if (c.X > maxX) maxX = c.X;
             if (c.Y > maxY) maxY = c.Y;
+            any = true;
+        }
+        foreach (var w in AngledWalls)
+        {
+            if (w.Ax < minX) minX = w.Ax; if (w.Ax > maxX) maxX = w.Ax;
+            if (w.Ay < minY) minY = w.Ay; if (w.Ay > maxY) maxY = w.Ay;
+            if (w.Bx < minX) minX = w.Bx; if (w.Bx > maxX) maxX = w.Bx;
+            if (w.By < minY) minY = w.By; if (w.By > maxY) maxY = w.By;
             any = true;
         }
         if (!any) return null;

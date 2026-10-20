@@ -19,6 +19,7 @@ public sealed class MapFileDto
     [JsonPropertyName("stairs")] public List<StairDto> Stairs { get; set; } = new();
     [JsonPropertyName("labels")] public List<LabelDto> Labels { get; set; } = new();
     [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
+    [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
 }
 
 public sealed class DoorDto
@@ -78,6 +79,19 @@ public static class MapSerializer
     private static string Key(CellKey c) => $"{c.X},{c.Y}";
     private static string Key(EdgeKey e) => $"{e.Cell.X},{e.Cell.Y},{e.Side.ToString().ToLowerInvariant()}";
 
+    // "ax,ay,bx,by" <-> AngledWall
+    private static string Key(AngledWall w) => $"{w.Ax},{w.Ay},{w.Bx},{w.By}";
+    private static bool TryParseAngled(string s, out AngledWall w)
+    {
+        w = default;
+        var parts = s.Split(',');
+        if (parts.Length != 4) return false;
+        if (!int.TryParse(parts[0], out int ax) || !int.TryParse(parts[1], out int ay)
+            || !int.TryParse(parts[2], out int bx) || !int.TryParse(parts[3], out int by)) return false;
+        w = new AngledWall(ax, ay, bx, by);
+        return true;
+    }
+
     private static bool TryParseCell(string s, out CellKey cell)
     {
         cell = default;
@@ -124,6 +138,7 @@ public static class MapSerializer
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
+        foreach (var w in doc.AngledWalls) dto.AngledWalls.Add(Key(w));
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -175,6 +190,8 @@ public static class MapSerializer
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
         AddPawns(dto, doc);
+        foreach (var s in dto.AngledWalls)
+            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
         return doc;
     }
 
@@ -221,6 +238,7 @@ public static class MapSerializer
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
+        foreach (var w in doc.AngledWalls) dto.AngledWalls.Add(Key(w));
         return dto;
     }
 
@@ -255,6 +273,8 @@ public static class MapSerializer
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
         AddPawns(dto, doc);
+        foreach (var s in dto.AngledWalls)
+            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
         return doc;
     }
 }

@@ -561,5 +561,73 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(!W(3, 0, Side.East), "overlap move: old right wall gone");
 }
 
+// --- polygon tool: cell-center fill, edge decomposition, capture/paste, erase, round-trip ---
+{
+    var p = new MapDocument();
+    // 2x1 triangle: (0,0),(2,0),(0,1). cell (0,0) center (0.5,0.5) inside,
+    // cell (1,0) center (1.5,0.5) outside -> room = cell (0,0).
+    p.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    Check(p.Cells.Contains(new CellKey(0, 0)), "polygon fill: cell (0,0) center inside triangle");
+    Check(!p.Cells.Contains(new CellKey(1, 0)), "polygon fill: cell (1,0) center outside triangle");
+    Check(p.Cells.Count == 1, "polygon fill: exactly 1 cell");
+    // edges: (0,0)->(2,0) horizontal at y=0 -> North walls of cells (0,0),(1,0)
+    Check(p.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "polygon: horizontal edge -> North wall cell (0,0)");
+    Check(p.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "polygon: horizontal edge -> North wall cell (1,0)");
+    // (2,0)->(0,1) diagonal -> AngledWall
+    Check(p.AngledWalls.Count == 1, "polygon: one diagonal edge -> one angled wall");
+    Check(p.AngledWalls[0] == new AngledWall(2, 0, 0, 1), "polygon: diagonal stored as AngledWall(2,0,0,1)");
+    // (0,1)->(0,0) vertical at x=0 -> East wall of cell (-1,0)
+    Check(p.HasWall(new EdgeKey(new CellKey(-1, 0), Side.East)), "polygon: vertical edge -> East wall of cell left");
+
+    // axis-aligned rectangle polygon = 4x3 room, no angled walls
+    var r = new MapDocument();
+    r.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) });
+    Check(r.Cells.Count == 12, "polygon rectangle: 4x3 = 12 cells");
+    Check(r.AngledWalls.Count == 0, "polygon rectangle: no angled walls");
+
+    // capture/paste translates angled wall endpoints
+    var src = new MapDocument();
+    src.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    var snap = src.CaptureRegion(0, 0, 1, 1);
+    Check(snap.AngledWalls.Count == 1, "polygon capture: angled wall fully inside region captured");
+    src.PasteRegion(snap, 5, 5);
+    Check(src.AngledWalls.Any(w => w == new AngledWall(7, 5, 5, 6)), "polygon paste: angled wall translated by offset");
+
+    // capture excludes angled walls NOT fully inside the region
+    var p2 = new MapDocument();
+    p2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3), (0, 3) });
+    // add a long diagonal spanning outside a small region
+    p2.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    var snap2 = p2.CaptureRegion(0, 0, 3, 2);
+    Check(!snap2.AngledWalls.Any(w => w == new AngledWall(0, 0, 10, 10)), "polygon capture: angled wall not fully inside region excluded");
+
+    // clear removes angled walls fully inside the rect
+    var p3 = new MapDocument();
+    p3.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    p3.AngledWalls.Add(new AngledWall(5, 5, 7, 7)); // fully inside [0,0]-[8,8]
+    p3.ClearRegion(0, 0, 8, 8);
+    Check(p3.AngledWalls.Count == 0, "polygon clear: angled walls fully inside rect removed");
+
+    // clear keeps angled walls NOT fully inside
+    var p4 = new MapDocument();
+    p4.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    p4.ClearRegion(0, 0, 3, 3);
+    Check(p4.AngledWalls.Count == 1, "polygon clear: angled wall not fully inside rect kept");
+
+    // round-trip preserves angled walls
+    var p5 = new MapDocument();
+    p5.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    string pj = MapSerializer.ToJson(p5);
+    var pl = MapSerializer.FromJson(pj);
+    Check(pl.AngledWalls.Count == 1 && pl.AngledWalls[0] == new AngledWall(2, 0, 0, 1), "polygon round-trip: angled wall preserved");
+    Check(pl.Cells.Contains(new CellKey(0, 0)), "polygon round-trip: filled cell preserved");
+
+    // ContentBounds includes angled wall endpoints
+    var p6 = new MapDocument();
+    p6.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    var b = p6.ContentBounds();
+    Check(b != null && b.Value.maxX >= 10 && b.Value.maxY >= 10, "polygon bounds: angled wall endpoints extend bounds");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

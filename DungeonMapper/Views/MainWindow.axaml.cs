@@ -45,6 +45,7 @@ public partial class MainWindow : Window
         LabelTool(ToolLabel, "Label");
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
+        LabelTool(ToolPolygon, "Polygon");
 
         // map list (item 8)
         RefreshMapList();
@@ -68,6 +69,7 @@ public partial class MainWindow : Window
         ToolLabel.Click += (_, _) => SetTool(ToolMode.Label);
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
+        ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
 
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
@@ -125,6 +127,16 @@ public partial class MainWindow : Window
         {
             // delete = erase the current selection with everything selected
             Canvas.DeleteSelection(); Canvas.Refresh(); e.Handled = true; return;
+        }
+        else if (e.Key == Key.Enter && Canvas.Mode == ToolMode.Polygon && !IsTyping())
+        {
+            // Enter closes the polygon by appending the first vertex
+            Canvas.ClosePolygon(); Canvas.Refresh(); e.Handled = true; return;
+        }
+        else if (e.Key == Key.Escape && Canvas.Mode == ToolMode.Polygon && !IsTyping())
+        {
+            // Escape discards the vertices armed so far
+            Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return;
         }
         else if (e.KeyModifiers == KeyModifiers.None)
         {
@@ -184,6 +196,7 @@ public partial class MainWindow : Window
         LabelTool(ToolLabel, "Label");
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
+        LabelTool(ToolPolygon, "Polygon");
     }
 
     private void SetTool(ToolMode mode)
@@ -286,6 +299,12 @@ public partial class MainWindow : Window
                     });
                 }
                 ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
+                break;
+
+            case ToolMode.Polygon:
+                ToolPanel.Clear("Polygon");
+                ToolPanel.AddHint("click grid intersections to add vertices. the fill preview shows which cells will fill. click the FIRST vertex, or press Enter, to close the polygon. straight edges become walls, diagonal edges become angled walls.");
+                ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 
             default:

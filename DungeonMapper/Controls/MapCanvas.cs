@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -180,6 +180,8 @@ public sealed class MapCanvas : Control
                     foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                         Document.SetWall(new EdgeKey(c, side), false);
             }
+        if (f.Walls)
+            Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallInRect(w, x0, y0, x1, y1));
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -193,6 +195,24 @@ public sealed class MapCanvas : Control
         _cutSource = null;
         _pasteCursor = null;
         _ghostVisible = false;
+    }
+
+    /// Polygon tool: close the polygon by appending the first vertex (Enter key).
+    /// No-op when fewer than 3 vertices are armed.
+    public void ClosePolygon()
+    {
+        if (_polyVerts.Count < 3) return;
+        var first = _polyVerts[0];
+        if (_polyVerts[^1] != first) _polyVerts.Add(first);
+        Document.AddPolygon(_polyVerts);
+        _polyVerts.Clear();
+        Commit();
+    }
+
+    /// Polygon tool: discard the vertices armed so far (cancel button / Escape).
+    public void CancelPolygon()
+    {
+        _polyVerts.Clear();
     }
 
     public void ClearSelection()
@@ -323,6 +343,15 @@ public sealed class MapCanvas : Control
                 DrawDoor(ctx, e, a, b, door);
         }
 
+        // Angled walls: line segments between lattice vertices, drawn with the
+        // same wall pen. Doors on angled walls are deferred to v2.
+        foreach (var w in Document.AngledWalls)
+        {
+            var a = WorldToScreen(w.Ax, w.Ay);
+            var b = WorldToScreen(w.Bx, w.By);
+            ctx.DrawLine(WallPen, a, b);
+        }
+
         // Labels centered on their cell
         foreach (var l in Document.Labels)
         {
@@ -377,6 +406,12 @@ public sealed class MapCanvas : Control
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
     private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
 
+    // polygon tool: vertices are LATTICE points (integer grid intersections).
+    // Click adds a snapped vertex; clicking the first vertex closes the polygon;
+    // Enter closes by appending the first vertex (ClosePolygon).
+    private readonly List<(int x, int y)> _polyVerts = new();
+    private Point _polyCursor; // world cursor, for the closing preview segment
+
     private void DrawPreview(DrawingContext ctx)
     {
         if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
@@ -426,6 +461,49 @@ public sealed class MapCanvas : Control
             var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(60, 80, 200, 220)), rect);
             ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(80, 200, 220)), 2), rect);
+        }
+
+        // polygon preview: outline of the armed vertices + the closing preview
+        // segment (cursor to first vertex) + the cells that would fill.
+        if (Mode == ToolMode.Polygon && _polyVerts.Count > 0)
+        {
+            var polyPen = new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2);
+            // fill preview: cells whose center is inside the polygon (closed, with
+            // the cursor as the provisional last vertex when >=2 vertices armed)
+            var previewVerts = new List<(int x, int y)>(_polyVerts);
+            if (_polyVerts.Count >= 2)
+                previewVerts.Add(((int)Math.Round(_polyCursor.X), (int)Math.Round(_polyCursor.Y)));
+            if (previewVerts.Count >= 3)
+            {
+                var fillCells = Document.PolygonFillCells(previewVerts);
+                var fill = new SolidColorBrush(Color.FromArgb(70, 60, 75, 105));
+                foreach (var c in fillCells)
+                {
+                    var p0 = WorldToScreen(c.X, c.Y);
+                    ctx.FillRectangle(fill, new Rect(p0.X, p0.Y, _scale, _scale));
+                }
+            }
+            // outline
+            for (int i = 0; i < _polyVerts.Count - 1; i++)
+            {
+                var a = WorldToScreen(_polyVerts[i].x, _polyVerts[i].y);
+                var b = WorldToScreen(_polyVerts[i + 1].x, _polyVerts[i + 1].y);
+                ctx.DrawLine(polyPen, a, b);
+            }
+            // closing preview segment: last vertex -> cursor (and cursor -> first
+            // vertex when >=2 armed, so the loop shape is visible)
+            var last = WorldToScreen(_polyVerts[^1].x, _polyVerts[^1].y);
+            var cur = WorldToScreen(_polyCursor.X, _polyCursor.Y);
+            ctx.DrawLine(polyPen, last, cur);
+            if (_polyVerts.Count >= 2)
+                ctx.DrawLine(polyPen, cur, WorldToScreen(_polyVerts[0].x, _polyVerts[0].y));
+            // vertex dots
+            var dot = new SolidColorBrush(Color.FromRgb(250, 250, 250));
+            foreach (var (vx, vy) in _polyVerts)
+            {
+                var p = WorldToScreen(vx, vy);
+                ctx.DrawEllipse(dot, null, p, 3, 3);
+            }
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
@@ -646,6 +724,25 @@ public sealed class MapCanvas : Control
                     StatusMessage?.Invoke("select a pawn in the pawn menu first");
                 }
                 break;
+
+            case ToolMode.Polygon:
+                // snap the click to the nearest LATTICE vertex (grid intersection)
+                int vx = (int)Math.Round(world.X), vy = (int)Math.Round(world.Y);
+                if (_polyVerts.Count >= 3 && vx == _polyVerts[0].x && vy == _polyVerts[0].y)
+                {
+                    // clicking the first vertex closes the polygon
+                    if (_polyVerts[^1] != (vx, vy)) _polyVerts.Add((vx, vy));
+                    Document.AddPolygon(_polyVerts);
+                    _polyVerts.Clear();
+                    Commit();
+                    StatusMessage?.Invoke("polygon closed");
+                }
+                else
+                {
+                    _polyVerts.Add((vx, vy));
+                    StatusMessage?.Invoke($"vertex ({vx},{vy}) added - click first vertex or press Enter to close");
+                }
+                break;
         }
         InvalidateVisual();
     }
@@ -662,6 +759,7 @@ public sealed class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
         {
@@ -837,6 +935,9 @@ public sealed class MapCanvas : Control
                             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                                 Document.SetWall(new EdgeKey(c, side), false);
                     }
+                // angled walls fully inside the erase rect are removed (Walls filter)
+                if (f.Walls)
+                    Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallInRect(w, x0, y0, x1, y1));
                 Commit();
                 break;
             }
