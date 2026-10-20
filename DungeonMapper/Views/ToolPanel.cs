@@ -17,6 +17,12 @@ public sealed class ToolPanel : Border
     private readonly TextBlock _title = new() { FontSize = 14, Foreground = Brushes.White };
     private readonly StackPanel _content = new() { Spacing = 6 };
     private readonly ScrollViewer _scroll;
+    // When set, all Add* builders append here instead of _content. Lets the modal
+    // popup host the same field builders (color fields, text, number, button).
+    private Panel _target;
+
+    public void SetTarget(Panel? target) => _target = target;
+    private Panel Target => _target ?? _content;
 
     public ToolPanel()
     {
@@ -57,12 +63,12 @@ public sealed class ToolPanel : Border
     public void Clear(string title)
     {
         _title.Text = title;
-        _content.Children.Clear();
+        Target.Children.Clear();
     }
 
     public void AddHint(string text)
     {
-        _content.Children.Add(new TextBlock
+        Target.Children.Add(new TextBlock
         {
             Text = text,
             Foreground = Brushes.White,
@@ -75,7 +81,7 @@ public sealed class ToolPanel : Border
     {
         var cb = new CheckBox { Content = label, IsChecked = initial, Foreground = Brushes.White };
         cb.IsCheckedChanged += (_, _) => onChange(cb.IsChecked == true);
-        _content.Children.Add(cb);
+        Target.Children.Add(cb);
     }
 
     public void AddText(string label, string initial, Action<string> onChange)
@@ -85,7 +91,7 @@ public sealed class ToolPanel : Border
         var tb = new TextBox { Text = initial };
         tb.TextChanged += (_, _) => onChange(tb.Text);
         panel.Children.Add(tb);
-        _content.Children.Add(panel);
+        Target.Children.Add(panel);
     }
 
     public void AddChoice(string label, string[] options, string initial, Action<string> onChange)
@@ -99,7 +105,7 @@ public sealed class ToolPanel : Border
         };
         cb.SelectionChanged += (_, _) => onChange((string?)cb.SelectedItem ?? options[0]);
         panel.Children.Add(cb);
-        _content.Children.Add(panel);
+        Target.Children.Add(panel);
     }
 
     public void AddNumber(string label, int initial, Action<int> onChange)
@@ -112,14 +118,14 @@ public sealed class ToolPanel : Border
             if (int.TryParse(tb.Text, out int v)) onChange(v);
         };
         panel.Children.Add(tb);
-        _content.Children.Add(panel);
+        Target.Children.Add(panel);
     }
 
     public void AddButton(string label, Action onClick)
     {
         var b = new Button { Content = label };
         b.Click += (_, _) => onClick();
-        _content.Children.Add(b);
+        Target.Children.Add(b);
     }
 
     /// A grid of clickable pawn swatches (concentric circles) for the pawn tool's
@@ -158,7 +164,7 @@ public sealed class ToolPanel : Border
             grid.Children.Add(cell);
         }
         panel.Children.Add(grid);
-        _content.Children.Add(panel);
+        Target.Children.Add(panel);
     }
 
     /// A color field: 10 preset swatches (clickable) plus a #hex text box. Picking
@@ -185,7 +191,7 @@ public sealed class ToolPanel : Border
             if (TryHexColor(tb.Text, out var c)) onChange(c);
         };
         panel.Children.Add(tb);
-        _content.Children.Add(panel);
+        Target.Children.Add(panel);
     }
 
     private static bool TryHexColor(string hex, out (int r, int g, int b) c)

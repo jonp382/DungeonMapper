@@ -41,6 +41,35 @@
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />
             <views:ToolPanel x:Name="ToolPanel" />
+            <!-- modal popup for pawn management: centered over the map, hidden by
+                 default. The library grid is virtualized (VirtualizingStackPanel)
+                 so only visible rows render for performance. -->
+            <Border x:Name="ModalOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="440" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Pawn management" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="ModalClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <Button x:Name="ModalAddPawn" Content="+ add pawn" />
+                    <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+                        <ItemsControl x:Name="LibraryGrid">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </ScrollViewer>
+                    <TextBlock Text="affiliation colors (outer + inner):" Foreground="White" FontSize="12" />
+                    <StackPanel x:Name="ModalAffiliations" Spacing="4" />
+                    <TextBlock Text="status styles (name -> #hex, thickness):" Foreground="White" FontSize="12" />
+                    <StackPanel x:Name="ModalStatuses" Spacing="4" />
+                </StackPanel>
+            </Border>
             <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
                        Foreground="#aaa" FontSize="13"
                        HorizontalAlignment="Left" VerticalAlignment="Bottom"
