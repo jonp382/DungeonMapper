@@ -22,7 +22,7 @@ public sealed class ToolPanel : Border
     private Panel _target;
 
     public void SetTarget(Panel? target) => _target = target;
-    private Panel Target => _target ?? _content;
+    public Panel Target => _target ?? _content;
 
     public ToolPanel()
     {
@@ -77,11 +77,12 @@ public sealed class ToolPanel : Border
         });
     }
 
-    public void AddCheck(string label, bool initial, Action<bool> onChange)
+    public CheckBox AddCheck(string label, bool initial, Action<bool> onChange)
     {
         var cb = new CheckBox { Content = label, IsChecked = initial, Foreground = Brushes.White };
         cb.IsCheckedChanged += (_, _) => onChange(cb.IsChecked == true);
         Target.Children.Add(cb);
+        return cb;
     }
 
     public void AddText(string label, string initial, Action<string> onChange)
@@ -170,16 +171,28 @@ public sealed class ToolPanel : Border
         Target.Children.Add(panel);
     }
 
-    /// A color field: a #hex text box (king) plus a palette button that opens a
-    /// popup flyout containing a 2x5 preset grid and a full color picker. Clicking
-    /// a preset sets the hex; the picker sets a custom color. Both call onChange.
-    public void AddColorField(string label, int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
+    /// A color field: [preview square][#hex textbox][palette button][red X]. The
+    /// preview square (same size as the palette button) shows the current color.
+    /// The hex box is king (accepts with or without #). The palette button opens a
+    /// popup flyout with a 2x5 preset grid + full color picker. A red X appears to
+    /// the right of the palette ONLY when the typed hex is invalid (e.g. "123").
+    public StackPanel AddColorField(string label, int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
+        panel.Children.Add(ColorCell(r, g, b, presets, onChange));
+        Target.Children.Add(panel);
+        return panel;
+    }
 
-        var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}" };
+    /// The reusable color row: [preview square][#hex textbox][palette button][red X].
+    /// Used by AddColorField and the status-style grid so both share one format.
+    public StackPanel ColorCell(int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
+    {
+        var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}", Width = 70 };
+        var preview = new Rectangle { Width = 28, Height = 28, Fill = new SolidColorBrush(Color.FromRgb((byte)r, (byte)g, (byte)b)) };
         var palette = new Button { Content = "🎨", Width = 38, Height = 28 };
+        var invalidX = new TextBlock { Text = "✕", Foreground = Brushes.Red, FontSize = 18, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
 
         // 2 row x 5 column preset grid (MS Paint style): colored squares, click sets it.
         var grid = new UniformGrid { Rows = 2, Columns = 5 };
@@ -205,6 +218,8 @@ public sealed class ToolPanel : Border
             syncing = true;
             var c = picker.Color;
             tb.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+            preview.Fill = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B));
+            invalidX.IsVisible = false;
             onChange((c.R, c.G, c.B));
             syncing = false;
         };
@@ -215,8 +230,14 @@ public sealed class ToolPanel : Border
             {
                 syncing = true;
                 picker.Color = Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b);
+                preview.Fill = new SolidColorBrush(Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b));
+                invalidX.IsVisible = false;
                 syncing = false;
                 onChange(c);
+            }
+            else
+            {
+                invalidX.IsVisible = true;
             }
         };
 
@@ -225,13 +246,24 @@ public sealed class ToolPanel : Border
         popup.Children.Add(picker);
         palette.Flyout = new Flyout { Content = popup };
 
+        // order: preview, hex, palette, red X
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        row.Children.Add(palette);
+        row.Children.Add(preview);
         row.Children.Add(tb);
-        panel.Children.Add(row);
-
-        Target.Children.Add(panel);
+        row.Children.Add(palette);
+        row.Children.Add(invalidX);
+        return row;
     }
+
+    // Insert a control right after an existing one (used to show inner/outer color
+    // fields in place when "custom colors" is checked, without rebuilding the panel).
+    public void InsertAfter(Control after, Control item)
+    {
+        int i = Target.Children.IndexOf(after);
+        Target.Children.Insert(i >= 0 ? i + 1 : Target.Children.Count, item);
+    }
+
+    public void RemoveControl(Control c) => Target.Children.Remove(c);
 
     private static bool TryHexColor(string hex, out (int r, int g, int b) c)
     {

@@ -661,31 +661,49 @@ public partial class MainWindow : Window
                 BuildLibraryGrid();
             });
 
-        ToolPanel.AddCheck("custom colors", t.ColorOverride, on =>
+        // custom colors: build the inner/outer fields once, then the toggle. Toggling
+        // inserts/removes the color fields IN PLACE so the edit panel stays open (no
+        // PopulatePanel wipe, no re-click). Fields start appended; if override is off
+        // they're removed, and the toggle re-inserts them right after the checkbox.
+        var innerPanel = ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
         {
+            t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+        });
+        var outerPanel = ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
+        {
+            t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+        });
+        var check = new CheckBox { Content = "custom colors", IsChecked = t.ColorOverride, Foreground = Brushes.White };
+        check.IsCheckedChanged += (_, _) =>
+        {
+            bool on = check.IsChecked == true;
             t.ColorOverride = on;
             if (!on) t.ApplyAffiliationDefaults();
             _pawnLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
-            PopulatePanel(Canvas.Mode);
-        });
-        if (t.ColorOverride)
+            if (on)
+            {
+                ToolPanel.InsertAfter(check, innerPanel);
+                ToolPanel.InsertAfter(innerPanel, outerPanel);
+            }
+            else
+            {
+                ToolPanel.RemoveControl(innerPanel);
+                ToolPanel.RemoveControl(outerPanel);
+            }
+        };
+        ToolPanel.Target.Children.Add(check);
+        if (!t.ColorOverride)
         {
-            ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
-            {
-                t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
-                _pawnLibrary.Save();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            });
-            ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
-            {
-                t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
-                _pawnLibrary.Save();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            });
+            ToolPanel.RemoveControl(innerPanel);
+            ToolPanel.RemoveControl(outerPanel);
         }
 
         var names = new List<string>();
@@ -770,51 +788,89 @@ public partial class MainWindow : Window
         BuildLibraryGrid();
 
         // Global affiliation coloring: templates inherit these unless ColorOverride.
+        // outer + inner on the SAME row (modal is constant width).
         ToolPanel.SetTarget(ModalAffiliations);
         ModalAffiliations.Children.Clear();
         foreach (var ac in _settings.AffiliationColors)
         {
             var captured = ac;
-            ToolPanel.AddColorField($"{captured.Name} outer", captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            row.Children.Add(new TextBlock { Text = captured.Name, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Width = 55 });
+            var outerCol = new StackPanel { Spacing = 1 };
+            outerCol.Children.Add(new TextBlock { Text = "outer", Foreground = Brushes.White, FontSize = 11 });
+            outerCol.Children.Add(ToolPanel.ColorCell(captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
             {
                 captured.OuterR = c.r; captured.OuterG = c.g; captured.OuterB = c.b;
                 _settings.Save();
                 Canvas.Refresh();
-                BuildLibraryGrid(); // swatches reflect the new global color
-            });
-            ToolPanel.AddColorField($"{captured.Name} inner", captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
+                BuildLibraryGrid();
+            }));
+            var innerCol = new StackPanel { Spacing = 1 };
+            innerCol.Children.Add(new TextBlock { Text = "inner", Foreground = Brushes.White, FontSize = 11 });
+            innerCol.Children.Add(ToolPanel.ColorCell(captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
             {
                 captured.InnerR = c.r; captured.InnerG = c.g; captured.InnerB = c.b;
                 _settings.Save();
                 Canvas.Refresh();
                 BuildLibraryGrid();
-            });
+            }));
+            row.Children.Add(outerCol);
+            row.Children.Add(innerCol);
+            ModalAffiliations.Children.Add(row);
         }
 
-        // Status styles: name -> #hex, plus a thickness number, plus + add.
+        // Status styles: an actual Grid with grid lines. Columns: Name, color cell
+        // ([preview][hex][palette][X]), Thickness. Each style on its own row.
         ToolPanel.SetTarget(ModalStatuses);
         ModalStatuses.Children.Clear();
+        var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header
+        int rowIdx = 0;
+        // header row
+        var hName = new TextBlock { Text = "Name", Foreground = Brushes.White, FontSize = 11 };
+        var hColor = new TextBlock { Text = "Color", Foreground = Brushes.White, FontSize = 11 };
+        var hThick = new TextBlock { Text = "Thickness", Foreground = Brushes.White, FontSize = 11 };
+        Grid.SetColumn(hName, 0); Grid.SetRow(hName, rowIdx);
+        Grid.SetColumn(hColor, 1); Grid.SetRow(hColor, rowIdx);
+        Grid.SetColumn(hThick, 2); Grid.SetRow(hThick, rowIdx);
+        grid.Children.Add(hName); grid.Children.Add(hColor); grid.Children.Add(hThick);
+        rowIdx++;
         foreach (var st in _settings.PawnStatuses)
         {
             var captured = st;
-            ToolPanel.AddText(captured.Name, $"#{captured.R:X2}{captured.G:X2}{captured.B:X2}", hex =>
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var nameTb = new TextBox { Text = captured.Name, Width = 64 };
+            nameTb.TextChanged += (_, _) => { captured.Name = nameTb.Text; _settings.Save(); Canvas.Refresh(); BuildLibraryGrid(); };
+            var colorCell = ToolPanel.ColorCell(captured.R, captured.G, captured.B, presets, c =>
             {
-                if (TryHex(hex, out var c))
-                {
-                    captured.R = c.r; captured.G = c.g; captured.B = c.b;
-                    Canvas.Refresh();
-                    _settings.Save();
-                    BuildLibraryGrid();
-                }
-            });
-            ToolPanel.AddNumber($"{captured.Name} thickness", captured.Thickness, v =>
-            {
-                captured.Thickness = Math.Max(0, v);
+                captured.R = c.r; captured.G = c.g; captured.B = c.b;
                 Canvas.Refresh();
                 _settings.Save();
                 BuildLibraryGrid();
             });
+            var thickTb = new TextBox { Text = captured.Thickness.ToString(), Width = 50 };
+            thickTb.TextChanged += (_, _) =>
+            {
+                if (int.TryParse(thickTb.Text, out int v))
+                {
+                    captured.Thickness = Math.Max(0, v);
+                    Canvas.Refresh();
+                    _settings.Save();
+                    BuildLibraryGrid();
+                }
+            };
+            Grid.SetColumn(nameTb, 0); Grid.SetRow(nameTb, rowIdx);
+            Grid.SetColumn(colorCell, 1); Grid.SetRow(colorCell, rowIdx);
+            Grid.SetColumn(thickTb, 2); Grid.SetRow(thickTb, rowIdx);
+            grid.Children.Add(nameTb); grid.Children.Add(colorCell); grid.Children.Add(thickTb);
+            rowIdx++;
         }
+        // grid lines: a border on each cell via a Grid with ShowGridLines
+        grid.ShowGridLines = true;
+        ModalStatuses.Children.Add(grid);
         ToolPanel.AddButton("+ add status style", () =>
         {
             _settings.PawnStatuses.Add(new PawnStatus("new", 245, 220, 60, 2));
