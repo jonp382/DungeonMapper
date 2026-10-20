@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -20,6 +21,9 @@ public partial class MainWindow : Window
     private readonly History _history = new();
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly PawnLibrary _pawnLibrary = PawnLibrary.Load();
+    // the side panel's Status dropdown, so it can be refreshed when statuses change
+    private ComboBox? _statusCombo;
+    private PawnTemplate? _statusComboTemplate;
 
     public MainWindow()
     {
@@ -708,13 +712,15 @@ public partial class MainWindow : Window
 
         var names = new List<string>();
         foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
-        ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
+        var statusCombo = ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
         {
             t.Status = s;
             _pawnLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
+        _statusCombo = statusCombo;
+        _statusComboTemplate = t;
 
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
 
@@ -794,6 +800,7 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
+            RefreshStatusCombo();
         }
 
         if (affected == 0)
@@ -893,13 +900,30 @@ public partial class MainWindow : Window
         Grid.SetColumn(hThick, 2); Grid.SetRow(hThick, rowIdx);
         grid.Children.Add(hName); grid.Children.Add(hColor); grid.Children.Add(hThick);
         rowIdx++;
+        // status rows: name cell = [textbox][red X shown when the name is a duplicate].
+        // Track each row so renames can recompute the duplicate set live.
+        var rows = new List<(PawnStatus st, TextBox nameTb, TextBlock dupX)>();
         foreach (var st in _settings.PawnStatuses)
         {
             var captured = st;
             bool isNone = captured.Name == "none";
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
             var nameTb = new TextBox { Text = captured.Name, Width = 124, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
-            nameTb.TextChanged += (_, _) => { captured.Name = nameTb.Text; _settings.Save(); Canvas.Refresh(); BuildLibraryGrid(); };
+            var dupX = new TextBlock { Text = "✕", Foreground = Brushes.Red, FontSize = 16, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
+            var nameCell = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
+            nameCell.Children.Add(nameTb);
+            nameCell.Children.Add(dupX);
+            nameTb.TextChanged += (_, _) =>
+            {
+                captured.Name = nameTb.Text;
+                _settings.Save();
+                Canvas.Refresh();
+                BuildLibraryGrid();
+                UpdateDuplicates();
+                RefreshStatusCombo();
+            };
+
             var colorCell = ToolPanel.ColorCell(captured.R, captured.G, captured.B, presets, c =>
             {
                 captured.R = c.r; captured.G = c.g; captured.B = c.b;
@@ -908,6 +932,7 @@ public partial class MainWindow : Window
                 BuildLibraryGrid();
             });
             colorCell.Margin = new Thickness(2);
+
             var thickTb = new TextBox { Text = captured.Thickness.ToString(), Width = 50, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
             thickTb.TextChanged += (_, _) =>
             {
@@ -919,10 +944,12 @@ public partial class MainWindow : Window
                     BuildLibraryGrid();
                 }
             };
-            Grid.SetColumn(nameTb, 0); Grid.SetRow(nameTb, rowIdx);
+
+            Grid.SetColumn(nameCell, 0); Grid.SetRow(nameCell, rowIdx);
             Grid.SetColumn(colorCell, 1); Grid.SetRow(colorCell, rowIdx);
             Grid.SetColumn(thickTb, 2); Grid.SetRow(thickTb, rowIdx);
-            grid.Children.Add(nameTb); grid.Children.Add(colorCell); grid.Children.Add(thickTb);
+            grid.Children.Add(nameCell); grid.Children.Add(colorCell); grid.Children.Add(thickTb);
+
             // delete X per row; "none" is un-deletable (no button). Deleting a style
             // resets everything that uses it to "none" (confirmation flyout).
             if (!isNone)
@@ -932,19 +959,56 @@ public partial class MainWindow : Window
                 Grid.SetColumn(delX, 3); Grid.SetRow(delX, rowIdx);
                 grid.Children.Add(delX);
             }
+
+            rows.Add((captured, nameTb, dupX));
             rowIdx++;
         }
+
+        // recompute which names are duplicated and toggle each row's red X.
+        void UpdateDuplicates()
+        {
+            var counts = new Dictionary<string, int>();
+            foreach (var (st, _, _) in rows)
+                counts[st.Name] = counts.TryGetValue(st.Name, out int n) ? n + 1 : 1;
+            foreach (var (st, _, dupX) in rows)
+                dupX.IsVisible = counts[st.Name] > 1;
+        }
+        UpdateDuplicates();
+
         // grid lines: a border on each cell via a Grid with ShowGridLines
         grid.ShowGridLines = true;
         ModalStatuses.Children.Add(grid);
         ToolPanel.AddButton("+ add status style", () =>
         {
-            _settings.PawnStatuses.Add(new PawnStatus("new", 245, 220, 60, 2));
+            // give new statuses indexed unique names ("new", "new 1", "new 2", ...)
+            // so two new ones don't collide on "new".
+            const string prefix = "new";
+            string name = prefix;
+            int i = 1;
+            while (_settings.PawnStatuses.Any(st => st.Name == name))
+                name = prefix + " " + (i++);
+            _settings.PawnStatuses.Add(new PawnStatus(name, 245, 220, 60, 2));
             _settings.Save();
             ShowPawnManagement();
+            RefreshStatusCombo();
         });
 
         ToolPanel.SetTarget(null);
+    }
+
+    // Rebuild the side panel's Status dropdown options from the current status list
+    // and re-select the template's current status. Called whenever statuses change
+    // (add, delete, rename) so the editor shows the live list, not a stale snapshot.
+    private void RefreshStatusCombo()
+    {
+        if (_statusCombo is null || _statusComboTemplate is null) return;
+        var names = new List<string>();
+        foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
+        var opts = names.ToArray();
+        _statusCombo.ItemsSource = opts;
+        _statusCombo.SelectedItem = Array.IndexOf(opts, _statusComboTemplate.Status) >= 0
+            ? _statusComboTemplate.Status
+            : (opts.Length > 0 ? opts[0] : null);
     }
 
     // Rebuild the virtualized library grid: chunk templates into rows of 4 swatches.

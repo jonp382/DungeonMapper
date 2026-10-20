@@ -95,7 +95,7 @@ public sealed class ToolPanel : Border
         Target.Children.Add(panel);
     }
 
-    public void AddChoice(string label, string[] options, string initial, Action<string> onChange)
+    public ComboBox AddChoice(string label, string[] options, string initial, Action<string> onChange)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
@@ -107,6 +107,7 @@ public sealed class ToolPanel : Border
         cb.SelectionChanged += (_, _) => onChange((string?)cb.SelectedItem ?? options[0]);
         panel.Children.Add(cb);
         Target.Children.Add(panel);
+        return cb;
     }
 
     public void AddNumber(string label, int initial, Action<int> onChange)
