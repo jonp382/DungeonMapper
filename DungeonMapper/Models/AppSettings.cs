@@ -112,6 +112,9 @@ public sealed class AppSettings
     // minor lighter grey, both visible against the flooring fill.
     public int MajorGridR = 30, MajorGridG = 30, MajorGridB = 35;
     public int MinorGridR = 90, MinorGridG = 90, MinorGridB = 100;
+    // Toggle: when false, minor gridlines (every 5ft edge) are not drawn at all,
+    // so at spacing 2 you can show only the 10ft major lines.
+    public bool ShowMinorGrid = true;
 
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     public Dictionary<string, string> ToolHotkeys = new();

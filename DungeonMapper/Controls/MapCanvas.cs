@@ -275,14 +275,16 @@ public sealed class MapCanvas : Control
         for (int x = xStart; x <= xEnd; x++)
         {
             double sx = WorldToScreen(x, 0).X;
-            var pen = (sp == 1 || FloorMod(x, sp) == 0) ? majorPen : minorPen;
-            ctx.DrawLine(pen, new Point(sx, 0), new Point(sx, Bounds.Height));
+            bool major = sp == 1 || FloorMod(x, sp) == 0;
+            if (!major && !Settings.ShowMinorGrid) continue;
+            ctx.DrawLine(major ? majorPen : minorPen, new Point(sx, 0), new Point(sx, Bounds.Height));
         }
         for (int y = yStart; y <= yEnd; y++)
         {
             double sy = WorldToScreen(0, y).Y;
-            var pen = (sp == 1 || FloorMod(y, sp) == 0) ? majorPen : minorPen;
-            ctx.DrawLine(pen, new Point(0, sy), new Point(Bounds.Width, sy));
+            bool major = sp == 1 || FloorMod(y, sp) == 0;
+            if (!major && !Settings.ShowMinorGrid) continue;
+            ctx.DrawLine(major ? majorPen : minorPen, new Point(0, sy), new Point(Bounds.Width, sy));
         }
 
         // Stairs: fill tint + arrow glyph

@@ -497,6 +497,18 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             _settings.Save();
         });
+        // toggle minor gridline visibility, on the same row as the minor color,
+        // with padding. Unchecked = minor lines not drawn at all.
+        var minorPanel = ToolPanel.Target.Children[^1];
+        var minorRow = (StackPanel)((StackPanel)minorPanel).Children[^1];
+        var minorCheck = new CheckBox { Content = "show minor", IsChecked = _settings.ShowMinorGrid, Foreground = Brushes.White, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        minorCheck.IsCheckedChanged += (_, _) =>
+        {
+            _settings.ShowMinorGrid = minorCheck.IsChecked == true;
+            Canvas.Refresh();
+            _settings.Save();
+        };
+        minorRow.Children.Add(minorCheck);
 
         AddDoorDefaultsSection();
 
