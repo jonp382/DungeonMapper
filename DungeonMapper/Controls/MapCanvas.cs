@@ -37,6 +37,10 @@ public sealed class MapCanvas : Control
         // would otherwise leave focus on a ComboBox/ScrollBar/CheckBox, which
         // consume those keys (type-ahead) and break the hotkeys.
         Focusable = true;
+        // clip drawing to the canvas bounds: panning the map upward must not let
+        // walls/pawns/labels render over the top toolbar. The canvas sits below the
+        // toolbar in the layout, so clipping to its bounds keeps the toolbar clear.
+        ClipToBounds = true;
     }
 
     public MapDocument Document { get; set; } = new();
