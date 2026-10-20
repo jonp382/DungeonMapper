@@ -852,7 +852,8 @@ public sealed class MapCanvas : Control
             if (door.State == DoorState.Locked)
             {
                 double inner = s2 * 2 * 0.5;
-                ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+                // locked inner core is always RED, independent of door type.
+                ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
                     new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
             }
         }
