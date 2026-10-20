@@ -885,7 +885,7 @@ public partial class MainWindow : Window
         ToolPanel.SetTarget(ModalStatuses);
         ModalStatuses.Children.Clear();
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) }); // name, ~2x wider
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) }); // name + duplicate X, ~2x wider
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });       // color
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });     // thickness
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });        // delete
