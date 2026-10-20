@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 
 namespace DungeonMapper.Models;
@@ -150,10 +151,11 @@ public sealed class AppSettings
             new("bricked", 160, 100, 60),
             new("magical", 180, 120, 240),
         };
-        // status scaffolding: a few starter styles, addable via the UI.
+        // status scaffolding: "none" is the hard default (black, thickness 1,
+        // un-deletable), plus a few starter styles, addable via the UI.
         s.PawnStatuses = new List<PawnStatus>
         {
-            new("none", 255, 255, 255, 0),
+            new("none", 0, 0, 0, 1),
             new("paralyzed", 230, 120, 200, 3),  // pink + thick
             new("fear", 245, 245, 245, 3),        // white + thick
         };
@@ -204,6 +206,10 @@ public sealed class AppSettings
                 if (!s.ToolHotkeys.ContainsKey(k)) s.ToolHotkeys[k] = v;
             if (s.DoorTypes.Count == 0) s.DoorTypes = Default().DoorTypes;
             if (s.PawnStatuses.Count == 0) s.PawnStatuses = Default().PawnStatuses;
+            // "none" is the hard default status (black, thickness 1, un-deletable):
+            // guarantee it is present even in settings.json written before it existed.
+            if (!s.PawnStatuses.Any(st => st.Name == "none"))
+                s.PawnStatuses.Insert(0, new PawnStatus("none", 0, 0, 0, 1));
             if (s.AffiliationColors.Count == 0) s.AffiliationColors = Default().AffiliationColors;
             return s;
         }

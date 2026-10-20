@@ -185,14 +185,15 @@ public sealed class ToolPanel : Border
         return panel;
     }
 
-    /// The reusable color row: [preview square][#hex textbox][palette button][red X].
-    /// Used by AddColorField and the status-style grid so both share one format.
-    public StackPanel ColorCell(int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
+    /// The reusable color row: [preview square][palette button]. The preview square
+    /// shows the current color; the palette button opens a flyout with a 2x5 preset
+    /// grid + full color picker (the picker has its own built-in hex entry, so a
+    /// separate hex textbox is redundant). showPreview=false drops the square (used
+    /// for affiliation rows, which are palette-only).
+    public StackPanel ColorCell(int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange, bool showPreview = true)
     {
-        var tb = new TextBox { Text = $"#{r:X2}{g:X2}{b:X2}", Width = 70 };
         var preview = new Rectangle { Width = 28, Height = 28, Fill = new SolidColorBrush(Color.FromRgb((byte)r, (byte)g, (byte)b)) };
         var palette = new Button { Content = "🎨", Width = 38, Height = 28 };
-        var invalidX = new TextBlock { Text = "✕", Foreground = Brushes.Red, FontSize = 18, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
 
         // 2 row x 5 column preset grid (MS Paint style): colored squares, click sets it.
         var grid = new UniformGrid { Rows = 2, Columns = 5 };
@@ -201,44 +202,25 @@ public sealed class ToolPanel : Border
             var sw = new Rectangle { Width = 28, Height = 28, Margin = new Thickness(2), Fill = new SolidColorBrush(Color.FromRgb((byte)pr, (byte)pg, (byte)pb)) };
             sw.PointerPressed += (_, _) =>
             {
-                tb.Text = $"#{pr:X2}{pg:X2}{pb:X2}";
+                preview.Fill = new SolidColorBrush(Color.FromRgb((byte)pr, (byte)pg, (byte)pb));
                 onChange((pr, pg, pb));
             };
             grid.Children.Add(sw);
         }
 
-        // full color picker for custom colors, seeded from the current hex.
+        // full color picker for custom colors (built-in hex entry), seeded from current.
         var picker = new ColorPicker { Color = Color.FromRgb((byte)r, (byte)g, (byte)b), IsAlphaVisible = false };
 
-        // guard so picker<->hex updates don't feed back into each other
+        // guard so picker updates don't feed back into each other
         bool syncing = false;
         picker.ColorChanged += (_, _) =>
         {
             if (syncing) return;
             syncing = true;
             var c = picker.Color;
-            tb.Text = $"#{c.R:X2}{c.G:X2}{c.B:X2}";
             preview.Fill = new SolidColorBrush(Color.FromRgb(c.R, c.G, c.B));
-            invalidX.IsVisible = false;
             onChange((c.R, c.G, c.B));
             syncing = false;
-        };
-        tb.TextChanged += (_, _) =>
-        {
-            if (syncing) return;
-            if (TryHexColor(tb.Text, out var c))
-            {
-                syncing = true;
-                picker.Color = Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b);
-                preview.Fill = new SolidColorBrush(Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b));
-                invalidX.IsVisible = false;
-                syncing = false;
-                onChange(c);
-            }
-            else
-            {
-                invalidX.IsVisible = true;
-            }
         };
 
         var popup = new StackPanel { Spacing = 6 };
@@ -246,12 +228,9 @@ public sealed class ToolPanel : Border
         popup.Children.Add(picker);
         palette.Flyout = new Flyout { Content = popup };
 
-        // order: preview, hex, palette, red X
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        row.Children.Add(preview);
-        row.Children.Add(tb);
+        if (showPreview) row.Children.Add(preview);
         row.Children.Add(palette);
-        row.Children.Add(invalidX);
         return row;
     }
 

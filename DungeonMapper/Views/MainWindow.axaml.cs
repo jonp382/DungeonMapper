@@ -741,6 +741,9 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
+            // the side edit panel is showing the now-deleted template; restore it to
+            // the pawn tool panel so the stale editor (whose changes do nothing) is gone.
+            PopulatePanel(Canvas.Mode);
         }
 
         if (live == 0)
@@ -753,6 +756,56 @@ public partial class MainWindow : Window
         popup.Children.Add(new TextBlock
         {
             Text = $"deleting removes {live} live pawn(s) on the map. they will render as X (broken reference) and can be replaced with Change Pawn. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
+    }
+
+    // Delete a status style. Templates reference statuses by name (t.Status).
+    // Deleting a style resets every template that uses it to "none". "none" itself
+    // is the hard default and un-deletable. Confirmation flyout counts affected
+    // templates.
+    private void DeleteStatusWithWarning(PawnStatus st, Control anchor)
+    {
+        if (st.Name == "none") return; // hard default, un-deletable
+
+        int affected = 0;
+        foreach (var t in _pawnLibrary.Pawns)
+            if (t.Status == st.Name) affected++;
+
+        void doDelete()
+        {
+            foreach (var t in _pawnLibrary.Pawns)
+                if (t.Status == st.Name) t.Status = "none";
+            _settings.PawnStatuses.Remove(st);
+            _settings.Save();
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        }
+
+        if (affected == 0)
+        {
+            doDelete();
+            return;
+        }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting resets {affected} pawn template(s) that use this style to \"none\". delete?",
             Foreground = Brushes.White,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 240,
@@ -820,19 +873,21 @@ public partial class MainWindow : Window
         }
 
         // Status styles: an actual Grid with grid lines. Columns: Name, color cell
-        // ([preview][hex][palette][X]), Thickness. Each style on its own row.
+        // ([preview][palette]), Thickness, delete X. Each style on its own row.
+        // "none" is the hard default (black, thickness 1) and is un-deletable.
         ToolPanel.SetTarget(ModalStatuses);
         ModalStatuses.Children.Clear();
         var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) }); // name, ~2x wider
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });       // color
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });     // thickness
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });        // delete
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header
         int rowIdx = 0;
         // header row
-        var hName = new TextBlock { Text = "Name", Foreground = Brushes.White, FontSize = 11 };
-        var hColor = new TextBlock { Text = "Color", Foreground = Brushes.White, FontSize = 11 };
-        var hThick = new TextBlock { Text = "Thickness", Foreground = Brushes.White, FontSize = 11 };
+        var hName = new TextBlock { Text = "Name", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
+        var hColor = new TextBlock { Text = "Color", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
+        var hThick = new TextBlock { Text = "Thickness", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
         Grid.SetColumn(hName, 0); Grid.SetRow(hName, rowIdx);
         Grid.SetColumn(hColor, 1); Grid.SetRow(hColor, rowIdx);
         Grid.SetColumn(hThick, 2); Grid.SetRow(hThick, rowIdx);
@@ -841,8 +896,9 @@ public partial class MainWindow : Window
         foreach (var st in _settings.PawnStatuses)
         {
             var captured = st;
+            bool isNone = captured.Name == "none";
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var nameTb = new TextBox { Text = captured.Name, Width = 64 };
+            var nameTb = new TextBox { Text = captured.Name, Width = 124, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
             nameTb.TextChanged += (_, _) => { captured.Name = nameTb.Text; _settings.Save(); Canvas.Refresh(); BuildLibraryGrid(); };
             var colorCell = ToolPanel.ColorCell(captured.R, captured.G, captured.B, presets, c =>
             {
@@ -851,7 +907,8 @@ public partial class MainWindow : Window
                 _settings.Save();
                 BuildLibraryGrid();
             });
-            var thickTb = new TextBox { Text = captured.Thickness.ToString(), Width = 50 };
+            colorCell.Margin = new Thickness(2);
+            var thickTb = new TextBox { Text = captured.Thickness.ToString(), Width = 50, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
             thickTb.TextChanged += (_, _) =>
             {
                 if (int.TryParse(thickTb.Text, out int v))
@@ -866,6 +923,15 @@ public partial class MainWindow : Window
             Grid.SetColumn(colorCell, 1); Grid.SetRow(colorCell, rowIdx);
             Grid.SetColumn(thickTb, 2); Grid.SetRow(thickTb, rowIdx);
             grid.Children.Add(nameTb); grid.Children.Add(colorCell); grid.Children.Add(thickTb);
+            // delete X per row; "none" is un-deletable (no button). Deleting a style
+            // resets everything that uses it to "none" (confirmation flyout).
+            if (!isNone)
+            {
+                var delX = new Button { Content = "✕", Foreground = Brushes.Red, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
+                delX.Click += (_, _) => DeleteStatusWithWarning(captured, delX);
+                Grid.SetColumn(delX, 3); Grid.SetRow(delX, rowIdx);
+                grid.Children.Add(delX);
+            }
             rowIdx++;
         }
         // grid lines: a border on each cell via a Grid with ShowGridLines
