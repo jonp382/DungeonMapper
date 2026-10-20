@@ -254,10 +254,8 @@ public sealed class MapCanvas : Control
         var topLeft = ScreenToWorld(new Point(0, 0));
         var bottomRight = ScreenToWorld(new Point(Bounds.Width, Bounds.Height));
 
-        // Cell fills + grid lines. Grid is always 5ft (1 cell); GridDrawSpacing
-        // is the MAJOR spacing (how many cells between major lines). Minor lines
-        // sit at every 5ft cell edge (system default). At sp==1 major and minor
-        // coincide, so only major is drawn. Colors come from settings.
+        // Cell fills. Grid is always 5ft (1 cell); GridDrawSpacing is the MAJOR
+        // spacing. Colors come from settings.
         int sp = Math.Max(1, Settings.GridDrawSpacing);
         var majorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
         var minorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
@@ -265,21 +263,26 @@ public sealed class MapCanvas : Control
         {
             if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(c.X, c.Y);
-            var rect = new Rect(p0.X, p0.Y, _scale, _scale);
-            ctx.FillRectangle(CellFill, rect);
-            // minor line at EVERY 5ft cell edge (system default), so a room drawn
-            // at a 5ft offset is never split between two major lines. At sp==1 the
-            // minor lines coincide with major, so skip them and draw only major.
-            if (sp > 1)
-            {
-                ctx.DrawLine(minorPen, rect.TopLeft, rect.BottomLeft);
-                ctx.DrawLine(minorPen, rect.TopLeft, rect.TopRight);
-            }
-            // major line at spacing boundaries (GridDrawSpacing), user-configurable.
-            if (FloorMod(c.X, sp) == 0)
-                ctx.DrawLine(majorPen, rect.TopLeft, rect.BottomLeft);
-            if (FloorMod(c.Y, sp) == 0)
-                ctx.DrawLine(majorPen, rect.TopLeft, rect.TopRight);
+            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, _scale, _scale));
+        }
+
+        // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
+        // so the grid is visible everywhere. Drawn after cell fills so lines show
+        // on top of flooring. Major at spacing boundaries, minor at every 5ft cell
+        // edge; at sp==1 minor coincides with major so all lines are major.
+        int xStart = (int)Math.Floor(topLeft.X), xEnd = (int)Math.Ceiling(bottomRight.X);
+        int yStart = (int)Math.Floor(topLeft.Y), yEnd = (int)Math.Ceiling(bottomRight.Y);
+        for (int x = xStart; x <= xEnd; x++)
+        {
+            double sx = WorldToScreen(x, 0).X;
+            var pen = (sp == 1 || FloorMod(x, sp) == 0) ? majorPen : minorPen;
+            ctx.DrawLine(pen, new Point(sx, 0), new Point(sx, Bounds.Height));
+        }
+        for (int y = yStart; y <= yEnd; y++)
+        {
+            double sy = WorldToScreen(0, y).Y;
+            var pen = (sp == 1 || FloorMod(y, sp) == 0) ? majorPen : minorPen;
+            ctx.DrawLine(pen, new Point(0, sy), new Point(Bounds.Width, sy));
         }
 
         // Stairs: fill tint + arrow glyph
