@@ -289,11 +289,34 @@ public sealed class MapCanvas : Control
         int sp = Math.Max(1, Settings.GridDrawSpacing);
         var majorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
         var minorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
+        // Fill CONTIGUOUS CELLS AS ONE MERGED RECTANGLE per maximal block, so a
+        // room built from adjacent cells (e.g. a 10x10 room = 4 connected 5x5
+        // tiles) renders as one contiguous square. Filling each cell as its own
+        // _scale rect leaves sub-pixel seams between adjacent rects that read as
+        // grid lines inside rooms even when minor gridlines are disabled.
+        // Greedy maximal rectangles: extend right along the row, extend down
+        // while every column of the row is filled, mark cells consumed.
+        var remaining = new HashSet<CellKey>(Document.Cells);
         foreach (var c in Document.Cells)
         {
-            if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
+            if (!remaining.Contains(c)) continue;
+            int w = 1;
+            while (remaining.Contains(new CellKey(c.X + w, c.Y))) w++;
+            int h = 1;
+            while (remaining.Contains(new CellKey(c.X, c.Y + h)))
+            {
+                bool full = true;
+                for (int i = 1; i < w; i++)
+                    if (!remaining.Contains(new CellKey(c.X + i, c.Y + h))) { full = false; break; }
+                if (!full) break;
+                h++;
+            }
+            for (int dx = 0; dx < w; dx++)
+                for (int dy = 0; dy < h; dy++)
+                    remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
+            if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(c.X, c.Y);
-            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, _scale, _scale));
+            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, w * _scale, h * _scale));
         }
 
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
