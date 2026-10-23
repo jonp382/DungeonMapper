@@ -1080,9 +1080,11 @@ public sealed class MapCanvas : Control
             double s2 = Math.Max(4, _scale * 0.18);
             // axis-aligned square glyph, rotated by the segment angle around mid.
             double ang = Math.Atan2(uy, ux);
-            using (ctx.PushTransform(Matrix.CreateTranslation(mid.X, mid.Y)
+            // Avalonia transforms points as point * matrix (row-vector), so the
+            // composition applies right-to-left: shift mid to origin, rotate, shift back.
+            using (ctx.PushTransform(Matrix.CreateTranslation(-mid.X, -mid.Y)
                                      * Matrix.CreateRotation(ang)
-                                     * Matrix.CreateTranslation(-mid.X, -mid.Y)))
+                                     * Matrix.CreateTranslation(mid.X, mid.Y)))
             {
                 if (d.State == DoorState.Open)
                 {
