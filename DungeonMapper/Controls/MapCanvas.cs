@@ -1052,20 +1052,21 @@ public sealed class MapCanvas : Control
     /// sub-segments between the door gaps (gap half-width = 0.45*scale, matching
     /// axis-aligned doors), then each door glyph is drawn centered at its T along
     /// the segment, rotated to the segment angle. Doors are sorted by T so gaps
-    /// tile the segment left-to-right.
+    /// tile the segment left-to-right. Door T is stored in CELL units; screen
+    /// positions are in pixels, so T is multiplied by _scale to convert.
     private void DrawAngledWall(DrawingContext ctx, AngledWall w, Point a, Point b, List<AngledDoor> doors)
     {
         double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
         if (len < 0.0001) return;
         double ux = (b.X - a.X) / len, uy = (b.Y - a.Y) / len; // unit direction
         double gapHalf = _scale * 0.45; // door gap half-width in screen px
-        Point At(double t) => new Point(a.X + ux * t, a.Y + uy * t);
+        Point At(double tPx) => new Point(a.X + ux * tPx, a.Y + uy * tPx);
 
-        // draw wall sub-segments between gaps
+        // draw wall sub-segments between gaps (door T in cells -> px via _scale)
         double cursor = 0;
         foreach (var d in doors.OrderBy(d => d.T))
         {
-            double center = d.T;
+            double center = d.T * _scale;
             double gapStart = center - gapHalf, gapEnd = center + gapHalf;
             if (gapStart > cursor) ctx.DrawLine(WallPen, At(cursor), At(gapStart));
             cursor = Math.Max(cursor, gapEnd);
@@ -1075,7 +1076,7 @@ public sealed class MapCanvas : Control
         // draw door glyphs rotated to the segment angle
         foreach (var d in doors)
         {
-            var mid = At(d.T);
+            var mid = At(d.T * _scale);
             var brush = DoorBrush(d.Type);
             double s2 = Math.Max(4, _scale * 0.18);
             // axis-aligned square glyph, rotated by the segment angle around mid.
