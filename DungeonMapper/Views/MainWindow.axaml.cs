@@ -99,7 +99,7 @@ public partial class MainWindow : Window
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
-            System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
+            // System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
         };
 
         SetTool(ToolMode.Room);
@@ -219,7 +219,7 @@ public partial class MainWindow : Window
         PopulatePanel(mode);
         Canvas.Refresh();
         FocusCanvas(); // restore hotkey focus after the tool button click
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
     }
 
     // Builds the floating panel's options for the active tool.
@@ -342,7 +342,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"switched to {_project.ActiveName}";
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
@@ -358,7 +358,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"added {name}";
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
         FocusCanvas();
     }
@@ -557,7 +557,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ShowDoorConfig(Door door)
+    private void ShowDoorConfig(IDoorConfig door)
     {
         ToolPanel.Clear("Door");
         var names = new List<string>();

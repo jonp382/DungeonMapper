@@ -13,6 +13,16 @@ public readonly record struct CellKey(int X, int Y);
 /// are stored as EdgeKey walls, so this type only holds diagonal segments.
 public readonly record struct AngledWall(int Ax, int Ay, int Bx, int By);
 
+/// A door on an angled wall. The door sits at parameter T (0..1) along its wall
+/// segment, centered, with a fixed projected width of 1 cell (matching axis-aligned
+/// doors). Type/State mirror the edge Door. Multiple doors may sit on one segment.
+public sealed class AngledDoor : IDoorConfig
+{
+    public double T { get; set; } = 0.5; // door center along the segment, 0..1
+    public string Type { get; set; } = "standard";
+    public DoorState State { get; set; } = DoorState.Closed;
+}
+
 public enum Side { North, East, South, West }
 
 /// A cell edge, keyed by cell + side. Normalized so shared edges have one key:
@@ -49,10 +59,18 @@ public readonly record struct EdgeKey(CellKey Cell, Side Side)
 
 public enum DoorState { Open, Closed, Locked }
 
+/// Shared surface for doors on axis-aligned edges (Door) and doors on angled
+/// walls (AngledDoor), so the door config UI serves both.
+public interface IDoorConfig
+{
+    string Type { get; set; }
+    DoorState State { get; set; }
+}
+
 /// A door on an edge. A door implies a wall with a gap: the edge must have a wall.
 /// Type is a free-form string (e.g. "standard", "portcullis", "bricked", "magical")
 /// so custom doors stay modular; the renderer picks color/symbol per type.
-public sealed class Door
+public sealed class Door : IDoorConfig
 {
     public string Type { get; set; } = "standard";
     public DoorState State { get; set; } = DoorState.Closed;
@@ -97,6 +115,7 @@ public sealed class MapDocument
     public List<MapLabel> Labels { get; } = new();
     public Dictionary<CellKey, Pawn> Pawns { get; } = new();
     public List<AngledWall> AngledWalls { get; } = new();
+    public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
 
     /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
     /// occupied cell replaces the existing pawn.
@@ -106,6 +125,28 @@ public sealed class MapDocument
     }
 
     public void RemovePawn(CellKey cell) => Pawns.Remove(cell);
+
+    /// Doors sitting on an angled wall segment (empty list if none).
+    public List<AngledDoor> GetAngledDoors(AngledWall wall)
+        => AngledDoors.TryGetValue(wall, out var l) ? l : new List<AngledDoor>();
+
+    /// Places a door on an angled wall at parameter t (0..1, door center along the
+    /// segment). The door has a fixed projected width of 1 cell, so the segment
+    /// must be at least 1 unit long and t must leave room for the gap
+    /// (t in [0.5, len-0.5]). Returns false when the wall is too short or t
+    /// doesn't fit. Multiple doors may sit on one segment.
+    public bool TryPlaceAngledDoor(AngledWall wall, double t, string defaultType, string defaultState, out AngledDoor door)
+    {
+        door = null!;
+        double len = Math.Sqrt((wall.Bx - wall.Ax) * (wall.Bx - wall.Ax) + (wall.By - wall.Ay) * (wall.By - wall.Ay));
+        if (len < 1.0) return false; // wall too short to host a 1-cell door
+        if (t < 0.5 || t > len - 0.5) return false; // door gap must fit inside the segment
+        var list = AngledDoors.TryGetValue(wall, out var l) ? l : (AngledDoors[wall] = new List<AngledDoor>());
+        door = new AngledDoor { T = t, Type = defaultType };
+        if (Enum.TryParse<DoorState>(defaultState, ignoreCase: true, out var st)) door.State = st;
+        list.Add(door);
+        return true;
+    }
 
     public bool HasWall(EdgeKey edge) => Walls.TryGetValue(EdgeKey.Normalize(edge.Cell, edge.Side), out var w) && w;
 
@@ -221,6 +262,12 @@ public sealed class MapDocument
             // too, so a room grown over a polygon's diagonal merges cleanly.
             // A diagonal is interior when EVERY cell it passes through is a room
             // cell (the segment runs through room-cell interiors on both sides).
+            // Doors on removed segments go with the wall (door implies wall).
+            var removed = AngledWalls
+                .Where(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
+                    .All(c => Cells.Contains(c)))
+                .ToList();
+            foreach (var w in removed) AngledDoors.Remove(w);
             AngledWalls.RemoveAll(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
                 .All(c => Cells.Contains(c)));
         }
@@ -467,9 +514,10 @@ public sealed class MapDocument
         public List<MapLabel> Labels = new();
         public List<Pawn> Pawns = new();
         public List<AngledWall> AngledWalls = new();
+        public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
                               && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
-                              && AngledWalls.Count == 0;
+                              && AngledWalls.Count == 0 && AngledDoors.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -505,7 +553,12 @@ public sealed class MapDocument
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
         foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(p);
         foreach (var w in AngledWalls)
-            if (AngledWallIntersectsRect(w, x0, y0, x1, y1)) snap.AngledWalls.Add(w);
+            if (AngledWallIntersectsRect(w, x0, y0, x1, y1))
+            {
+                snap.AngledWalls.Add(w);
+                if (AngledDoors.TryGetValue(w, out var doors))
+                    snap.AngledDoors[w] = doors; // doors travel with their wall
+            }
         return snap;
     }
 
@@ -535,7 +588,16 @@ public sealed class MapDocument
             Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State };
         }
         foreach (var w in snap.AngledWalls)
-            AngledWalls.Add(new AngledWall(w.Ax + dx, w.Ay + dy, w.Bx + dx, w.By + dy));
+        {
+            var nw = new AngledWall(w.Ax + dx, w.Ay + dy, w.Bx + dx, w.By + dy);
+            AngledWalls.Add(nw);
+            if (snap.AngledDoors.TryGetValue(w, out var doors))
+            {
+                var list = AngledDoors.TryGetValue(nw, out var l) ? l : (AngledDoors[nw] = new List<AngledDoor>());
+                foreach (var d in doors)
+                    list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State });
+            }
+        }
     }
 
     /// Replaces all content of this document with the content of another.
@@ -556,6 +618,9 @@ public sealed class MapDocument
         foreach (var (c, p) in other.Pawns) Pawns[c] = p;
         AngledWalls.Clear();
         foreach (var w in other.AngledWalls) AngledWalls.Add(w);
+        AngledDoors.Clear();
+        foreach (var (w, doors) in other.AngledDoors)
+            AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -574,6 +639,8 @@ public sealed class MapDocument
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                     SetWall(new EdgeKey(c, side), false);
             }
+        foreach (var w in AngledWalls)
+            if (AngledWallIntersectsRect(w, x0, y0, x1, y1)) AngledDoors.Remove(w);
         AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1));
     }
 

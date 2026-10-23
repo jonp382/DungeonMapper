@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -20,6 +21,15 @@ public sealed class MapFileDto
     [JsonPropertyName("labels")] public List<LabelDto> Labels { get; set; } = new();
     [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
     [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
+    [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
+}
+
+public sealed class AngledDoorDto
+{
+    [JsonPropertyName("wall")] public string Wall { get; set; } = "";
+    [JsonPropertyName("t")] public double T { get; set; } = 0.5;
+    [JsonPropertyName("type")] public string Type { get; set; } = "standard";
+    [JsonPropertyName("state")] public string State { get; set; } = "closed";
 }
 
 public sealed class DoorDto
@@ -92,6 +102,27 @@ public static class MapSerializer
         return true;
     }
 
+    // shared loader for angled walls + doors. Walls keep their stored orientation;
+    // a door matches its wall in either endpoint order, and doors whose wall is
+    // absent are dropped (door implies wall).
+    private static void AddAngled(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var s in dto.AngledWalls)
+            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
+        foreach (var d in dto.AngledDoors)
+        {
+            if (!TryParseAngled(d.Wall, out var w)) continue;
+            var wall = doc.AngledWalls.FirstOrDefault(x =>
+                (x.Ax == w.Ax && x.Ay == w.Ay && x.Bx == w.Bx && x.By == w.By) ||
+                (x.Ax == w.Bx && x.Ay == w.By && x.Bx == w.Ax && x.By == w.Ay));
+            if (wall == default) continue; // door implies wall
+            var list = doc.AngledDoors.TryGetValue(wall, out var l) ? l : (doc.AngledDoors[wall] = new List<AngledDoor>());
+            var door = new AngledDoor { T = d.T, Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
+            list.Add(door);
+        }
+    }
+
     private static bool TryParseCell(string s, out CellKey cell)
     {
         cell = default;
@@ -138,7 +169,12 @@ public static class MapSerializer
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
-        foreach (var w in doc.AngledWalls) dto.AngledWalls.Add(Key(w));
+        foreach (var w in doc.AngledWalls)
+        {
+            dto.AngledWalls.Add(Key(w));
+            foreach (var d in doc.GetAngledDoors(w))
+                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        }
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -190,8 +226,7 @@ public static class MapSerializer
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
         AddPawns(dto, doc);
-        foreach (var s in dto.AngledWalls)
-            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
+        AddAngled(dto, doc);
         return doc;
     }
 
@@ -238,7 +273,12 @@ public static class MapSerializer
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
-        foreach (var w in doc.AngledWalls) dto.AngledWalls.Add(Key(w));
+        foreach (var w in doc.AngledWalls)
+        {
+            dto.AngledWalls.Add(Key(w));
+            foreach (var d in doc.GetAngledDoors(w))
+                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        }
         return dto;
     }
 
@@ -273,8 +313,7 @@ public static class MapSerializer
             doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
         }
         AddPawns(dto, doc);
-        foreach (var s in dto.AngledWalls)
-            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
+        AddAngled(dto, doc);
         return doc;
     }
 }

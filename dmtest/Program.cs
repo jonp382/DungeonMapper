@@ -684,6 +684,100 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     p6.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
     var b = p6.ContentBounds();
     Check(b != null && b.Value.maxX >= 10 && b.Value.maxY >= 10, "polygon bounds: angled wall endpoints extend bounds");
+
+    // ===== ANGLED DOORS (v2) =====
+    // door placement on an existing angled wall
+    var ad1 = new MapDocument();
+    ad1.AngledWalls.Add(new AngledWall(0, 0, 2, 2)); // len 2.83, t must be in [0.5, 2.33]
+    Check(ad1.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out var d1),
+          "angled door: placed on existing wall");
+    Check(d1.T == 1.4 && d1.Type == "standard" && d1.State == DoorState.Closed,
+          "angled door: fields set from defaults");
+    Check(ad1.GetAngledDoors(new AngledWall(0, 0, 2, 2)).Count == 1,
+          "angled door: door listed on its wall");
+
+    // door on a wall stored in reversed endpoint order matches
+    var ad1b = new MapDocument();
+    ad1b.AngledWalls.Add(new AngledWall(2, 2, 0, 0));
+    Check(ad1b.TryPlaceAngledDoor(new AngledWall(2, 2, 0, 0), 1.4, "standard", "closed", out _),
+          "angled door: placement on reversed-order wall");
+
+    // door on too-short wall fails; door near the ends fails
+    var ad2 = new MapDocument();
+    ad2.AngledWalls.Add(new AngledWall(0, 0, 1, 1)); // len 1.41
+    Check(!ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 0.3, "standard", "closed", out _),
+          "angled door: t near segment start fails (gap must fit)");
+    Check(!ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 1.1, "standard", "closed", out _),
+          "angled door: t near segment end fails (gap must fit)");
+    Check(ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 0.7, "standard", "closed", out _),
+          "angled door: t mid-segment succeeds on short wall");
+
+    // multiple doors on one segment
+    var ad3 = new MapDocument();
+    ad3.AngledWalls.Add(new AngledWall(0, 0, 6, 6)); // len 8.49
+    ad3.TryPlaceAngledDoor(new AngledWall(0, 0, 6, 6), 1.0, "standard", "closed", out _);
+    ad3.TryPlaceAngledDoor(new AngledWall(0, 0, 6, 6), 5.0, "portcullis", "locked", out _);
+    Check(ad3.GetAngledDoors(new AngledWall(0, 0, 6, 6)).Count == 2,
+          "angled door: two doors on one segment");
+
+    // round-trip preserves angled doors
+    var ad4 = new MapDocument();
+    ad4.AngledWalls.Add(new AngledWall(2, 0, 0, 1));
+    ad4.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 1), 0.8, "magical", "locked", out _);
+    string adj = MapSerializer.ToJson(ad4);
+    var adl = MapSerializer.FromJson(adj);
+    Check(adl.AngledWalls.Count == 1 && adl.GetAngledDoors(adl.AngledWalls[0]).Count == 1,
+          "angled door: round-trip preserves door on wall");
+    var adlDoor = adl.GetAngledDoors(adl.AngledWalls[0])[0];
+    Check(adlDoor.T == 0.8 && adlDoor.Type == "magical" && adlDoor.State == DoorState.Locked,
+          "angled door: round-trip preserves T/type/state");
+
+    // door referencing a wall stored in reversed order loads onto that wall
+    var adl2 = MapSerializer.FromJson("{\"angled_walls\":[\"2,0,0,1\"],\"angled_doors\":[{\"wall\":\"0,1,2,0\",\"t\":0.8,\"type\":\"standard\",\"state\":\"closed\"}]}");
+    Check(adl2.AngledWalls.Count == 1 && adl2.GetAngledDoors(adl2.AngledWalls[0]).Count == 1,
+          "angled door: reversed-order wall reference matches on load");
+
+    // orphan door (no matching wall) is dropped on load
+    var adl3 = MapSerializer.FromJson("{\"angled_walls\":[],\"angled_doors\":[{\"wall\":\"0,0,2,2\",\"t\":1.0,\"type\":\"standard\",\"state\":\"closed\"}]}");
+    Check(adl3.AngledDoors.Count == 0, "angled door: orphan door dropped on load");
+
+    // capture/paste: doors travel with their wall
+    var ad5 = new MapDocument();
+    ad5.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad5.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out _);
+    var snapAd = ad5.CaptureRegion(0, 0, 2, 2);
+    Check(snapAd.AngledDoors.Count == 1, "angled door: captured with its wall");
+    var ad6 = new MapDocument();
+    ad6.PasteRegion(snapAd, 5, 5);
+    Check(ad6.AngledWalls.Count == 1 && ad6.GetAngledDoors(new AngledWall(5, 5, 7, 7)).Count == 1,
+          "angled door: pasted door sits on pasted wall");
+
+    // clear region: doors on cleared walls go with them
+    var ad7 = new MapDocument();
+    ad7.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad7.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out _);
+    ad7.ClearRegion(0, 0, 2, 2);
+    Check(ad7.AngledWalls.Count == 0 && ad7.AngledDoors.Count == 0,
+          "angled door: door removed with wall by clear region");
+
+    // room union over a polygon removes interior diagonal AND its door
+    var ad8 = new MapDocument();
+    ad8.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // diagonal (2,0)->(0,2)
+    ad8.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 2), 1.4, "standard", "closed", out _);
+    Check(ad8.GetAngledDoors(new AngledWall(2, 0, 0, 2)).Count == 1,
+          "angled door: placed on polygon diagonal");
+    ad8.AddRoom(0, 0, 2, 2);
+    Check(ad8.AngledWalls.Count == 0 && ad8.AngledDoors.Count == 0,
+          "angled door: door removed when union removes interior diagonal");
+
+    // ApplyFrom copies doors
+    var ad9 = new MapDocument();
+    ad9.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad9.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "portcullis", "open", out _);
+    var ad10 = new MapDocument();
+    ad10.ApplyFrom(ad9);
+    Check(ad10.AngledDoors.Count == 1 && ad10.GetAngledDoors(new AngledWall(0, 0, 2, 2))[0].Type == "portcullis",
+          "angled door: ApplyFrom copies doors");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

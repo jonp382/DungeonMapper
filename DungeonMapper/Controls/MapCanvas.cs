@@ -52,7 +52,7 @@ public sealed class MapCanvas : Control
     public PawnTemplate? ArmedPawn { get; set; }
 
     public event Action? ActionCompleted;
-    public event Action<Door>? DoorConfigRequested;
+    public event Action<IDoorConfig>? DoorConfigRequested;
     public event Action<Stair>? StairConfigRequested;
     public event Action<MapLabel>? LabelConfigRequested;
     public event Action<Pawn>? PawnConfigRequested;
@@ -182,7 +182,12 @@ public sealed class MapCanvas : Control
                         Document.SetWall(new EdgeKey(c, side), false);
             }
         if (f.Walls)
+        {
+            foreach (var w in Document.AngledWalls
+                         .Where(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1)).ToList())
+                Document.AngledDoors.Remove(w);
             Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
+        }
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -349,12 +354,15 @@ public sealed class MapCanvas : Control
         }
 
         // Angled walls: line segments between lattice vertices, drawn with the
-        // same wall pen. Doors on angled walls are deferred to v2.
+        // same wall pen. Doors on angled walls render as a gap in the segment
+        // (the wall is drawn as the sub-segments between door gaps) plus a door
+        // glyph rotated to the segment angle.
         foreach (var w in Document.AngledWalls)
         {
             var a = WorldToScreen(w.Ax, w.Ay);
             var b = WorldToScreen(w.Bx, w.By);
-            ctx.DrawLine(WallPen, a, b);
+            var doors = Document.GetAngledDoors(w);
+            DrawAngledWall(ctx, w, a, b, doors);
         }
 
         // Labels centered on their cell
@@ -588,6 +596,27 @@ public sealed class MapCanvas : Control
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    /// Nearest angled wall to a world point, within tolerance, plus the projected
+    /// parameter t (in world units along the segment) of the click. Null if none.
+    private (AngledWall wall, double t)? HitAngledWall(Point world)
+    {
+        AngledWall? best = null;
+        double bestT = 0, bestD = 0.3; // tolerance in cells
+        foreach (var w in Document.AngledWalls)
+        {
+            var a = new Point(w.Ax, w.Ay);
+            var b = new Point(w.Bx, w.By);
+            double abx = b.X - a.X, aby = b.Y - a.Y;
+            double len2 = abx * abx + aby * aby;
+            if (len2 == 0) continue;
+            double t = Math.Clamp(((world.X - a.X) * abx + (world.Y - a.Y) * aby) / len2, 0, 1);
+            double dx = world.X - (a.X + t * abx), dy = world.Y - (a.Y + t * aby);
+            double d = Math.Sqrt(dx * dx + dy * dy);
+            if (d < bestD) { bestD = d; best = w; bestT = t * Math.Sqrt(len2); }
+        }
+        return best is null ? null : (best.Value, bestT);
+    }
+
     private void Commit()
     {
         ActionCompleted?.Invoke();
@@ -679,6 +708,25 @@ public sealed class MapCanvas : Control
                 break;
 
             case ToolMode.Door:
+                // angled walls take priority: a click near an angled wall places a
+                // door on it (or opens config for a door already near that spot).
+                var aw = HitAngledWall(world);
+                if (aw is not null)
+                {
+                    var (wall, t) = aw.Value;
+                    var doors = Document.GetAngledDoors(wall);
+                    var near = doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5);
+                    if (near is not null)
+                    {
+                        DoorConfigRequested?.Invoke(near);
+                    }
+                    else if (Document.TryPlaceAngledDoor(wall, t, Settings.DefaultDoorType, Settings.DefaultDoorState, out var ad))
+                    {
+                        Commit();
+                        DoorConfigRequested?.Invoke(ad);
+                    }
+                    break;
+                }
                 var de = HitEdge(world);
                 if (de is null) break;
                 var doorEdge = de.Value;
@@ -942,9 +990,15 @@ public sealed class MapCanvas : Control
                             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                                 Document.SetWall(new EdgeKey(c, side), false);
                     }
-                // angled walls fully inside the erase rect are removed (Walls filter)
+                // angled walls touching the erase rect are removed (Walls filter),
+                // doors on them go with the wall (door implies wall)
                 if (f.Walls)
+                {
+                    foreach (var w in Document.AngledWalls
+                                 .Where(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1)).ToList())
+                        Document.AngledDoors.Remove(w);
                     Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
+                }
                 Commit();
                 break;
             }
@@ -990,6 +1044,61 @@ public sealed class MapCanvas : Control
                 // locked inner core is always RED, independent of door type.
                 ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
                     new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+            }
+        }
+    }
+
+    /// Draws an angled wall segment with door gaps. The wall is drawn as the
+    /// sub-segments between the door gaps (gap half-width = 0.45*scale, matching
+    /// axis-aligned doors), then each door glyph is drawn centered at its T along
+    /// the segment, rotated to the segment angle. Doors are sorted by T so gaps
+    /// tile the segment left-to-right.
+    private void DrawAngledWall(DrawingContext ctx, AngledWall w, Point a, Point b, List<AngledDoor> doors)
+    {
+        double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+        if (len < 0.0001) return;
+        double ux = (b.X - a.X) / len, uy = (b.Y - a.Y) / len; // unit direction
+        double gapHalf = _scale * 0.45; // door gap half-width in screen px
+        Point At(double t) => new Point(a.X + ux * t, a.Y + uy * t);
+
+        // draw wall sub-segments between gaps
+        double cursor = 0;
+        foreach (var d in doors.OrderBy(d => d.T))
+        {
+            double center = d.T;
+            double gapStart = center - gapHalf, gapEnd = center + gapHalf;
+            if (gapStart > cursor) ctx.DrawLine(WallPen, At(cursor), At(gapStart));
+            cursor = Math.Max(cursor, gapEnd);
+        }
+        if (cursor < len) ctx.DrawLine(WallPen, At(cursor), At(len));
+
+        // draw door glyphs rotated to the segment angle
+        foreach (var d in doors)
+        {
+            var mid = At(d.T);
+            var brush = DoorBrush(d.Type);
+            double s2 = Math.Max(4, _scale * 0.18);
+            // axis-aligned square glyph, rotated by the segment angle around mid.
+            double ang = Math.Atan2(uy, ux);
+            using (ctx.PushTransform(Matrix.CreateTranslation(mid.X, mid.Y)
+                                     * Matrix.CreateRotation(ang)
+                                     * Matrix.CreateTranslation(-mid.X, -mid.Y)))
+            {
+                if (d.State == DoorState.Open)
+                {
+                    var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
+                    ctx.DrawRectangle(pen, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
+                }
+                else
+                {
+                    ctx.FillRectangle(brush, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
+                    if (d.State == DoorState.Locked)
+                    {
+                        double inner = s2 * 2 * 0.5;
+                        ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
+                            new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+                    }
+                }
             }
         }
     }
