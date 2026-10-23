@@ -8,9 +8,10 @@
         Width="1100" Height="700">
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,12">
-            <ScrollViewer HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled">
-                <StackPanel Orientation="Horizontal" Spacing="6">
+        <!-- toolbar wraps to multiple rows on narrow windows (no horizontal scroll
+             needed below 2560x1440); padding trimmed to keep the bar compact -->
+        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,4">
+            <WrapPanel ItemSpacing="6" LineSpacing="4">
                 <Button x:Name="ToolSelect" Content="Select" />
                 <Button x:Name="ToolMove" Content="Move" />
                 <Button x:Name="ToolRoom" Content="Room" />
@@ -35,8 +36,7 @@
                 <Button x:Name="BtnFit" Content="Fit" />
                 <Separator />
                 <Button x:Name="BtnSettings" Content="Settings" />
-                </StackPanel>
-            </ScrollViewer>
+            </WrapPanel>
         </Border>
 
         <Panel>
