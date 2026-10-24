@@ -21,6 +21,15 @@ public partial class MainWindow : Window
     private readonly History _history = new();
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly PawnLibrary _pawnLibrary = PawnLibrary.Load();
+    // settings dirty flag: fields mutate live, the json write flushes once at
+    // modal close / tool switch / menu open / autosave tick (avoids hundreds of
+    // writes during color-wheel drags)
+    private bool _settingsDirty;
+    // the file the current map was loaded from / saved to; Ctrl+S saves over it.
+    // null for a brand-new map (picker default maps/, then set after first save).
+    private string? _currentMapPath;
+    private Avalonia.Threading.DispatcherTimer? _autosaveTimer;
+    private DateTime _lastAutosave = DateTime.MinValue;
     // the side panel's Status dropdown, so it can be refreshed when statuses change
     private ComboBox? _statusCombo;
     private PawnTemplate? _statusComboTemplate;
@@ -78,6 +87,27 @@ public partial class MainWindow : Window
         BtnLoad.Click += (_, _) => LoadMap();
         BtnSettings.Click += (_, _) => ShowSettings();
 
+        // settings + door presets modal popups
+        SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
+        DoorPresetsClose.Click += (_, _) => { FlushSettings(); DoorPresetsOverlay.IsVisible = false; };
+
+        // autosave: ticks every minute; writes to maps/autosaves when the
+        // configured interval has elapsed (0 = off). Flushes pending settings.
+        _autosaveTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        _autosaveTimer.Tick += (_, _) =>
+        {
+            FlushSettings();
+            if (_settings.AutosaveMinutes <= 0) return;
+            if ((DateTime.Now - _lastAutosave).TotalMinutes < _settings.AutosaveMinutes) return;
+            _lastAutosave = DateTime.Now;
+            var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
+            System.IO.Directory.CreateDirectory(dir);
+            var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
+            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name));
+            StatusText.Text = $"autosaved {name}";
+        };
+        _autosaveTimer.Start();
+
         // modal pawn-management popup
         ModalClose.Click += (_, _) => ModalOverlay.IsVisible = false;
         ModalAddPawn.Click += (_, _) =>
@@ -116,6 +146,7 @@ public partial class MainWindow : Window
         {
             switch (e.Key)
             {
+                case Key.S: SaveCurrent(); e.Handled = true; return; // Ctrl+S: save over the current map
                 case Key.Z: DoUndo(); e.Handled = true; return;
                 case Key.Y: DoRedo(); e.Handled = true; return;
                 case Key.C: Canvas.CopySelection(); Canvas.Refresh(); e.Handled = true; return;
@@ -201,6 +232,7 @@ public partial class MainWindow : Window
 
     private void SetTool(ToolMode mode)
     {
+        FlushSettings(); // switching tools flushes pending settings changes
         Canvas.Mode = mode;
         StatusText.Text = mode switch
         {
@@ -255,11 +287,25 @@ public partial class MainWindow : Window
                 break;
 
             case ToolMode.Door:
-                // global door defaults: shown before placing any door, and every
-                // placed door inherits them (MapCanvas reads Settings at placement).
+                // placement options only (type + state); the category editor lives
+                // in the Manage Door Presets modal. Placed doors inherit these
+                // defaults (MapCanvas reads Settings.DefaultDoorType/State).
                 ToolPanel.Clear("Door settings");
                 ToolPanel.AddHint("defaults apply to every door you place next.");
-                AddDoorDefaultsSection();
+                var names = new List<string>();
+                foreach (var t in _settings.DoorTypes) names.Add(t.Name);
+                ToolPanel.AddChoice("default door type", names.ToArray(), _settings.DefaultDoorType, t =>
+                {
+                    _settings.DefaultDoorType = t;
+                    MarkSetting();
+                });
+                ToolPanel.AddChoice("default door state", new[] { "open", "closed", "locked" },
+                    _settings.DefaultDoorState, s =>
+                    {
+                        _settings.DefaultDoorState = s;
+                        MarkSetting();
+                    });
+                ToolPanel.AddButton("Manage Door Presets", () => ShowDoorPresets());
                 break;
 
             case ToolMode.Pawn:
@@ -398,14 +444,36 @@ public partial class MainWindow : Window
 
     private async void SaveMap()
     {
+        // brand-new map: default save location is the maps subfolder in the app's
+        // base directory, name pre-filled Map_{datetime}.json, json typing enforced.
+        var mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps");
+        System.IO.Directory.CreateDirectory(mapsDir);
+        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(mapsDir + "/"));
         var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            SuggestedFileName = "project.json",
+            SuggestedFileName = $"Map_{Stamp()}.json",
             DefaultExtension = "json",
+            SuggestedStartLocation = startFolder,
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } },
+            },
         });
         if (file is null) return;
-        MapSerializer.SaveProject(_project, file.Path.LocalPath);
-        StatusText.Text = $"saved {file.Path.LocalPath}";
+        var path = file.Path.LocalPath;
+        MapSerializer.SaveProject(_project, path);
+        _currentMapPath = path; // Ctrl+S saves over this file from now on
+        StatusText.Text = $"saved {path}";
+    }
+
+    // Ctrl+S: save over the map the user loaded (the user-selected json, NOT the
+    // backup). A brand-new map with no load/save history opens the picker once,
+    // then Ctrl+S saves over that file.
+    private void SaveCurrent()
+    {
+        if (_currentMapPath is null) { SaveMap(); return; }
+        MapSerializer.SaveProject(_project, _currentMapPath);
+        StatusText.Text = $"saved {_currentMapPath}";
     }
 
     private async void LoadMap()
@@ -418,7 +486,14 @@ public partial class MainWindow : Window
         try
         {
             var path = files[0].Path.LocalPath;
+            // VERY FIRST step, before ANY parsing/rendering/modification: save a
+            // backup copy in maps/backups, preserving the name + datetime stamp.
             string text = System.IO.File.ReadAllText(path);
+            var backupDir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "backups");
+            System.IO.Directory.CreateDirectory(backupDir);
+            var backupName = $"{System.IO.Path.GetFileNameWithoutExtension(path)}_{Stamp()}.json";
+            System.IO.File.WriteAllText(System.IO.Path.Combine(backupDir, backupName), text);
+
             // accept both single-map files and multi-map projects
             if (text.Contains("\"maps\""))
             {
@@ -429,6 +504,7 @@ public partial class MainWindow : Window
                 _project = new MapProject();
                 _project.Maps[0].Doc = MapSerializer.Load(path);
             }
+            _currentMapPath = path; // Ctrl+S saves over the user-selected json
             Canvas.Document = _doc;
             _history.Initialize(_doc);
             Canvas.ClearSelection();
@@ -443,63 +519,35 @@ public partial class MainWindow : Window
         }
     }
 
-    // Builds the global door settings fields: default type, default state, and the
-    // door category editor. Shared by the Settings menu and the Door tool panel so
-    // the door tool shows the same fields before placing, and placed doors inherit
-    // them (MapCanvas reads Settings.DefaultDoorType/State at placement time).
-    private void AddDoorDefaultsSection()
+    // settings dirty flag helpers: fields mutate live, json write flushes once
+    private void MarkSetting() { _settingsDirty = true; }
+    private void FlushSettings()
     {
-        // default door properties (item 3)
-        var names = new List<string>();
-        foreach (var t in _settings.DoorTypes) names.Add(t.Name);
-        ToolPanel.AddChoice("default door type", names.ToArray(), _settings.DefaultDoorType, t =>
-        {
-            _settings.DefaultDoorType = t;
-            _settings.Save();
-        });
-        ToolPanel.AddChoice("default door state", new[] { "open", "closed", "locked" },
-            _settings.DefaultDoorState, s =>
-            {
-                _settings.DefaultDoorState = s;
-                _settings.Save();
-            });
-
-        // door categories editor (item 4)
-        ToolPanel.AddHint("door categories (name + color):");
-        foreach (var t in _settings.DoorTypes)
-        {
-            var captured = t;
-            ToolPanel.AddText(captured.Name, $"#{captured.R:X2}{captured.G:X2}{captured.B:X2}", hex =>
-            {
-                if (hex.Length == 7 && hex[0] == '#')
-                {
-                    captured.R = Convert.ToInt32(hex.Substring(1, 2), 16);
-                    captured.G = Convert.ToInt32(hex.Substring(3, 2), 16);
-                    captured.B = Convert.ToInt32(hex.Substring(5, 2), 16);
-                    Canvas.Refresh();
-                    _settings.Save();
-                }
-            });
-        }
-        ToolPanel.AddButton("+ add door category", () =>
-        {
-            _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
-            _settings.Save();
-            // rebuild for the active tool so the Door tool panel keeps its context
-            PopulatePanel(Canvas.Mode);
-        });
+        if (!_settingsDirty) return;
+        _settingsDirty = false;
+        _settings.Save();
     }
 
+    // datetime stamp for autosave/backup names: valid on linux and windows
+    // (no : / etc). yyyy-MM-dd_HH-mm-ss.
+    private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+
+    // Settings: modal popup centered over the map (like Pawn Management). All
+    // fields apply live (canvas refresh) and mark the settings dirty; the json
+    // write flushes on modal close, tool switch, other menu open, autosave tick.
     private void ShowSettings()
     {
-        ToolPanel.Clear("Settings");
+        FlushSettings(); // opening any menu flushes pending changes
+        ToolPanel.SetTarget(SettingsSections);
+        SettingsSections.Children.Clear();
 
-        // grid draw spacing (item 6)
-        ToolPanel.AddNumber("grid draw spacing (cells between lines)", _settings.GridDrawSpacing, v =>
+        // grid draw spacing (item 6): major line every N cells, minor at every
+        // 5ft cell edge.
+        ToolPanel.AddNumber("grid draw spacing (cells between major lines)", _settings.GridDrawSpacing, v =>
         {
             _settings.GridDrawSpacing = Math.Max(1, v);
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
 
         // gridline colors (item 3): major at spacing boundaries, minor at every
@@ -509,13 +557,13 @@ public partial class MainWindow : Window
         {
             _settings.MajorGridR = c.r; _settings.MajorGridG = c.g; _settings.MajorGridB = c.b;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
         ToolPanel.AddColorField("minor gridline color", _settings.MinorGridR, _settings.MinorGridG, _settings.MinorGridB, gpresets, c =>
         {
             _settings.MinorGridR = c.r; _settings.MinorGridG = c.g; _settings.MinorGridB = c.b;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
         // toggle minor gridline visibility, on the same row as the minor color,
         // with padding. Unchecked = minor lines not drawn at all.
@@ -526,35 +574,210 @@ public partial class MainWindow : Window
         {
             _settings.ShowMinorGrid = minorCheck.IsChecked == true;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         };
         minorRow.Children.Add(minorCheck);
 
-        AddDoorDefaultsSection();
+        // canvas element colors (item 5): background, cell fill, wall, stairs,
+        // labels. The old static GridLine/FaintGridLine brushes were dead code
+        // (grid uses the major/minor settings colors) and are removed.
+        ToolPanel.AddColorField("background color", _settings.BackgroundR, _settings.BackgroundG, _settings.BackgroundB, gpresets, c =>
+        {
+            _settings.BackgroundR = c.r; _settings.BackgroundG = c.g; _settings.BackgroundB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("cell fill color", _settings.CellFillR, _settings.CellFillG, _settings.CellFillB, gpresets, c =>
+        {
+            _settings.CellFillR = c.r; _settings.CellFillG = c.g; _settings.CellFillB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("wall color", _settings.WallR, _settings.WallG, _settings.WallB, gpresets, c =>
+        {
+            _settings.WallR = c.r; _settings.WallG = c.g; _settings.WallB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("stair up color", _settings.StairUpR, _settings.StairUpG, _settings.StairUpB, gpresets, c =>
+        {
+            _settings.StairUpR = c.r; _settings.StairUpG = c.g; _settings.StairUpB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("stair down color", _settings.StairDownR, _settings.StairDownG, _settings.StairDownB, gpresets, c =>
+        {
+            _settings.StairDownR = c.r; _settings.StairDownG = c.g; _settings.StairDownB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("label color", _settings.LabelR, _settings.LabelG, _settings.LabelB, gpresets, c =>
+        {
+            _settings.LabelR = c.r; _settings.LabelG = c.g; _settings.LabelB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
 
         // default label text (item 1)
         ToolPanel.AddText("default label text", _settings.DefaultLabelText, t =>
         {
             _settings.DefaultLabelText = t;
-            _settings.Save();
+            MarkSetting();
         });
 
-        // tool hotkeys editor (item 7)
+        // autosave interval (minutes, 0 = off)
+        ToolPanel.AddNumber("autosave every N minutes (0 = off)", _settings.AutosaveMinutes, v =>
+        {
+            _settings.AutosaveMinutes = Math.Max(0, v);
+            MarkSetting();
+        });
+
+        // tool hotkeys editor (item 7): grid of small single-letter boxes with a
+        // label above each, like the pawn status styles. Reset restores the
+        // hardcoded defaults.
         ToolPanel.AddHint("tool hotkeys (single letter):");
+        var hotkeyGrid = new WrapPanel { MaxWidth = 420 };
         foreach (var modeName in _settings.ToolHotkeys.Keys)
         {
             var captured = modeName;
-            ToolPanel.AddText(captured, _settings.ToolHotkeys[captured], key =>
+            var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
+            cell.Children.Add(new TextBlock { Text = captured, Foreground = Brushes.White, FontSize = 11 });
+            var tb = new TextBox { Text = _settings.ToolHotkeys[captured], Width = 30, HorizontalAlignment = HorizontalAlignment.Left };
+            tb.TextChanged += (_, _) =>
             {
-                var k = key.Trim().ToUpperInvariant();
+                var k = tb.Text.Trim().ToUpperInvariant();
                 if (k.Length == 1)
                 {
                     _settings.ToolHotkeys[captured] = k;
-                    _settings.Save();
+                    MarkSetting();
                     RefreshToolLabels();
                 }
-            });
+            };
+            cell.Children.Add(tb);
+            hotkeyGrid.Children.Add(cell);
         }
+        ToolPanel.Target.Children.Add(hotkeyGrid);
+        ToolPanel.AddButton("reset hotkeys to default", () =>
+        {
+            _settings.ToolHotkeys = AppSettings.Default().ToolHotkeys;
+            MarkSetting();
+            FlushSettings();
+            ShowSettings(); // rebuild the grid with the restored defaults
+            RefreshToolLabels();
+        });
+
+        SettingsOverlay.IsVisible = true;
+        ToolPanel.SetTarget(null);
+    }
+
+    // Manage Door Presets: modal popup opened from the Door tool. Door categories
+    // (name + color) with add/remove. Standard is the undeletable default.
+    // Removing a category that is in use warns; on confirm, affected doors reset
+    // to Standard in ONE undoable transaction (commit after mutation).
+    private void ShowDoorPresets()
+    {
+        FlushSettings();
+        ToolPanel.SetTarget(DoorPresetsSections);
+        DoorPresetsSections.Children.Clear();
+
+        ToolPanel.AddHint("door categories (name + color):");
+        foreach (var t in _settings.DoorTypes)
+        {
+            var captured = t;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var nameBox = new TextBox { Text = captured.Name, Width = 90 };
+            nameBox.TextChanged += (_, _) =>
+            {
+                captured.Name = nameBox.Text;
+                MarkSetting();
+            };
+            row.Children.Add(nameBox);
+            row.Children.Add(ToolPanel.ColorCell(captured.R, captured.G, captured.B, PresetColors(), c =>
+            {
+                captured.R = c.r; captured.G = c.g; captured.B = c.b;
+                Canvas.Refresh();
+                MarkSetting();
+            }));
+            if (captured.Name != "standard")
+            {
+                var del = new Button { Content = "remove" };
+                del.Click += (_, _) => DeleteDoorTypeWithWarning(captured, del);
+                row.Children.Add(del);
+            }
+            DoorPresetsSections.Children.Add(row);
+        }
+        ToolPanel.AddButton("+ add door category", () =>
+        {
+            _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
+            MarkSetting();
+            ShowDoorPresets(); // rebuild for the new row
+        });
+
+        DoorPresetsOverlay.IsVisible = true;
+        ToolPanel.SetTarget(null);
+    }
+
+    // Count doors (axis-aligned + angled) using a door type name.
+    private int CountDoorsOfType(string name)
+    {
+        int n = 0;
+        foreach (var d in _doc.Doors.Values)
+            if (d.Type == name) n++;
+        foreach (var l in _doc.AngledDoors.Values)
+            foreach (var d in l)
+                if (d.Type == name) n++;
+        return n;
+    }
+
+    // Delete a door category. Standard is undeletable. If doors of that type
+    // exist, a confirmation flyout warns; on confirm they reset to Standard and
+    // the mutation is committed as ONE undoable transaction.
+    private void DeleteDoorTypeWithWarning(DoorType t, Control anchor)
+    {
+        if (t.Name == "standard") return; // undeletable default
+
+        int affected = CountDoorsOfType(t.Name);
+
+        void doDelete()
+        {
+            foreach (var d in _doc.Doors.Values)
+                if (d.Type == t.Name) d.Type = "standard";
+            foreach (var l in _doc.AngledDoors.Values)
+                foreach (var d in l)
+                    if (d.Type == t.Name) d.Type = "standard";
+            if (_settings.DefaultDoorType == t.Name) _settings.DefaultDoorType = "standard";
+            _settings.DoorTypes.Remove(t);
+            MarkSetting();
+            FlushSettings();
+            _history.Commit(_doc); // one transaction: undo restores the doors
+            Canvas.Refresh();
+            ShowDoorPresets();
+        }
+
+        if (affected == 0)
+        {
+            doDelete();
+            return;
+        }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting '{t.Name}' resets {affected} door(s) of that type to Standard. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
     }
 
     private void ShowDoorConfig(IDoorConfig door)

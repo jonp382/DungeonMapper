@@ -116,6 +116,20 @@ public sealed class AppSettings
     // so at spacing 2 you can show only the 10ft major lines.
     public bool ShowMinorGrid = true;
 
+    // Canvas element colors (settings menu). Defaults match the original hardcoded
+    // brushes in MapCanvas. The old static GridLine/FaintGridLine brushes were dead
+    // code (grid rendering uses the MajorGrid/MinorGrid settings colors), removed.
+    public int BackgroundR = 20, BackgroundG = 20, BackgroundB = 25;
+    public int CellFillR = 60, CellFillG = 75, CellFillB = 105;
+    public int WallR = 235, WallG = 235, WallB = 240;
+    public int StairUpR = 120, StairUpG = 220, StairUpB = 120;
+    public int StairDownR = 230, StairDownG = 160, StairDownB = 80;
+    public int LabelR = 250, LabelG = 250, LabelB = 250;
+
+    // Autosave interval in minutes; 0 = autosave off. Writes to
+    // maps/autosaves/ with a standardized name (index + datetime stamp).
+    public int AutosaveMinutes = 0;
+
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     public Dictionary<string, string> ToolHotkeys = new();
 
@@ -193,19 +207,30 @@ public sealed class AppSettings
 
     public string SettingsPath()
     {
-        var dir = AppContext.BaseDirectory;
+        // settings live in a settings/ subfolder next to the exe.
+        var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "settings");
         return System.IO.Path.Combine(dir, "settings.json");
     }
 
     public void Save()
     {
         var opts = new JsonSerializerOptions { WriteIndented = true };
-        System.IO.File.WriteAllText(SettingsPath(), JsonSerializer.Serialize(this, opts));
+        var path = SettingsPath();
+        System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        System.IO.File.WriteAllText(path, JsonSerializer.Serialize(this, opts));
     }
 
     public static AppSettings Load()
     {
         var path = new AppSettings().SettingsPath();
+        // one-time migration: a settings.json at the exe root (pre-subfolder
+        // layout) is moved into settings/ so existing settings survive.
+        var legacy = System.IO.Path.Combine(AppContext.BaseDirectory, "settings.json");
+        if (!System.IO.File.Exists(path) && System.IO.File.Exists(legacy))
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            System.IO.File.Move(legacy, path);
+        }
         if (!System.IO.File.Exists(path)) return Default();
         try
         {

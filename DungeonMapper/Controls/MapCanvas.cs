@@ -238,14 +238,15 @@ public sealed class MapCanvas : Control
     private const double MinScale = 8, MaxScale = 200;
 
     // High-contrast palette (dark bg, bright fills)
-    private static readonly IBrush Background = new SolidColorBrush(Color.FromRgb(20, 20, 25));
-    private static readonly IBrush CellFill = new SolidColorBrush(Color.FromRgb(60, 75, 105));
-    private static readonly IBrush GridLine = new SolidColorBrush(Color.FromRgb(45, 52, 66));
-    private static readonly IBrush FaintGridLine = new SolidColorBrush(Color.FromArgb(120, 45, 52, 66));
-    private static readonly IPen WallPen = new Pen(new SolidColorBrush(Color.FromRgb(235, 235, 240)), 3);
-    private static readonly IBrush StairUp = new SolidColorBrush(Color.FromRgb(120, 220, 120));
-    private static readonly IBrush StairDown = new SolidColorBrush(Color.FromRgb(230, 160, 80));
-    private static readonly IBrush LabelBrush = new SolidColorBrush(Color.FromRgb(250, 250, 250));
+    // Canvas element colors come from Settings (settings menu). The old static
+    // GridLine/FaintGridLine brushes were dead code - grid rendering uses the
+    // MajorGrid/MinorGrid settings colors - and were removed.
+    private IBrush Background => new SolidColorBrush(Color.FromRgb((byte)Settings.BackgroundR, (byte)Settings.BackgroundG, (byte)Settings.BackgroundB));
+    private IBrush CellFill => new SolidColorBrush(Color.FromRgb((byte)Settings.CellFillR, (byte)Settings.CellFillG, (byte)Settings.CellFillB));
+    private IPen WallPen => new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.WallR, (byte)Settings.WallG, (byte)Settings.WallB)), 3);
+    private IBrush StairUp => new SolidColorBrush(Color.FromRgb((byte)Settings.StairUpR, (byte)Settings.StairUpG, (byte)Settings.StairUpB));
+    private IBrush StairDown => new SolidColorBrush(Color.FromRgb((byte)Settings.StairDownR, (byte)Settings.StairDownG, (byte)Settings.StairDownB));
+    private IBrush LabelBrush => new SolidColorBrush(Color.FromRgb((byte)Settings.LabelR, (byte)Settings.LabelG, (byte)Settings.LabelB));
 
     // Door color per type, from the configurable DoorTypes list; unknown types
     // fall back to the first category.

@@ -82,6 +82,39 @@
                     </ScrollViewer>
                 </StackPanel>
             </Border>
+            <!-- settings modal: centered popup like Pawn Management. Sections are
+                 built in code (ShowSettingsModal) into SettingsSections. -->
+            <Border x:Name="SettingsOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="460" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Settings" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="SettingsClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
+                        <StackPanel x:Name="SettingsSections" Spacing="10" />
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            <!-- door presets modal: Manage Door Presets, opened from the Door tool.
+                 Door categories (name + color) with add/remove; Standard is the
+                 undeletable default. Door tool itself shows only placement options. -->
+            <Border x:Name="DoorPresetsOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="420" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Manage Door Presets" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="DoorPresetsClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
+                        <StackPanel x:Name="DoorPresetsSections" Spacing="10" />
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
             <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
                        Foreground="#aaa" FontSize="13"
                        HorizontalAlignment="Left" VerticalAlignment="Bottom"
