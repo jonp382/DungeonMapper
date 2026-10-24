@@ -331,10 +331,19 @@ public partial class MainWindow : Window
                 }
                 else
                 {
+                    // sort dropdown for the tool swatch grid: name,
+                    // affiliation, instance count. Re-selecting the tool rebuilds
+                    // the panel with the new order.
+                    ToolPanel.AddChoice("sort", new[] { "insertion", "name", "affiliation", "instances" },
+                        _pawnToolSort, mode =>
+                        {
+                            _pawnToolSort = mode;
+                            SetTool(ToolMode.Pawn);
+                        });
                     // snapshot the templates so the swatch closure reads a stable
                     // list; reading the live library by index can go out of range
                     // if the library changes after the grid is built (add/delete).
-                    var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
+                    var snapshot = SortedPawns(_pawnToolSort);
                     var items = new List<(string, string, string, int, int, int, int, int, int)>();
                     foreach (var t in snapshot)
                     {
@@ -1249,6 +1258,21 @@ public partial class MainWindow : Window
         ModalOverlay.IsVisible = true;
         var presets = PresetColors();
 
+        // sort dropdown for the library grid: name, affiliation,
+        // instance count, invalid-first.
+        ModalSortRow.Children.Clear();
+        ModalSortRow.Children.Add(new TextBlock { Text = "sort:", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+        var sortCombo = new ComboBox { MinWidth = 150 };
+        foreach (var m in new[] { "insertion", "name", "affiliation", "instances", "invalid" })
+            sortCombo.Items.Add(m);
+        sortCombo.SelectedIndex = Math.Max(0, new[] { "insertion", "name", "affiliation", "instances", "invalid" }.ToList().IndexOf(_pawnSort));
+        sortCombo.SelectionChanged += (_, _) =>
+        {
+            _pawnSort = sortCombo.SelectedItem?.ToString() ?? "insertion";
+            BuildLibraryGrid();
+        };
+        ModalSortRow.Children.Add(sortCombo);
+
         BuildLibraryGrid();
 
         // Global affiliation coloring: templates inherit these unless ColorOverride.
@@ -1439,12 +1463,63 @@ public partial class MainWindow : Window
 
     // Rebuild the virtualized library grid: chunk templates into rows of 4 swatches.
     // The ItemsControl's VirtualizingStackPanel renders only the rows in view.
+    private string _pawnSort = "insertion";
+    private string _pawnToolSort = "insertion";
+
     private void BuildLibraryGrid()
     {
         LibraryGrid.Items.Clear();
-        var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
+        var snapshot = SortedPawns(_pawnSort);
         for (int i = 0; i < snapshot.Count; i += 4)
             LibraryGrid.Items.Add(BuildSwatchRow(snapshot.GetRange(i, Math.Min(4, snapshot.Count - i))));
+    }
+
+    // Shared sort for the pawn management modal and the pawn tool swatch grid.
+    // Modes: insertion (library order), name, affiliation, instances (live placed
+    // count, desc), invalid (invalid templates first). A template is invalid when
+    // its affiliation is not in the affiliation table (deleted faction) or it is a
+    // duplicate - sharing normalized name + affiliation with another template.
+    private List<PawnTemplate> SortedPawns(string mode)
+    {
+        var list = new List<PawnTemplate>(_pawnLibrary.Pawns);
+        switch (mode)
+        {
+            case "name":
+                list.Sort((a, b) => string.Compare((a.Name ?? "").Trim(), (b.Name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+                break;
+            case "affiliation":
+                list.Sort((a, b) => string.Compare(PawnTemplate.NormalizeAffiliation(a.Affiliation),
+                    PawnTemplate.NormalizeAffiliation(b.Affiliation), StringComparison.OrdinalIgnoreCase));
+                break;
+            case "instances":
+                list.Sort((a, b) => InstanceCount(b).CompareTo(InstanceCount(a)));
+                break;
+            case "invalid":
+                list.Sort((a, b) => (IsInvalid(b) ? 1 : 0).CompareTo(IsInvalid(a) ? 1 : 0));
+                break;
+            default: // insertion order, no sort
+                break;
+        }
+        return list;
+    }
+
+    private int InstanceCount(PawnTemplate t)
+    {
+        int n = 0;
+        foreach (var p in Canvas.Document.Pawns.Values) if (p.TemplateId == t.Id) n++;
+        return n;
+    }
+
+    private bool IsInvalid(PawnTemplate t)
+    {
+        var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
+        if (!_settings.AffiliationColors.Any(a => a.Name == aff)) return true;
+        var nm = (t.Name ?? "").Trim().ToLowerInvariant();
+        int same = 0;
+        foreach (var o in _pawnLibrary.Pawns)
+            if ((o.Name ?? "").Trim().ToLowerInvariant() == nm
+                && PawnTemplate.NormalizeAffiliation(o.Affiliation) == aff) same++;
+        return same > 1;
     }
 
     // One row of clickable pawn swatches (concentric circles + status ring). Clicking

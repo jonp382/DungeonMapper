@@ -62,10 +62,11 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
                         <StackPanel Spacing="8">
                             <Button x:Name="ModalAddPawn" Content="+ add pawn" />
+                            <StackPanel x:Name="ModalSortRow" Orientation="Horizontal" Spacing="6" />
                             <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
                             <!-- inner ScrollViewer gives the VirtualizingStackPanel a
                                  bounded viewport so only visible rows render -->
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+                            <ScrollViewer VerticalScrollBarVisibility="Visible" MaxHeight="320">
                                 <ItemsControl x:Name="LibraryGrid">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
