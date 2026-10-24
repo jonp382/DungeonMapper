@@ -970,7 +970,9 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             BuildLibraryGrid();
         });
-        ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
+        var affNames = new List<string>();
+        foreach (var ac in _settings.AffiliationColors) affNames.Add(ac.Name);
+        ToolPanel.AddChoice("Affiliation", affNames.ToArray(),
             PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
             {
                 t.Affiliation = aff;
@@ -1131,6 +1133,55 @@ public partial class MainWindow : Window
         flyout.ShowAt(anchor);
     }
 
+    // Delete an affiliation. Every template in that affiliation is reassigned to
+    // "Neutral". Player/Ally/Enemy/Neutral are hard defaults and
+    // undeletable. Confirmation flyout counts affected templates.
+    private void DeleteAffiliationWithWarning(AffiliationColor ac, Control anchor)
+    {
+        if (ac.Name == "Player" || ac.Name == "Ally" || ac.Name == "Enemy" || ac.Name == "Neutral") return;
+
+        int affected = 0;
+        foreach (var t in _pawnLibrary.Pawns)
+            if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name) affected++;
+
+        void doDelete()
+        {
+            foreach (var t in _pawnLibrary.Pawns)
+                if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name)
+                {
+                    t.Affiliation = "Neutral";
+                    if (!t.ColorOverride) t.ApplyAffiliationDefaults();
+                }
+            _settings.AffiliationColors.Remove(ac);
+            _settings.Save();
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        }
+
+        if (affected == 0) { doDelete(); return; }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting {ac.Name} reassigns {affected} template(s) to Neutral. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
+    }
+
     // Delete a status style. Templates reference statuses by name (t.Status).
     // Deleting a style resets every template that uses it to "none". "none" itself
     // is the hard default and un-deletable. Confirmation flyout counts affected
@@ -1229,8 +1280,30 @@ public partial class MainWindow : Window
             }));
             row.Children.Add(outerCol);
             row.Children.Add(innerCol);
+            // delete X for non-default affiliations. Player/Ally/Enemy/Neutral are
+            // hard-coded defaults and undeletable.
+            if (captured.Name != "Player" && captured.Name != "Ally"
+                && captured.Name != "Enemy" && captured.Name != "Neutral")
+            {
+                var delAff = new Button { Content = "X", Padding = new Thickness(4, 0, 4, 0) };
+                delAff.Click += (_, _) => DeleteAffiliationWithWarning(captured, delAff);
+                row.Children.Add(delAff);
+            }
             ModalAffiliations.Children.Add(row);
         }
+
+        ToolPanel.AddButton("+ add affiliation", () =>
+        {
+            var n = _settings.AffiliationColors.Count;
+            var name = $"Affiliation {n + 1}";
+            while (_settings.AffiliationColors.Any(a => a.Name == name))
+            { n++; name = $"Affiliation {n + 1}"; }
+            _settings.AffiliationColors.Add(new AffiliationColor(name, (180, 180, 180), (110, 110, 110)));
+            _settings.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        });
 
         // Status styles: an actual Grid with grid lines. Columns: Name, color cell
         // ([preview][palette]), Thickness, delete X. Each style on its own row.
