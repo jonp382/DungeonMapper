@@ -324,6 +324,45 @@ public sealed class MapCanvas : Control
         return new SolidColorBrush(Color.FromRgb((byte)t.R, (byte)t.G, (byte)t.B));
     }
 
+    // Door square glyph centered at mid, rotated by ang (radians). Open = hollow
+    // outline, closed = solid, locked = solid + red core. Shared by placed doors,
+    // angled doors, and the door tool placement ghost.
+    private void DrawDoorGlyph(DrawingContext ctx, Point mid, double ang, IBrush brush, DoorState state)
+    {
+        double s2 = Math.Max(4, _scale * 0.18);
+        var rect = new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2);
+        void core()
+        {
+            if (state == DoorState.Open)
+            {
+                var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
+                ctx.DrawRectangle(pen, rect);
+            }
+            else
+            {
+                ctx.FillRectangle(brush, rect);
+                if (state == DoorState.Locked)
+                {
+                    double inner = s2 * 2 * 0.5;
+                    // locked inner core is always RED, independent of door type.
+                    ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
+                        new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+                }
+            }
+        }
+        if (Math.Abs(ang) < 0.0001) { core(); return; }
+        // Avalonia transforms points as point * matrix (row-vector), so the
+        // composition applies right-to-left: shift mid to origin, rotate, shift back.
+        using (ctx.PushTransform(Matrix.CreateTranslation(-mid.X, -mid.Y)
+                                 * Matrix.CreateRotation(ang)
+                                 * Matrix.CreateTranslation(mid.X, mid.Y)))
+            core();
+    }
+
+    // Semi-transparent version of a door type color, for the placement ghost.
+    private SolidColorBrush GhostBrush(SolidColorBrush src)
+        => new SolidColorBrush(Color.FromArgb(120, src.Color.R, src.Color.G, src.Color.B));
+
     public void AutoFit()
     {
         var b = Document.ContentBounds();
@@ -524,6 +563,7 @@ public sealed class MapCanvas : Control
     private bool _dragging;
     private CellKey _dragStart, _dragEnd;
     private EdgeKey? _previewEdge;
+    private (AngledWall wall, double t)? _previewAngled; // door ghost on hovered angled segment (t in cell units)
     private EdgeKey? _wallDragStart;
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
     private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
@@ -573,6 +613,38 @@ public sealed class MapCanvas : Control
             var a = WorldToScreen(seg.a.X, seg.a.Y);
             var b = WorldToScreen(seg.b.X, seg.b.Y);
             ctx.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), a, b);
+            // door tool ghost: the wall-line preview is invisible over an existing
+            // wall, so show the door square icon at the edge midpoint instead
+            // Ghost uses the armed default type/state, semi-transparent.
+            if (Mode == ToolMode.Door && Document.GetDoor(pe) is null)
+            {
+                var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+                var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                    ? s : DoorState.Closed;
+                DrawDoorGlyph(ctx, mid, 0, GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+            }
+        }
+        // angled door ghost: hover near an angled segment shows the rotated door
+        // square at the projected t, same priority as the click handler.
+        if (Mode == ToolMode.Door && _previewAngled is not null)
+        {
+            var (wall, t) = _previewAngled.Value;
+            var doors = Document.GetAngledDoors(wall);
+            if (doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5) is null)
+            {
+                var wa = WorldToScreen(wall.Ax, wall.Ay);
+                var wb = WorldToScreen(wall.Bx, wall.By);
+                double len = Math.Sqrt((wb.X - wa.X) * (wb.X - wa.X) + (wb.Y - wa.Y) * (wb.Y - wa.Y));
+                if (len > 0.0001)
+                {
+                    double ux = (wb.X - wa.X) / len, uy = (wb.Y - wa.Y) / len;
+                    var mid = new Point(wa.X + ux * t * _scale, wa.Y + uy * t * _scale);
+                    var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                        ? s : DoorState.Closed;
+                    DrawDoorGlyph(ctx, mid, Math.Atan2(uy, ux),
+                        GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                }
+            }
         }
 
         // selection rectangle (cyan)
@@ -977,6 +1049,15 @@ public sealed class MapCanvas : Control
         {
             var edge = HitEdge(world);
             if (edge != _previewEdge) { _previewEdge = edge; InvalidateVisual(); }
+            if (Mode == ToolMode.Door)
+            {
+                // door ghost priority: a hover near an angled segment shows the
+                // door square on that segment (the wall-line preview is invisible
+                // over an existing wall).
+                var aw = HitAngledWall(world);
+                if (aw?.wall != _previewAngled?.wall || aw?.t != _previewAngled?.t)
+                { _previewAngled = aw; InvalidateVisual(); }
+            }
         }
     }
 
@@ -1134,27 +1215,7 @@ public sealed class MapCanvas : Control
             ? new Rect(mid.X - gap / 2, mid.Y - 1.5, gap, 3)
             : new Rect(mid.X - 1.5, mid.Y - gap / 2, 3, gap);
         ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
-        var brush = DoorBrush(door.Type);
-        double s2 = Math.Max(4, _scale * 0.18);
-        // symbol: solid square for closed, hollow square (outline only,
-        // transparent core) for open, square + big inner square for locked.
-        // The inner square is 30% of the door side, so it scales with zoom.
-        if (door.State == DoorState.Open)
-        {
-            var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
-            ctx.DrawRectangle(pen, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
-        }
-        else
-        {
-            ctx.FillRectangle(brush, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
-            if (door.State == DoorState.Locked)
-            {
-                double inner = s2 * 2 * 0.5;
-                // locked inner core is always RED, independent of door type.
-                ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
-                    new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
-            }
-        }
+        DrawDoorGlyph(ctx, mid, 0, DoorBrush(door.Type), door.State);
     }
 
     /// Draws an angled wall segment with door gaps. The wall is drawn as the
@@ -1186,32 +1247,8 @@ public sealed class MapCanvas : Control
         foreach (var d in doors)
         {
             var mid = At(d.T * _scale);
-            var brush = DoorBrush(d.Type);
-            double s2 = Math.Max(4, _scale * 0.18);
-            // axis-aligned square glyph, rotated by the segment angle around mid.
             double ang = Math.Atan2(uy, ux);
-            // Avalonia transforms points as point * matrix (row-vector), so the
-            // composition applies right-to-left: shift mid to origin, rotate, shift back.
-            using (ctx.PushTransform(Matrix.CreateTranslation(-mid.X, -mid.Y)
-                                     * Matrix.CreateRotation(ang)
-                                     * Matrix.CreateTranslation(mid.X, mid.Y)))
-            {
-                if (d.State == DoorState.Open)
-                {
-                    var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
-                    ctx.DrawRectangle(pen, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
-                }
-                else
-                {
-                    ctx.FillRectangle(brush, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
-                    if (d.State == DoorState.Locked)
-                    {
-                        double inner = s2 * 2 * 0.5;
-                        ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
-                            new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
-                    }
-                }
-            }
+            DrawDoorGlyph(ctx, mid, ang, DoorBrush(d.Type), d.State);
         }
     }
 }
