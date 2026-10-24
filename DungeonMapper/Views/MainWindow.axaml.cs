@@ -39,6 +39,9 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         Canvas.Document = _doc;
+        // unique-pawn images live in a pawn_images subfolder next to the exe.
+        Canvas.PawnImagesDir = System.IO.Path.Combine(AppContext.BaseDirectory, "pawn_images");
+        System.IO.Directory.CreateDirectory(Canvas.PawnImagesDir);
         Canvas.Settings = _settings;
         Canvas.Library = _pawnLibrary;
         _history.Initialize(_doc);
@@ -121,7 +124,11 @@ public partial class MainWindow : Window
             ShowPawnManagement();
         };
 
-        Canvas.ActionCompleted += () => _history.Commit(_doc);
+        Canvas.ActionCompleted += () =>
+        {
+            _history.Commit(_doc);
+            CleanupUnreferencedImages();
+        };
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
         Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
@@ -922,6 +929,27 @@ public partial class MainWindow : Window
         ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
     }
 
+    /// Deletes image files in pawn_images that no placed pawn references any more.
+    /// A template's image is referenced while at least one placed pawn on the
+    /// active map points at that template. Runs after every committed action.
+    private void CleanupUnreferencedImages()
+    {
+        var referenced = new HashSet<string>();
+        foreach (var p in _doc.Pawns.Values)
+        {
+            var t = _pawnLibrary.Find(p.TemplateId);
+            if (t is not null && !string.IsNullOrEmpty(t.Image)) referenced.Add(t.Image);
+        }
+        foreach (var f in System.IO.Directory.GetFiles(Canvas.PawnImagesDir))
+        {
+            var name = System.IO.Path.GetFileName(f);
+            if (!referenced.Contains(name))
+            {
+                try { System.IO.File.Delete(f); } catch { }
+            }
+        }
+    }
+
     // Template editor: edits a library template (name, affiliation, custom colors,
     // inner/outer, status). Reached from the management menu. Editing a template
     // propagates to every placed pawn that references it (hard reference).
@@ -1008,6 +1036,44 @@ public partial class MainWindow : Window
         });
         _statusCombo = statusCombo;
         _statusComboTemplate = t;
+
+        // unique pawn image: upload replaces the two-tone circles entirely, drawn
+        // square (center-cropped) to fit the cell. PNG preferred, JPEG accepted.
+        ToolPanel.AddButton("upload image (png/jpg)", async () =>
+        {
+            var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg" } },
+                },
+            });
+            if (files.Count == 0) return;
+            var src = files[0].Path.LocalPath;
+            var ext = System.IO.Path.GetExtension(src).ToLowerInvariant();
+            var dest = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
+            System.IO.File.Copy(src, dest, overwrite: true);
+            t.Image = System.IO.Path.GetFileName(dest);
+            _pawnLibrary.Save();
+            Canvas.InvalidateImageCache();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+        });
+        if (!string.IsNullOrEmpty(t.Image))
+        {
+            ToolPanel.AddButton("remove image", () =>
+            {
+                var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Image);
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                t.Image = "";
+                _pawnLibrary.Save();
+                Canvas.InvalidateImageCache();
+                Canvas.Refresh();
+                BuildLibraryGrid();
+                CleanupUnreferencedImages();
+            });
+        }
 
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
 

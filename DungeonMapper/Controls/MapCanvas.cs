@@ -50,6 +50,31 @@ public sealed class MapCanvas : Control
     /// Template armed for placement from the floating submenu. Clicking a cell
     /// places a pawn referencing this template. Null = no pawn armed.
     public PawnTemplate? ArmedPawn { get; set; }
+    // folder of unique-pawn images (filenames stored on templates as PawnTemplate.Image)
+    public string PawnImagesDir { get; set; } = "";
+    private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _bitmapCache = new();
+
+    /// Drops every cached bitmap. Call when a template's image is uploaded,
+    /// removed, or the template is deleted, so the next render reloads.
+    public void InvalidateImageCache()
+    {
+        foreach (var b in _bitmapCache.Values) b.Dispose();
+        _bitmapCache.Clear();
+    }
+
+    private Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string fileName)
+    {
+        if (_bitmapCache.TryGetValue(fileName, out var cached)) return cached;
+        var path = System.IO.Path.Combine(PawnImagesDir, fileName);
+        if (!System.IO.File.Exists(path)) return null;
+        try
+        {
+            var bmp = new Avalonia.Media.Imaging.Bitmap(path);
+            _bitmapCache[fileName] = bmp;
+            return bmp;
+        }
+        catch { return null; }
+    }
     // special move mode: selection captures and moves ONLY pawns; other elements
     // are untouched at the source, and incompatible elements at the destination
     // are removed so the pawn lands clean.
@@ -461,11 +486,27 @@ public sealed class MapCanvas : Control
             }
             double outerR = _scale * 0.42;
             double innerR = _scale * 0.22;
-            var (effOuter, effInner) = t.Effective(Settings);
-            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
-            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
-            ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
-            ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
+            if (!string.IsNullOrEmpty(t.Image))
+            {
+                // unique pawn: the image replaces the two-tone circles entirely.
+                // center-crop to a square so any aspect ratio fits the cell.
+                var bmp = LoadPawnImage(t.Image);
+                if (bmp is not null)
+                {
+                    double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                    var srcRect = new Rect((bmp.PixelSize.Width - side) / 2, (bmp.PixelSize.Height - side) / 2, side, side);
+                    var dest = new Rect(p0.X + _scale * 0.08, p0.Y + _scale * 0.08, _scale * 0.84, _scale * 0.84);
+                    ctx.DrawImage(bmp, srcRect, dest);
+                }
+            }
+            else
+            {
+                var (effOuter, effInner) = t.Effective(Settings);
+                var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
+                var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
+                ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
+                ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
+            }
             // status border ring on the outer edge. per-instance override wins,
             // null inherits the template's status.
             var st = Settings.FindPawnStatus(p.Status ?? t.Status);

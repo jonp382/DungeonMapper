@@ -41,6 +41,10 @@ public sealed class PawnTemplate
     public int InnerR, InnerG, InnerB;
     public int OuterR, OuterG, OuterB;
     public string Status = "none";
+    // optional image for unique pawns: filename in the pawn_images folder next to
+    // the exe. When set, the image replaces the two-tone circles entirely, drawn
+    // square (center-cropped) to fit the cell.
+    public string Image = "";
 
     /// Affiliation default colors: outer bright, inner dark accent.
     public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch
