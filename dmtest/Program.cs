@@ -460,6 +460,23 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(m2.Pawns.ContainsKey(new CellKey(7, 7)), "paste offsets pawn");
     Check(m2.Pawns[new CellKey(7, 7)].TemplateId == t.Id, "paste preserves template reference");
 
+    // per-instance status override: null inherits, set overrides, paste + round-trip carry it
+    var ps = new Pawn { Cell = new CellKey(2, 2), TemplateId = t.Id, Status = "alert" };
+    m.PlacePawn(ps);
+    Check(m.Pawns[new CellKey(2, 2)].Status == "alert", "pawn stores per-instance status");
+    var snapS = m.CaptureRegion(0, 0, 3, 3);
+    var m3St = new MapDocument();
+    m3St.PasteRegion(snapS, 5, 5);
+    Check(m3St.Pawns[new CellKey(7, 7)].Status == "alert", "paste carries per-instance status");
+    var jsonSt = MapSerializer.ToJson(m);
+    var m4St = MapSerializer.FromJson(jsonSt);
+    Check(m4St.Pawns[new CellKey(2, 2)].Status == "alert", "status round-trips through json");
+    // null status round-trips as inherit (fresh doc so the shared map stays clean)
+    var m6St = new MapDocument();
+    m6St.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = t.Id });
+    var m7St = MapSerializer.FromJson(MapSerializer.ToJson(m6St));
+    Check(m7St.Pawns[new CellKey(1, 1)].Status is null, "null status round-trips as inherit");
+
     // no stacking: placing on an occupied cell replaces
     var p2 = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p9" };
     m.PlacePawn(p2);

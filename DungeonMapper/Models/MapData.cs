@@ -553,7 +553,7 @@ public sealed class MapDocument
         foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
-        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(p);
+        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status });
         foreach (var w in AngledWalls)
             if (AngledWallIntersectsRect(w, x0, y0, x1, y1))
             {
@@ -582,6 +582,7 @@ public sealed class MapDocument
             {
                 Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
                 TemplateId = p.TemplateId,
+                Status = p.Status,
             };
         foreach (var (e, d) in snap.Doors)
         {

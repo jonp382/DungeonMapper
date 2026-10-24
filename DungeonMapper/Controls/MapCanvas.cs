@@ -50,6 +50,10 @@ public sealed class MapCanvas : Control
     /// Template armed for placement from the floating submenu. Clicking a cell
     /// places a pawn referencing this template. Null = no pawn armed.
     public PawnTemplate? ArmedPawn { get; set; }
+    // special move mode: selection captures and moves ONLY pawns; other elements
+    // are untouched at the source, and incompatible elements at the destination
+    // are removed so the pawn lands clean.
+    public bool MovePawnsOnly { get; set; }
 
     public event Action? ActionCompleted;
     public event Action<IDoorConfig>? DoorConfigRequested;
@@ -139,6 +143,29 @@ public sealed class MapCanvas : Control
     {
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var src = _moveSourceDoc ?? Document;
+
+        if (MovePawnsOnly)
+        {
+            // special move: capture ONLY pawns in the region. other elements stay
+            // at the source; at the destination, incompatible elements (walls,
+            // cells, stairs, labels) are removed so the pawn lands clean.
+            var pawns = new List<Pawn>();
+            foreach (var (c, p) in src.Pawns)
+                if (c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1) pawns.Add(p);
+            if (pawns.Count == 0) { StatusMessage?.Invoke("no pawns in the selection"); return; }
+            int dx = target.X - x0, dy = target.Y - y0;
+            foreach (var p in pawns) src.Pawns.Remove(p.Cell);
+            foreach (var p in pawns)
+            {
+                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+                ClearCellObstacles(Document, nc);
+                Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
+            }
+            StatusMessage?.Invoke($"moved {pawns.Count} pawns");
+            Commit();
+            return;
+        }
+
         var snap = src.CaptureRegion(x0, y0, x1, y1);
         if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
         _clipboard = snap; // armed region shows as the paste ghost at the cursor
@@ -153,6 +180,22 @@ public sealed class MapCanvas : Control
         }
         StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
         Commit();
+    }
+
+    /// Removes everything incompatible with a pawn landing on a cell: room cell,
+    /// stair, labels, walls on all four edges (doors auto-removed by SetWall),
+    /// and angled walls touching the cell (their doors go with the wall).
+    private static void ClearCellObstacles(MapDocument doc, CellKey c)
+    {
+        doc.Cells.Remove(c);
+        doc.Stairs.Remove(c);
+        doc.Labels.RemoveAll(l => l.Cell == c);
+        foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+            doc.SetWall(new EdgeKey(c, side), false);
+        foreach (var w in doc.AngledWalls)
+            if (MapDocument.AngledWallIntersectsRect(w, c.X, c.Y, c.X, c.Y))
+                doc.AngledDoors.Remove(w);
+        doc.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, c.X, c.Y, c.X, c.Y));
     }
 
     /// Pastes at the current cursor cell, if a paste ghost is showing.
