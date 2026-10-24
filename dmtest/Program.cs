@@ -317,6 +317,19 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(back.Maps[1].Doc.Stairs[new CellKey(3, 3)].TargetMap == "Cavern", "project: stair target map round-trip");
 }
 
+// --- label per-instance size + color round-trip ---
+{
+    var lm = new MapDocument();
+    lm.Labels.Add(new MapLabel { Cell = new CellKey(2, 3), Text = "L", FontSize = 24, R = 200, G = 10, B = 50 });
+    lm.Labels.Add(new MapLabel { Cell = new CellKey(4, 4), Text = "inherit" });
+    string ljson = MapSerializer.ToJson(lm);
+    var lback = MapSerializer.FromJson(ljson);
+    var l1 = lback.Labels.First(l => l.Cell == new CellKey(2, 3));
+    var l2 = lback.Labels.First(l => l.Cell == new CellKey(4, 4));
+    Check(l1.FontSize == 24 && l1.R == 200 && l1.G == 10 && l1.B == 50, "label: size + color round-trip");
+    Check(l2.FontSize == 0 && l2.R == -1 && l2.G == -1 && l2.B == -1, "label: inherit defaults round-trip");
+}
+
 // --- delete hotkey (erase selection with all categories on) ---
 {
     var d = new MapDocument();

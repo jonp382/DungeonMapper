@@ -851,6 +851,28 @@ public partial class MainWindow : Window
             _history.Commit(_doc);
             Canvas.Refresh();
         });
+        // per-label size + color: size is a font size in points, 0 =
+        // auto (zoom-scaled); color uses the standardized color picker, -1 = inherit
+        // the settings label color.
+        ToolPanel.AddNumber("Font size (0 = auto)", label.FontSize, v =>
+        {
+            label.FontSize = Math.Max(0, v);
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddColorField("Color (inherit = settings label color)",
+            label.R, label.G, label.B, PresetColors(), c =>
+            {
+                label.R = c.r; label.G = c.g; label.B = c.b;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
+        ToolPanel.AddButton("reset to auto size + inherit color", () =>
+        {
+            label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
     }
 
     // Parses "#RRGGBB" into RGB components.

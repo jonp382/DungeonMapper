@@ -91,6 +91,13 @@ public sealed class MapLabel
 {
     public CellKey Cell { get; set; }
     public string Text { get; set; } = "";
+    // Per-label overrides. FontSize 0 = auto (zoom-scaled default). Color -1 =
+    // inherit the settings label color. Labels render centered on their cell;
+    // oversized text may leak into neighboring cells, which is allowed.
+    public int FontSize { get; set; } = 0;
+    public int R { get; set; } = -1;
+    public int G { get; set; } = -1;
+    public int B { get; set; } = -1;
 }
 
 public enum Affiliation { Player, Ally, Enemy, Neutral }

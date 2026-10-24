@@ -500,8 +500,13 @@ public sealed class MapCanvas : Control
         foreach (var l in Document.Labels)
         {
             var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
+            // per-label overrides: FontSize 0 = zoom-scaled auto, color -1 = inherit
+            double fs = l.FontSize > 0 ? l.FontSize : Math.Max(10, _scale * 0.35);
+            var brush = (l.R >= 0 && l.G >= 0 && l.B >= 0)
+                ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
+                : LabelBrush;
             var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                new Typeface("Inter"), Math.Max(10, _scale * 0.35), LabelBrush);
+                new Typeface("Inter"), fs, brush);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             ctx.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
         }
