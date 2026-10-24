@@ -423,8 +423,9 @@ public sealed class MapCanvas : Control
             var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
             ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
             ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
-            // status border ring on the outer edge
-            var st = Settings.FindPawnStatus(t.Status);
+            // status border ring on the outer edge. per-instance override wins,
+            // null inherits the template's status.
+            var st = Settings.FindPawnStatus(p.Status ?? t.Status);
             if (st.Thickness > 0)
             {
                 var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);

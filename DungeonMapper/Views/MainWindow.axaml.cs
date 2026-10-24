@@ -234,6 +234,9 @@ public partial class MainWindow : Window
     {
         FlushSettings(); // switching tools flushes pending settings changes
         Canvas.Mode = mode;
+        // re-selecting a tool resets the armed pawn template: the user expects
+        // clicking the pawn tool again to clear a stale selection.
+        Canvas.ArmedPawn = null;
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
@@ -311,6 +314,9 @@ public partial class MainWindow : Window
             case ToolMode.Pawn:
                 ToolPanel.Clear("Pawn");
                 ToolPanel.AddHint("pick a pawn below, then click a cell to place it. click a placed pawn to edit its template.");
+                // manage pawns FIRST: at small resolutions the pawn display can grow
+                // past the panel, so all controls sit above it.
+                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
                 if (_pawnLibrary.Pawns.Count == 0)
                 {
                     ToolPanel.AddHint("library is empty - add pawns in the pawn menu.");
@@ -341,10 +347,9 @@ public partial class MainWindow : Window
                     {
                         if (i < 0 || i >= snapshot.Count) return;
                         Canvas.ArmedPawn = snapshot[i];
-                        StatusText.Text = $"armed {(snapshot[i].Name ?? "pawn")} - click a cell to place";
+                        StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(snapshot[i].Name) ? "pawn" : snapshot[i].Name)} - click a cell to place";
                     });
                 }
-                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
                 break;
 
             case ToolMode.Polygon:
@@ -873,7 +878,17 @@ public partial class MainWindow : Window
         ToolPanel.AddHint($"name: {t.Name}");
         ToolPanel.AddHint($"affiliation: {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
         ToolPanel.AddHint($"instances on map: {count}");
-        ToolPanel.AddHint($"status: {t.Status}");
+        // per-instance status: the placed pawn overrides its template's status.
+        // "inherit" clears the override; picking a status sets it. Undoable.
+        var statusNames = new List<string> { "inherit" };
+        foreach (var st in _settings.PawnStatuses) statusNames.Add(st.Name);
+        ToolPanel.AddChoice("status", statusNames.ToArray(),
+            pawn.Status ?? "inherit", s =>
+            {
+                pawn.Status = s == "inherit" ? null : s;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
         ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
         ToolPanel.AddButton("delete pawn", () =>
         {
@@ -1317,7 +1332,15 @@ public partial class MainWindow : Window
                 canvas.Children.Add(ring);
             }
             var hit = new Rectangle { Width = 30, Height = 30, Fill = Brushes.Transparent };
-            hit.PointerPressed += (_, _) => ShowTemplateEditor(captured);
+            hit.PointerPressed += (_, _) =>
+            {
+                // clicking a library swatch arms it for placement AND opens its
+                // editor. Without arming here, the modal can never change the
+                // armed pawn - the first-armed template keeps getting placed.
+                Canvas.ArmedPawn = captured;
+                StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name)} - click a cell to place";
+                ShowTemplateEditor(captured);
+            };
             canvas.Children.Add(hit);
             var cap = new TextBlock { Text = string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 60, TextWrapping = TextWrapping.Wrap };
             cell.Children.Add(canvas);

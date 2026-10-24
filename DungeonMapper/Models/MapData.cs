@@ -103,6 +103,8 @@ public sealed class Pawn
 {
     public CellKey Cell { get; set; }
     public string TemplateId { get; set; } = "";
+    // per-instance status override; null inherits the template's status.
+    public string? Status { get; set; }
 }
 
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.

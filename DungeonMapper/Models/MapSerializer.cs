@@ -182,6 +182,7 @@ public static class MapSerializer
     {
         Cell = Key(c),
         TemplateId = p.TemplateId,
+        Status = p.Status ?? "",
     };
 
     private static void AddPawns(MapFileDto dto, MapDocument doc)
@@ -189,7 +190,7 @@ public static class MapSerializer
         foreach (var d in dto.Pawns)
         {
             if (!TryParseCell(d.Cell, out var c)) continue;
-            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId };
+            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Status = string.IsNullOrEmpty(d.Status) ? null : d.Status };
         }
     }
 
