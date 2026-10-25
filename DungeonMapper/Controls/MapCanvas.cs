@@ -62,7 +62,10 @@ public sealed class MapCanvas : Control
         _bitmapCache.Clear();
     }
 
-    private Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string fileName)
+    /// Loads (and caches) a pawn image bitmap from the pawn_images folder.
+    /// Public so the pawn management modal and the pawn tool swatch grids can
+    /// render template images in their swatches, not just on the map.
+    public Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string fileName)
     {
         if (_bitmapCache.TryGetValue(fileName, out var cached)) return cached;
         var path = System.IO.Path.Combine(PawnImagesDir, fileName);

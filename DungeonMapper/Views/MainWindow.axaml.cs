@@ -344,13 +344,13 @@ public partial class MainWindow : Window
                     // list; reading the live library by index can go out of range
                     // if the library changes after the grid is built (add/delete).
                     var snapshot = SortedPawns(_pawnToolSort);
-                    var items = new List<(string, string, string, int, int, int, int, int, int)>();
+                    var items = new List<(string, string, string, int, int, int, int, int, int, string)>();
                     foreach (var t in snapshot)
                     {
                         var (eo, ei) = t.Effective(_settings);
                         items.Add((t.Id, string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
                                    PawnTemplate.NormalizeAffiliation(t.Affiliation),
-                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b));
+                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b, t.Image));
                     }
                     // live count: recomputed on each hover from the live placed pawns
                     Func<string, int> liveCount = id =>
@@ -360,7 +360,7 @@ public partial class MainWindow : Window
                             if (p.TemplateId == id) n++;
                         return n;
                     };
-                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, i =>
+                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, Canvas.LoadPawnImage, i =>
                     {
                         if (i < 0 || i >= snapshot.Count) return;
                         Canvas.ArmedPawn = snapshot[i];
@@ -1556,9 +1556,29 @@ public partial class MainWindow : Window
             var st = _settings.FindPawnStatus(t.Status);
             var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
             var canvas = new Avalonia.Controls.Canvas { Width = 30, Height = 30 };
-            var outer = new Ellipse { Width = 26, Height = 26, Fill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b)) };
+            // unique-image templates render the image in the swatch (center-crop
+            // square, clipped to the outer circle), same as on the map.
+            var bmp = string.IsNullOrEmpty(t.Image) ? null : Canvas.LoadPawnImage(t.Image);
+            IBrush outerFill = Brushes.Black;
+            if (bmp is not null)
+            {
+                double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                // center-crop square in source-pixel coords, clipped to the ellipse
+                outerFill = new ImageBrush
+                {
+                    Source = bmp,
+                    Stretch = Stretch.Fill,
+                    TileMode = TileMode.None,
+                    SourceRect = new RelativeRect((bmp.PixelSize.Width - side) / (2.0 * bmp.PixelSize.Width),
+                                                  (bmp.PixelSize.Height - side) / (2.0 * bmp.PixelSize.Height),
+                                                  side / (double)bmp.PixelSize.Width,
+                                                  side / (double)bmp.PixelSize.Height,
+                                                  RelativeUnit.Relative),
+                };
+            }
+            var outer = new Ellipse { Width = 26, Height = 26, Fill = outerFill };
             Avalonia.Controls.Canvas.SetLeft(outer, 2); Avalonia.Controls.Canvas.SetTop(outer, 2);
-            var inner = new Ellipse { Width = 13, Height = 13, Fill = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b)) };
+            var inner = new Ellipse { Width = 13, Height = 13, Fill = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b)), IsVisible = bmp is null };
             Avalonia.Controls.Canvas.SetLeft(inner, 8); Avalonia.Controls.Canvas.SetTop(inner, 8);
             canvas.Children.Add(outer);
             canvas.Children.Add(inner);
