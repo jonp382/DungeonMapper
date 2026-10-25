@@ -184,6 +184,16 @@ public sealed class MapCanvas : Control
                 if (c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1) pawns.Add(p);
             if (pawns.Count == 0) { StatusMessage?.Invoke("no pawns in the selection"); return; }
             int dx = target.X - x0, dy = target.Y - y0;
+            // landing on a pawn outside the moving set SWAPS positions (unique to
+            // pawns). capture occupants before removing movers so swaps pair the
+            // occupant with the mover's source cell.
+            var swaps = new List<(CellKey dest, Pawn occupant)>();
+            foreach (var p in pawns)
+            {
+                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+                if (Document.Pawns.TryGetValue(nc, out var occ) && !pawns.Contains(occ))
+                    swaps.Add((nc, occ));
+            }
             foreach (var p in pawns) src.Pawns.Remove(p.Cell);
             foreach (var p in pawns)
             {
@@ -191,7 +201,15 @@ public sealed class MapCanvas : Control
                 ClearCellObstacles(Document, nc);
                 Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
             }
-            StatusMessage?.Invoke($"moved {pawns.Count} pawns");
+            foreach (var (dest, occ) in swaps)
+            {
+                // the mover's source cell is where the swapped occupant lands
+                var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
+                Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status };
+            }
+            StatusMessage?.Invoke(swaps.Count > 0
+                ? $"moved {pawns.Count} pawns, swapped {swaps.Count}"
+                : $"moved {pawns.Count} pawns");
             Commit();
             return;
         }
@@ -212,16 +230,21 @@ public sealed class MapCanvas : Control
         Commit();
     }
 
-    /// Removes everything incompatible with a pawn landing on a cell: walls on
-    /// all four edges (doors auto-removed by SetWall), angled walls touching the
-    /// cell (their doors go with the wall), stairs, and labels. Room/floor cells
-    /// are NOT removed - a pawn sits on top of a floor tile just fine.
+    /// Removes everything incompatible with a pawn landing on a cell: stairs,
+    /// labels, angled walls touching the cell (their doors go with the wall),
+    /// and straight walls on the cell's edges - but ONLY when the cell is not a
+    /// room/floor tile. A pawn landing on a room floor keeps the room's walls:
+    /// the walls sit on the room's boundary, not inside the pawn's cell, so
+    /// landing on the edge of a room must not erase them. Room/floor cells
+    /// themselves are never removed - a pawn sits on top of a floor tile.
     private static void ClearCellObstacles(MapDocument doc, CellKey c)
     {
         doc.Stairs.Remove(c);
         doc.Labels.RemoveAll(l => l.Cell == c);
-        foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
-            doc.SetWall(new EdgeKey(c, side), false);
+        bool onFloor = doc.Cells.Contains(c);
+        if (!onFloor)
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                doc.SetWall(new EdgeKey(c, side), false);
         foreach (var w in doc.AngledWalls)
             if (MapDocument.AngledWallIntersectsRect(w, c.X, c.Y, c.X, c.Y))
                 doc.AngledDoors.Remove(w);
@@ -1142,10 +1165,21 @@ public sealed class MapCanvas : Control
             {
                 // per-pawn move: lift the pawn from its source cell, clear
                 // obstacles at the landing cell, place it there. one undoable commit.
-                Document.Pawns.Remove(_pawnDragStart);
+                // landing on another pawn SWAPS the two pawns' positions (unique
+                // to pawns - other elements are overwritten, not swapped).
+                var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
                 ClearCellObstacles(Document, target);
+                Document.Pawns.Remove(_pawnDragStart);
                 Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status };
-                StatusMessage?.Invoke($"moved pawn to ({target.X}, {target.Y})");
+                if (occupant is not null)
+                {
+                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status };
+                    StatusMessage?.Invoke("swapped pawns");
+                }
+                else
+                {
+                    StatusMessage?.Invoke($"moved pawn to ({target.X}, {target.Y})");
+                }
                 Commit();
             }
             InvalidateVisual();
