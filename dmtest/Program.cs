@@ -868,6 +868,19 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     // legacy json without dragAxis defaults to E (strip the field line, incl. leading comma)
     var saLegacy = MapSerializer.FromJson(System.Text.RegularExpressions.Regex.Replace(saJson, ",\\s*\"dragAxis\":\\s*\"W\"", ""));
     Check(saLegacy.Stairs[new CellKey(0, 0)].DragAxis == "E", "stair drag axis: missing field defaults to E");
+
+    // toggle sync: a group that drifted out of sync (some up, some down) re-syncs
+    // when every connected stair is SET to one target, not toggled individually.
+    var sy = new MapDocument();
+    for (int x = 0; x < 4; x++)
+        sy.Stairs[new CellKey(x, 0)] = new Stair { Direction = x % 2 == 0 ? StairDirection.Up : StairDirection.Down };
+    var target = StairDirection.Down; // clicked stair (0,0) is Up -> target Down
+    foreach (var s2 in sy.ConnectedStairs(new CellKey(0, 0)))
+        s2.Direction = target;
+    Check(sy.Stairs[new CellKey(0, 0)].Direction == StairDirection.Down, "toggle sync: clicked stair set to target");
+    Check(sy.Stairs[new CellKey(1, 0)].Direction == StairDirection.Down, "toggle sync: down stair stays down (not toggled back up)");
+    Check(sy.Stairs[new CellKey(2, 0)].Direction == StairDirection.Down, "toggle sync: up stair re-synced to down");
+    Check(sy.Stairs[new CellKey(3, 0)].Direction == StairDirection.Down, "toggle sync: whole group synced to target");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

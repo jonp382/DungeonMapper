@@ -833,19 +833,22 @@ public partial class MainWindow : Window
         ToolPanel.Clear("Stair");
         ToolPanel.AddHint("changing direction updates all connected stairs.");
         // push-button toggles (user request: no delete-and-redraw to flip stairs).
-        // Up/Down flips the glyph tip vertically; Left/Right flips the drag axis
-        // horizontally (E<->W, N<->S). Both apply to the whole connected group.
+        // The clicked stair's value is flipped to a single TARGET, and EVERY
+        // connected stair is set to that target - so a group that drifted out of
+        // sync (some up, some down) re-syncs on one press, not just toggles.
         ToolPanel.AddButton("Toggle Up/Down", () =>
         {
+            var target = stair.Direction == StairDirection.Up ? StairDirection.Down : StairDirection.Up;
             foreach (var s2 in _doc.ConnectedStairs(cell))
-                s2.Direction = s2.Direction == StairDirection.Up ? StairDirection.Down : StairDirection.Up;
+                s2.Direction = target;
             _history.Commit(_doc);
             Canvas.Refresh();
         });
         ToolPanel.AddButton("Toggle Left/Right", () =>
         {
+            var target = stair.DragAxis switch { "E" => "W", "W" => "E", "N" => "S", _ => "N" };
             foreach (var s2 in _doc.ConnectedStairs(cell))
-                s2.DragAxis = s2.DragAxis switch { "E" => "W", "W" => "E", "N" => "S", _ => "N" };
+                s2.DragAxis = target;
             _history.Commit(_doc);
             Canvas.Refresh();
         });
