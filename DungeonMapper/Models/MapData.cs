@@ -486,7 +486,9 @@ public sealed class MapDocument
 
     /// All stairs connected to the given cell by 4-directional adjacency
     /// (up/down/left/right), including the start cell. Used so configuring one
-    /// stair updates every stair in the same contiguous group.
+    /// stair updates every stair in the same contiguous group. A wall on the
+    /// shared edge blocks propagation: a stair row split by a wall is two
+    /// separate groups. Doors imply walls, so a door on the edge blocks too.
     public List<Stair> ConnectedStairs(CellKey start)
     {
         var result = new List<Stair>();
@@ -498,10 +500,10 @@ public sealed class MapDocument
         {
             var c = queue.Dequeue();
             result.Add(Stairs[c]);
-            foreach (var (dx, dy) in new[] { (1,0), (-1,0), (0,1), (0,-1) })
+            foreach (var (dx, dy, side) in new[] { (1, 0, Side.East), (-1, 0, Side.West), (0, 1, Side.South), (0, -1, Side.North) })
             {
                 var n = new CellKey(c.X + dx, c.Y + dy);
-                if (!seen.Contains(n) && Stairs.ContainsKey(n))
+                if (!seen.Contains(n) && Stairs.ContainsKey(n) && !HasWall(EdgeKey.Normalize(c, side)))
                 {
                     seen.Add(n);
                     queue.Enqueue(n);

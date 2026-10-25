@@ -142,6 +142,28 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(s.ConnectedStairs(new CellKey(9, 9)).Count == 0, "connected stairs: empty for non-stair cell");
 }
 
+// --- connected stairs: walls block the flood fill ---
+{
+    var sw = new MapDocument();
+    for (int x = 0; x < 12; x++) sw.Stairs[new CellKey(x, 0)] = new Stair { Direction = StairDirection.Down };
+    sw.SetWall(EdgeKey.Normalize(new CellKey(5, 0), Side.East), true); // wall between cells 5 and 6
+    var left = sw.ConnectedStairs(new CellKey(0, 0));
+    var right = sw.ConnectedStairs(new CellKey(11, 0));
+    Check(left.Count == 6, "connected stairs: wall splits row, left segment is 6");
+    Check(right.Count == 6, "connected stairs: wall splits row, right segment is 6");
+    Check(!left.Contains(sw.Stairs[new CellKey(6, 0)]), "connected stairs: flood does not cross wall");
+    sw.SetWall(EdgeKey.Normalize(new CellKey(5, 0), Side.East), false); // wall removed
+    Check(sw.ConnectedStairs(new CellKey(0, 0)).Count == 12, "connected stairs: whole row after wall removed");
+    // wall + door on the shared edge also blocks (door implies wall; the wall
+    // is the blocker)
+    var sd = new MapDocument();
+    sd.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Down };
+    sd.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down };
+    sd.SetWall(EdgeKey.Normalize(new CellKey(0, 0), Side.East), true);
+    sd.Doors[EdgeKey.Normalize(new CellKey(0, 0), Side.East)] = new Door { Type = "standard", State = DoorState.Open };
+    Check(sd.ConnectedStairs(new CellKey(0, 0)).Count == 1, "connected stairs: wall with open door still blocks");
+}
+
 // --- erase filter ---
 {
     var e = new MapDocument();
