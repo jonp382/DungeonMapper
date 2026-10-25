@@ -93,6 +93,11 @@ public sealed class MapCanvas : Control
     private MapDocument.RegionSnapshot? _clipboard;
     private CellKey _selectStart, _selectEnd;
     private bool _selectDragging;
+    // per-pawn drag in the Move tool: pressing directly on a pawn drags that
+    // single pawn to the release cell; a press without drag shows its config.
+    private Pawn? _pawnDragPawn;
+    private CellKey _pawnDragStart, _pawnDragEnd;
+    private bool _pawnDragging;
     private Point? _pasteCursor; // world cursor for paste ghost
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
@@ -207,12 +212,12 @@ public sealed class MapCanvas : Control
         Commit();
     }
 
-    /// Removes everything incompatible with a pawn landing on a cell: room cell,
-    /// stair, labels, walls on all four edges (doors auto-removed by SetWall),
-    /// and angled walls touching the cell (their doors go with the wall).
+    /// Removes everything incompatible with a pawn landing on a cell: walls on
+    /// all four edges (doors auto-removed by SetWall), angled walls touching the
+    /// cell (their doors go with the wall), stairs, and labels. Room/floor cells
+    /// are NOT removed - a pawn sits on top of a floor tile just fine.
     private static void ClearCellObstacles(MapDocument doc, CellKey c)
     {
-        doc.Cells.Remove(c);
         doc.Stairs.Remove(c);
         doc.Labels.RemoveAll(l => l.Cell == c);
         foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
@@ -527,51 +532,12 @@ public sealed class MapCanvas : Control
         // by zoom. Visual data resolves from the library template (hard reference);
         // a missing template renders an X (broken reference). Drawn after labels.
         foreach (var (c, p) in Document.Pawns)
-        {
-            var p0 = WorldToScreen(c.X, c.Y);
-            var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
-            var t = Library.Find(p.TemplateId);
-            if (t is null)
-            {
-                // broken reference: X symbol
-                var xPen = new Pen(Brushes.Red, Math.Max(2, _scale * 0.08));
-                double r = _scale * 0.3;
-                ctx.DrawLine(xPen, new Point(center.X - r, center.Y - r), new Point(center.X + r, center.Y + r));
-                ctx.DrawLine(xPen, new Point(center.X - r, center.Y + r), new Point(center.X + r, center.Y - r));
-                continue;
-            }
-            double outerR = _scale * 0.42;
-            double innerR = _scale * 0.22;
-            if (!string.IsNullOrEmpty(t.Image))
-            {
-                // unique pawn: the image replaces the two-tone circles entirely.
-                // center-crop to a square so any aspect ratio fits the cell.
-                var bmp = LoadPawnImage(t.Image);
-                if (bmp is not null)
-                {
-                    double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
-                    var srcRect = new Rect((bmp.PixelSize.Width - side) / 2, (bmp.PixelSize.Height - side) / 2, side, side);
-                    var dest = new Rect(p0.X + _scale * 0.08, p0.Y + _scale * 0.08, _scale * 0.84, _scale * 0.84);
-                    ctx.DrawImage(bmp, srcRect, dest);
-                }
-            }
-            else
-            {
-                var (effOuter, effInner) = t.Effective(Settings);
-                var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
-                var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
-                ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
-                ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
-            }
-            // status border ring on the outer edge. per-instance override wins,
-            // null inherits the template's status.
-            var st = Settings.FindPawnStatus(p.Status ?? t.Status);
-            if (st.Thickness > 0)
-            {
-                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
-                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
-            }
-        }
+            DrawPawnGlyph(ctx, c, p.TemplateId, p.Status);
+
+        // per-pawn drag ghost: the dragged pawn follows the cursor as a
+        // semi-transparent glyph at the cell it will land on.
+        if (_pawnDragging && _pawnDragPawn is not null && _pawnDragEnd != _pawnDragStart)
+            DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Status, 0.45);
 
         DrawPreview(ctx);
     }
@@ -735,6 +701,59 @@ public sealed class MapCanvas : Control
         }
     }
 
+    /// Draws one pawn glyph (two-tone circles, unique image, broken-reference X,
+    /// status ring) at a cell. Shared by the placed-pawn pass and the per-pawn
+    /// drag ghost. alpha < 1 renders it semi-transparent (ghost).
+    private void DrawPawnGlyph(DrawingContext ctx, CellKey c, string templateId, string? instanceStatus, double alpha = 1.0)
+    {
+        var p0 = WorldToScreen(c.X, c.Y);
+        var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
+        var t = Library.Find(templateId);
+        using (ctx.PushOpacity(alpha))
+        {
+            if (t is null)
+            {
+                // broken reference: X symbol
+                var xPen = new Pen(Brushes.Red, Math.Max(2, _scale * 0.08));
+                double r = _scale * 0.3;
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y - r), new Point(center.X + r, center.Y + r));
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y + r), new Point(center.X + r, center.Y - r));
+                return;
+            }
+            double outerR = _scale * 0.42;
+            double innerR = _scale * 0.22;
+            if (!string.IsNullOrEmpty(t.Image))
+            {
+                // unique pawn: the image replaces the two-tone circles entirely.
+                // center-crop to a square so any aspect ratio fits the cell.
+                var bmp = LoadPawnImage(t.Image);
+                if (bmp is not null)
+                {
+                    double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                    var srcRect = new Rect((bmp.PixelSize.Width - side) / 2, (bmp.PixelSize.Height - side) / 2, side, side);
+                    var dest = new Rect(p0.X + _scale * 0.08, p0.Y + _scale * 0.08, _scale * 0.84, _scale * 0.84);
+                    ctx.DrawImage(bmp, srcRect, dest);
+                }
+            }
+            else
+            {
+                var (effOuter, effInner) = t.Effective(Settings);
+                var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
+                var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
+                ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
+                ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
+            }
+            // status border ring on the outer edge. per-instance override wins,
+            // null inherits the template's status.
+            var st = Settings.FindPawnStatus(instanceStatus ?? t.Status);
+            if (st.Thickness > 0)
+            {
+                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
+                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
+            }
+        }
+    }
+
     private static (int x0, int y0, int x1, int y1) NormRect(CellKey a, CellKey b)
         => (Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Max(a.X, b.X), Math.Max(a.Y, b.Y));
 
@@ -862,6 +881,18 @@ public sealed class MapCanvas : Control
                 if (Mode == ToolMode.Select && Document.Pawns.TryGetValue(cell, out var selPawn))
                 {
                     PawnConfigRequested?.Invoke(selPawn);
+                    break;
+                }
+                if (Mode == ToolMode.Move && Document.Pawns.TryGetValue(cell, out var hitPawn))
+                {
+                    // pressing directly on a pawn: per-pawn drag. the pawn follows
+                    // the cursor as a ghost and lands on the release cell. a press
+                    // without drag (release on the same cell) shows its config.
+                    _pawnDragging = true;
+                    _pawnDragPawn = hitPawn;
+                    _pawnDragStart = cell;
+                    _pawnDragEnd = cell;
+                    e.Pointer.Capture(this);
                     break;
                 }
                 _selectDragging = true;
@@ -1022,6 +1053,13 @@ public sealed class MapCanvas : Control
                 InvalidateVisual();
         }
 
+        if (_pawnDragging)
+        {
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            if (cell != _pawnDragEnd) { _pawnDragEnd = cell; InvalidateVisual(); }
+            return;
+        }
+
         if (_selectDragging)
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
@@ -1084,6 +1122,33 @@ public sealed class MapCanvas : Control
         {
             _panning = false;
             e.Pointer.Capture(null);
+            return;
+        }
+
+        if (_pawnDragging)
+        {
+            _pawnDragging = false;
+            e.Pointer.Capture(null);
+            var world = ScreenToWorld(e.GetPosition(this));
+            var target = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            var pawn = _pawnDragPawn!;
+            _pawnDragPawn = null;
+            if (target == _pawnDragStart)
+            {
+                // no drag: release on the same cell shows the pawn's config
+                PawnConfigRequested?.Invoke(pawn);
+            }
+            else
+            {
+                // per-pawn move: lift the pawn from its source cell, clear
+                // obstacles at the landing cell, place it there. one undoable commit.
+                Document.Pawns.Remove(_pawnDragStart);
+                ClearCellObstacles(Document, target);
+                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status };
+                StatusMessage?.Invoke($"moved pawn to ({target.X}, {target.Y})");
+                Commit();
+            }
+            InvalidateVisual();
             return;
         }
 

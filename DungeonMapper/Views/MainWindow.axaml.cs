@@ -286,8 +286,8 @@ public partial class MainWindow : Window
 
             case ToolMode.Move:
                 ToolPanel.Clear("Move options");
-                ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move. works across maps: select on one map, switch, click the target.");
-                ToolPanel.AddCheck("move pawns only (other elements untouched; destination obstacles are removed)", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
+                ToolPanel.AddHint("drag a pawn directly to move just that pawn. drag on empty space (or non-pawn) to select a region, then click the destination - the region move includes pawns. the source is removed on move. works across maps: select on one map, switch, click the target.");
+                ToolPanel.AddCheck("move pawns only (other elements untouched; floor tiles stay, walls/stairs/labels at the destination are removed)", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
                 ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 break;
 
