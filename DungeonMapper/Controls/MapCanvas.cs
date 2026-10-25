@@ -234,11 +234,11 @@ public sealed class MapCanvas : Control
     }
 
     /// Removes everything incompatible with a pawn landing on a cell: stairs,
-    /// labels, angled walls touching the cell (their doors go with the wall),
-    /// and straight walls on the cell's edges - but ONLY when the cell is not a
-    /// room/floor tile. A pawn landing on a room floor keeps the room's walls:
-    /// the walls sit on the room's boundary, not inside the pawn's cell, so
-    /// landing on the edge of a room must not erase them. Room/floor cells
+    /// labels, and straight walls on the cell's edges - straight walls are
+    /// cleared ONLY when the cell is not a room/floor tile (a pawn landing on a
+    /// room edge keeps the room's walls). Angled walls and angled doors are
+    /// NEVER removed by a pawn landing - the intersection rules are too complex,
+    /// so angled geometry is left alone in every case. Room/floor cells
     /// themselves are never removed - a pawn sits on top of a floor tile.
     private static void ClearCellObstacles(MapDocument doc, CellKey c)
     {
@@ -248,10 +248,6 @@ public sealed class MapCanvas : Control
         if (!onFloor)
             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                 doc.SetWall(new EdgeKey(c, side), false);
-        foreach (var w in doc.AngledWalls)
-            if (MapDocument.AngledWallIntersectsRect(w, c.X, c.Y, c.X, c.Y))
-                doc.AngledDoors.Remove(w);
-        doc.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, c.X, c.Y, c.X, c.Y));
     }
 
     /// Pastes at the current cursor cell, if a paste ghost is showing.
