@@ -147,6 +147,11 @@ public sealed class ToolPanel : Border
         for (int i = 0; i < items.Count; i++)
         {
             var (id, name, affiliation, oR, oG, oB, iR, iG, iB) = items[i];
+            // per-iteration capture: a for-loop variable is ONE variable shared by
+            // every lambda, so a handler capturing i directly sees the final value
+            // (items.Count) after the loop - every swatch click lands out of range
+            // in the caller's guard and does nothing. Copy it per iteration.
+            int idx = i;
             var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
             var canvas = new Avalonia.Controls.Canvas { Width = 26, Height = 26 };
             var center = new Point(13, 13);
@@ -157,7 +162,7 @@ public sealed class ToolPanel : Border
             canvas.Children.Add(outer);
             canvas.Children.Add(inner);
             var hit = new Rectangle { Width = 26, Height = 26, Fill = Brushes.Transparent };
-            hit.PointerPressed += (_, _) => onPick(i);
+            hit.PointerPressed += (_, _) => onPick(idx);
             canvas.Children.Add(hit);
             var cap = new TextBlock { Text = name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 30, TextWrapping = TextWrapping.Wrap };
             cell.Children.Add(canvas);
