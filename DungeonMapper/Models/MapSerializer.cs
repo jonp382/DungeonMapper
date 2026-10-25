@@ -85,6 +85,13 @@ public sealed class NamedMapDto
 
 public static class MapSerializer
 {
+    // JSON spec versions. Tracked inside every saved file and here in the app.
+    // Increment ONLY when the wire format changes in a way old maps cannot load
+    // as-is; app-only additive changes with backwards-compatible defaults do NOT
+    // increment (the map porter app ports old files to the latest spec).
+    public const int MapSpecVersion = 1;
+    public const int ProjectSpecVersion = 2;
+
     private static readonly JsonSerializerOptions Opts = new()
     {
         WriteIndented = true,
@@ -163,7 +170,7 @@ public static class MapSerializer
 
     public static string ToJson(MapDocument doc)
     {
-        var dto = new MapFileDto();
+        var dto = new MapFileDto { Version = MapSpecVersion };
         foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
         foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
         foreach (var (e, d) in doc.Doors)
@@ -242,7 +249,7 @@ public static class MapSerializer
 
     public static string ProjectToJson(MapProject project)
     {
-        var dto = new ProjectFileDto { Active = project.ActiveIndex };
+        var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         return JsonSerializer.Serialize(dto, Opts);
@@ -268,7 +275,7 @@ public static class MapSerializer
     // build a MapFileDto from a document (shared by ToJson and ProjectToJson)
     private static MapFileDto ToDto(MapDocument doc)
     {
-        var dto = new MapFileDto();
+        var dto = new MapFileDto { Version = MapSpecVersion };
         foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
         foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
         foreach (var (e, d) in doc.Doors)
