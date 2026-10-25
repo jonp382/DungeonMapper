@@ -404,8 +404,17 @@ public sealed class MapCanvas : Control
         // grid lines inside rooms even when minor gridlines are disabled.
         // Greedy maximal rectangles: extend right along the row, extend down
         // while every column of the row is filled, mark cells consumed.
+        // Two fixes for the seam lines the user sees inside rooms:
+        // 1. iterate top-left-first (hashset order is arbitrary, so the greedy
+        //    split a room into two rects at an arbitrary column);
+        // 2. overlap each rect by half a pixel into any edge shared with a
+        //    neighboring filled cell. The rects meet at fractional pixel
+        //    coordinates under pan/zoom, and anti-aliasing at the shared edge
+        //    lets the background bleed through as a faint line. Same-color
+        //    overlap is invisible; overlap only happens where the neighbor is
+        //    filled, so rooms never overhang their boundary.
         var remaining = new HashSet<CellKey>(Document.Cells);
-        foreach (var c in Document.Cells)
+        foreach (var c in Document.Cells.OrderBy(c => c.Y).ThenBy(c => c.X))
         {
             if (!remaining.Contains(c)) continue;
             int w = 1;
@@ -423,8 +432,11 @@ public sealed class MapCanvas : Control
                 for (int dy = 0; dy < h; dy++)
                     remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
             if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
+            double pad = 0.6;
+            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
+            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
-            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, w * _scale, h * _scale));
+            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
 
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
