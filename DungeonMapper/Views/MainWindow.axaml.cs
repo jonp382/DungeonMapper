@@ -1559,7 +1559,9 @@ public partial class MainWindow : Window
             // unique-image templates render the image in the swatch (center-crop
             // square, clipped to the outer circle), same as on the map.
             var bmp = string.IsNullOrEmpty(t.Image) ? null : Canvas.LoadPawnImage(t.Image);
-            IBrush outerFill = Brushes.Black;
+            // non-image pawns keep the affiliation outer color; the image brush
+            // replaces it only when a bitmap loads.
+            IBrush outerFill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
             if (bmp is not null)
             {
                 double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
