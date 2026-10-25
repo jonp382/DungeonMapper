@@ -106,6 +106,7 @@ public sealed class MapCanvas : Control
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
+    public bool RoomMergeNearby { get; set; } = false; // Room tool: a room drawn adjacent to (touching, not overlapping) an existing room connects to it - shared boundary walls stay open
     public bool PolygonStrict { get; set; } = false; // Polygon tool: same as RoomStrict - outer walls always, interior walls kept
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
@@ -487,7 +488,10 @@ public sealed class MapCanvas : Control
             ctx.DrawLine(major ? majorPen : minorPen, new Point(0, sy), new Point(Bounds.Width, sy));
         }
 
-        // Stairs: fill tint + arrow glyph
+        // Stairs: fill tint + arrow glyph. The triangle points diagonally:
+        // tip = drag axis + (0, -1 for Up / +1 for Down), normalized. L-to-R +
+        // UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Pure vertical drags
+        // (N/S axis) degenerate to straight up/down.
         foreach (var (c, s) in Document.Stairs)
         {
             var p0 = WorldToScreen(c.X, c.Y);
@@ -497,15 +501,21 @@ public sealed class MapCanvas : Control
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             double a = _scale * 0.28;
-            // tip points up for Up stairs, down for Down; base is opposite the tip
-            double tipY = s.Direction == StairDirection.Up ? center.Y - a : center.Y + a;
-            double baseY = s.Direction == StairDirection.Up ? center.Y + a : center.Y - a;
+            var axis = s.DragAxis switch { "W" => (-1, 0), "N" => (0, -1), "S" => (0, 1), _ => (1, 0) };
+            double tx = axis.Item1, ty = axis.Item2 + (s.Direction == StairDirection.Up ? -1 : 1);
+            double len = Math.Sqrt(tx * tx + ty * ty);
+            tx /= len; ty /= len;
+            // perpendicular for the base corners
+            double px = -ty, py = tx;
+            var tip = new Point(center.X + tx * a, center.Y + ty * a);
+            var b1 = new Point(center.X - tx * a + px * a, center.Y - ty * a + py * a);
+            var b2 = new Point(center.X - tx * a - px * a, center.Y - ty * a - py * a);
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
-                g.BeginFigure(new Point(center.X, tipY), isFilled: true);
-                g.LineTo(new Point(center.X - a, baseY));
-                g.LineTo(new Point(center.X + a, baseY));
+                g.BeginFigure(tip, isFilled: true);
+                g.LineTo(b1);
+                g.LineTo(b2);
                 g.EndFigure(true);
             }
             ctx.DrawGeometry(brush, null, geo);
@@ -1236,7 +1246,7 @@ public sealed class MapCanvas : Control
                 // passageway instead of being sealed off.
                 bool strict = RoomStrict;
                 bool passageway = !strict && Document.Cells.Contains(_dragStart);
-                Document.AddRoom(x0, y0, x1, y1, passageway, strict);
+                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby);
                 Commit();
                 break;
             }
@@ -1257,6 +1267,11 @@ public sealed class MapCanvas : Control
                 }
                 else
                 {
+                    // dominant drag axis: the longer component of the drag
+                    double adx = _dragEnd.X - _dragStart.X, ady = _dragEnd.Y - _dragStart.Y;
+                    string axis = Math.Abs(adx) >= Math.Abs(ady)
+                        ? (adx >= 0 ? "E" : "W")
+                        : (ady >= 0 ? "S" : "N");
                     Stair first = null!;
                     for (int x = x0; x <= x1; x++)
                         for (int y = y0; y <= y1; y++)
@@ -1264,10 +1279,9 @@ public sealed class MapCanvas : Control
                             var c = new CellKey(x, y);
                             if (!Document.Stairs.TryGetValue(c, out var s))
                             {
-                                s = new Stair { Direction = StairDirection.Down };
+                                s = new Stair { Direction = StairDirection.Down, DragAxis = axis };
                                 Document.Stairs[c] = s;
                             }
-                            if (ReferenceEquals(s, first)) { }
                             if (first is null) first = s;
                         }
                     Commit();

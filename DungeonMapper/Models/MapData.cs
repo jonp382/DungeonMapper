@@ -84,6 +84,10 @@ public sealed class Stair
 {
     public StairDirection Direction { get; set; } = StairDirection.Down;
     public string? TargetMap { get; set; }
+    /// The dominant axis the stairs were dragged: "E","W","N","S". The triangle
+    /// glyph points diagonally: tip = (axis sign, -1 for Up / +1 for Down).
+    /// L-to-R + UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Default "E".
+    public string DragAxis { get; set; } = "E";
 }
 
 /// Text anchored to a cell, rendered centered on that cell.
@@ -219,11 +223,11 @@ public sealed class MapDocument
     /// When strict is true, every outer boundary edge gets a wall regardless of
     /// existing cells, and interior walls are NOT removed - so a sub-room drawn
     /// inside an existing room gets its own visible walls.
-    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false)
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false)
     {
         // existing cells outside the new region, captured before we add new cells
         var existing = new HashSet<CellKey>();
-        if (passageway && !strict)
+        if ((passageway || mergeNearby) && !strict)
             foreach (var c in Cells)
                 if (c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1)
                     existing.Add(c);
@@ -235,7 +239,7 @@ public sealed class MapDocument
         bool Open(int cx, int cy, Side side)
         {
             if (strict) return false; // strict: every outer edge is walled
-            if (!passageway) return false;
+            if (!(passageway || mergeNearby)) return false;
             var (nx, ny) = side switch
             {
                 Side.North => (cx, cy - 1),
@@ -249,13 +253,17 @@ public sealed class MapDocument
         // outer boundary walls
         for (int x = x0; x <= x1; x++)
         {
-            if (!Open(x, y0, Side.North)) SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
-            if (!Open(x, y1, Side.South)) SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
+            if (Open(x, y0, Side.North)) SetWall(new EdgeKey(new CellKey(x, y0), Side.North), false);
+            else SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
+            if (Open(x, y1, Side.South)) SetWall(new EdgeKey(new CellKey(x, y1), Side.South), false);
+            else SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
         }
         for (int y = y0; y <= y1; y++)
         {
-            if (!Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
-            if (!Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
+            if (Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), false);
+            else SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
+            if (Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), false);
+            else SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
         }
         // interior walls removed so adjacent rooms merge (skipped in strict mode)
         if (!strict)

@@ -830,6 +830,44 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     ad10.ApplyFrom(ad9);
     Check(ad10.AngledDoors.Count == 1 && ad10.GetAngledDoors(new AngledWall(0, 0, 2, 2))[0].Type == "portcullis",
           "angled door: ApplyFrom copies doors");
+
+    // ===== room merge-nearby =====
+    // user example: room (0,0)-(2,2), draw adjacent room (3,0)-(5,2) with merge
+    // mode: shared boundary (x=2 east edges) opens, rooms connect.
+    var mn = new MapDocument();
+    mn.AddRoom(0, 0, 2, 2);
+    Check(mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: first room east wall exists before merge");
+    mn.AddRoom(3, 0, 5, 2, false, false, true);
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: shared boundary wall removed (row 0)");
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "merge-nearby: shared boundary wall removed (row 2)");
+    Check(mn.HasWall(new EdgeKey(new CellKey(5, 0), Side.East)), "merge-nearby: outer east wall of new room exists");
+    Check(mn.HasWall(new EdgeKey(new CellKey(3, 0), Side.North)), "merge-nearby: outer north wall of new room exists");
+    Check(mn.Cells.Contains(new CellKey(4, 1)), "merge-nearby: new room cells added");
+    // gap of 2 cells: not touching, stays sealed
+    var mn2 = new MapDocument();
+    mn2.AddRoom(0, 0, 2, 2);
+    mn2.AddRoom(4, 0, 6, 2, false, false, true);
+    Check(mn2.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: non-touching room keeps first room's wall");
+    Check(mn2.HasWall(new EdgeKey(new CellKey(4, 0), Side.West)), "merge-nearby: non-touching room keeps its own west wall");
+    // merge mode off: adjacent room stays sealed (default union behavior unchanged)
+    var mn3 = new MapDocument();
+    mn3.AddRoom(0, 0, 2, 2);
+    mn3.AddRoom(3, 0, 5, 2);
+    Check(mn3.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby off: shared wall stays (default behavior)");
+
+    // ===== stair drag axis round-trip =====
+    var sa = new MapDocument();
+    sa.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up, DragAxis = "W", TargetMap = "b.json" };
+    sa.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down, DragAxis = "S" };
+    var saJson = MapSerializer.ToJson(sa);
+    var saBack = MapSerializer.FromJson(saJson);
+    Check(saBack.Stairs[new CellKey(0, 0)].DragAxis == "W", "stair drag axis: W round-trips");
+    Check(saBack.Stairs[new CellKey(0, 0)].Direction == StairDirection.Up, "stair drag axis: direction round-trips");
+    Check(saBack.Stairs[new CellKey(0, 0)].TargetMap == "b.json", "stair drag axis: target map round-trips");
+    Check(saBack.Stairs[new CellKey(1, 0)].DragAxis == "S", "stair drag axis: S round-trips");
+    // legacy json without dragAxis defaults to E (strip the field line, incl. leading comma)
+    var saLegacy = MapSerializer.FromJson(System.Text.RegularExpressions.Regex.Replace(saJson, ",\\s*\"dragAxis\":\\s*\"W\"", ""));
+    Check(saLegacy.Stairs[new CellKey(0, 0)].DragAxis == "E", "stair drag axis: missing field defaults to E");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

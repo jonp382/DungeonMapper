@@ -295,6 +295,7 @@ public partial class MainWindow : Window
                 ToolPanel.Clear("Room settings");
                 ToolPanel.AddHint("normal: drawing over existing rooms merges them (shared walls removed); a room grown out of a room opens a passageway.");
                 ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
+                ToolPanel.AddCheck("merge with nearby walls (a room drawn touching an existing room connects to it - shared boundary stays open)", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
                 break;
 
             case ToolMode.Door:
