@@ -504,6 +504,12 @@ public sealed class MapCanvas : Control
             var axis = s.DragAxis switch { "W" => (-1, 0), "N" => (0, -1), "S" => (0, 1), _ => (1, 0) };
             double tx = axis.Item1, ty = axis.Item2 + (s.Direction == StairDirection.Up ? -1 : 1);
             double len = Math.Sqrt(tx * tx + ty * ty);
+            if (len < 1e-9)
+            {
+                // pure vertical drag + opposite up/down cancels out: fall back
+                // to a straight up/down tip so the glyph never degenerates.
+                tx = 0; ty = s.Direction == StairDirection.Up ? -1 : 1; len = 1;
+            }
             tx /= len; ty /= len;
             // perpendicular for the base corners
             double px = -ty, py = tx;

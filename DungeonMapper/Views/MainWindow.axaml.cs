@@ -832,15 +832,23 @@ public partial class MainWindow : Window
 
         ToolPanel.Clear("Stair");
         ToolPanel.AddHint("changing direction updates all connected stairs.");
-        ToolPanel.AddChoice("Direction", new[] { "up", "down" },
-            stair.Direction.ToString().ToLowerInvariant(), s =>
-            {
-                var dir = Enum.Parse<StairDirection>(s, ignoreCase: true);
-                foreach (var s2 in _doc.ConnectedStairs(cell))
-                    s2.Direction = dir;
-                _history.Commit(_doc);
-                Canvas.Refresh();
-            });
+        // push-button toggles (user request: no delete-and-redraw to flip stairs).
+        // Up/Down flips the glyph tip vertically; Left/Right flips the drag axis
+        // horizontally (E<->W, N<->S). Both apply to the whole connected group.
+        ToolPanel.AddButton("Toggle Up/Down", () =>
+        {
+            foreach (var s2 in _doc.ConnectedStairs(cell))
+                s2.Direction = s2.Direction == StairDirection.Up ? StairDirection.Down : StairDirection.Up;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddButton("Toggle Left/Right", () =>
+        {
+            foreach (var s2 in _doc.ConnectedStairs(cell))
+                s2.DragAxis = s2.DragAxis switch { "E" => "W", "W" => "E", "N" => "S", _ => "N" };
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
     }
 
     private void ShowLabelConfig(MapLabel label)
