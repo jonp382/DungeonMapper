@@ -833,26 +833,19 @@ public partial class MainWindow : Window
 
         ToolPanel.Clear("Stair");
         ToolPanel.AddHint("changing direction updates all connected stairs.");
-        // push-button toggles (user request: no delete-and-redraw to flip stairs).
-        // The clicked stair's value is flipped to a single TARGET, and EVERY
-        // connected stair is set to that target - so a group that drifted out of
-        // sync (some up, some down) re-syncs on one press, not just toggles.
-        ToolPanel.AddButton("Toggle Up/Down", () =>
-        {
-            var target = stair.Direction == StairDirection.Up ? StairDirection.Down : StairDirection.Up;
-            foreach (var s2 in _doc.ConnectedStairs(cell))
-                s2.Direction = target;
-            _history.Commit(_doc);
-            Canvas.Refresh();
-        });
-        ToolPanel.AddButton("Toggle Left/Right", () =>
-        {
-            var target = stair.DragAxis switch { "E" => "W", "W" => "E", "N" => "S", _ => "N" };
-            foreach (var s2 in _doc.ConnectedStairs(cell))
-                s2.DragAxis = target;
-            _history.Commit(_doc);
-            Canvas.Refresh();
-        });
+        // direction dropdown (user request: axis-aligned up/down/left/right,
+        // drag sets the default, the dropdown overrides). Selecting a direction
+        // SETS every connected stair to it, so a group that drifted out of sync
+        // re-syncs on one choice.
+        ToolPanel.AddChoice("Direction", new[] { "Up", "Down", "Left", "Right" },
+            stair.Direction.ToString(), v =>
+            {
+                var target = (StairDirection)Enum.Parse<StairDirection>(v);
+                foreach (var s2 in _doc.ConnectedStairs(cell))
+                    s2.Direction = target;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
     }
 
     private void ShowLabelConfig(MapLabel label)

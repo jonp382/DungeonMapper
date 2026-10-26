@@ -490,40 +490,44 @@ public sealed class MapCanvas : Control
             ctx.DrawLine(major ? majorPen : minorPen, new Point(0, sy), new Point(Bounds.Width, sy));
         }
 
-        // Stairs: fill tint + arrow glyph. The triangle points diagonally:
-        // tip = drag axis + (0, -1 for Up / +1 for Down), normalized. L-to-R +
-        // UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Pure vertical drags
-        // (N/S axis) degenerate to straight up/down.
+        // Stairs: fill tint + axis-aligned triangle. Up = tip up, Down = tip
+        // down, Left = tip left, Right = tip right. No diagonal glyphs: the
+        // triangle's tip is the direction the stairs face.
         foreach (var (c, s) in Document.Stairs)
         {
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
+            // coloring is unchanged (up = up color, everything else = down
+            // color); a dedicated left/right color is a subsequent task.
             var brush = s.Direction == StairDirection.Up ? StairUp : StairDown;
             var col = ((SolidColorBrush)brush).Color;
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             double a = _scale * 0.28;
-            var axis = s.DragAxis switch { "W" => (-1, 0), "N" => (0, -1), "S" => (0, 1), _ => (1, 0) };
-            double tx = axis.Item1, ty = axis.Item2 + (s.Direction == StairDirection.Up ? -1 : 1);
-            double len = Math.Sqrt(tx * tx + ty * ty);
-            if (len < 1e-9)
+            // tip points along the direction, base sits opposite the tip
+            double tipX = center.X, tipY = center.Y;
+            double b1x = center.X, b1y = center.Y, b2x = center.X, b2y = center.Y;
+            switch (s.Direction)
             {
-                // pure vertical drag + opposite up/down cancels out: fall back
-                // to a straight up/down tip so the glyph never degenerates.
-                tx = 0; ty = s.Direction == StairDirection.Up ? -1 : 1; len = 1;
+                case StairDirection.Up:
+                    tipY = center.Y - a; b1x = center.X - a; b1y = center.Y + a; b2x = center.X + a; b2y = center.Y + a;
+                    break;
+                case StairDirection.Down:
+                    tipY = center.Y + a; b1x = center.X - a; b1y = center.Y - a; b2x = center.X + a; b2y = center.Y - a;
+                    break;
+                case StairDirection.Left:
+                    tipX = center.X - a; b1x = center.X + a; b1y = center.Y - a; b2x = center.X + a; b2y = center.Y + a;
+                    break;
+                case StairDirection.Right:
+                    tipX = center.X + a; b1x = center.X - a; b1y = center.Y - a; b2x = center.X - a; b2y = center.Y + a;
+                    break;
             }
-            tx /= len; ty /= len;
-            // perpendicular for the base corners
-            double px = -ty, py = tx;
-            var tip = new Point(center.X + tx * a, center.Y + ty * a);
-            var b1 = new Point(center.X - tx * a + px * a, center.Y - ty * a + py * a);
-            var b2 = new Point(center.X - tx * a - px * a, center.Y - ty * a - py * a);
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
-                g.BeginFigure(tip, isFilled: true);
-                g.LineTo(b1);
-                g.LineTo(b2);
+                g.BeginFigure(new Point(tipX, tipY), isFilled: true);
+                g.LineTo(new Point(b1x, b1y));
+                g.LineTo(new Point(b2x, b2y));
                 g.EndFigure(true);
             }
             ctx.DrawGeometry(brush, null, geo);
@@ -1275,11 +1279,11 @@ public sealed class MapCanvas : Control
                 }
                 else
                 {
-                    // dominant drag axis: the longer component of the drag
-                    double adx = _dragEnd.X - _dragStart.X, ady = _dragEnd.Y - _dragStart.Y;
-                    string axis = Math.Abs(adx) >= Math.Abs(ady)
-                        ? (adx >= 0 ? "E" : "W")
-                        : (ady >= 0 ? "S" : "N");
+                    // direction from the drag (StairDrag.FromDrag): horizontal
+                    // L-to-R = Right, R-to-L = Left; vertical bottom-to-top =
+                    // Up, top-to-bottom = Down; single click defaults to Down.
+                    // The config dropdown overrides.
+                    var dir = StairDrag.FromDrag(_dragEnd.X - _dragStart.X, _dragEnd.Y - _dragStart.Y);
                     Stair first = null!;
                     for (int x = x0; x <= x1; x++)
                         for (int y = y0; y <= y1; y++)
@@ -1287,7 +1291,7 @@ public sealed class MapCanvas : Control
                             var c = new CellKey(x, y);
                             if (!Document.Stairs.TryGetValue(c, out var s))
                             {
-                                s = new Stair { Direction = StairDirection.Down, DragAxis = axis };
+                                s = new Stair { Direction = dir };
                                 Document.Stairs[c] = s;
                             }
                             if (first is null) first = s;

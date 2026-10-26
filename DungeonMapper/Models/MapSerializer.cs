@@ -44,7 +44,6 @@ public sealed class StairDto
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
     [JsonPropertyName("direction")] public string Direction { get; set; } = "down";
     [JsonPropertyName("targetMap")] public string? TargetMap { get; set; }
-    [JsonPropertyName("dragAxis")] public string DragAxis { get; set; } = "E";
 }
 
 public sealed class LabelDto
@@ -177,7 +176,7 @@ public static class MapSerializer
         foreach (var (e, d) in doc.Doors)
             dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         foreach (var (c, s) in doc.Stairs)
-            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap, DragAxis = s.DragAxis });
+            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         foreach (var (c, p) in doc.Pawns)
@@ -231,7 +230,6 @@ public static class MapSerializer
             {
                 Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
                 TargetMap = s.TargetMap,
-                DragAxis = string.IsNullOrEmpty(s.DragAxis) ? "E" : s.DragAxis,
             };
             doc.Stairs[c] = stair;
         }
@@ -283,7 +281,7 @@ public static class MapSerializer
         foreach (var (e, d) in doc.Doors)
             dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         foreach (var (c, s) in doc.Stairs)
-            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap, DragAxis = s.DragAxis });
+            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
             dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         foreach (var (c, p) in doc.Pawns)
@@ -319,7 +317,6 @@ public static class MapSerializer
             {
                 Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
                 TargetMap = s.TargetMap,
-                DragAxis = string.IsNullOrEmpty(s.DragAxis) ? "E" : s.DragAxis,
             };
             doc.Stairs[c] = stair;
         }

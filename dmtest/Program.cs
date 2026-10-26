@@ -910,32 +910,44 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(!sm.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "sub-room merge on: east edge open");
     Check(!sm.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "sub-room merge on: south edge open");
 
-    // ===== stair drag axis round-trip =====
+    // ===== stair direction: drag rule + round-trip =====
+    Check(StairDrag.FromDrag(2, 0) == StairDirection.Right, "stair drag: L-to-R = Right");
+    Check(StairDrag.FromDrag(-2, 0) == StairDirection.Left, "stair drag: R-to-L = Left");
+    Check(StairDrag.FromDrag(0, -2) == StairDirection.Up, "stair drag: bottom-to-top = Up");
+    Check(StairDrag.FromDrag(0, 2) == StairDirection.Down, "stair drag: top-to-bottom = Down");
+    Check(StairDrag.FromDrag(0, 0) == StairDirection.Down, "stair drag: single click defaults to Down");
+    Check(StairDrag.FromDrag(3, 1) == StairDirection.Right, "stair drag: dominant axis wins (mostly right)");
+    Check(StairDrag.FromDrag(-1, -3) == StairDirection.Up, "stair drag: dominant axis wins (mostly up)");
+
+    // all four directions round-trip through json
     var sa = new MapDocument();
-    sa.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up, DragAxis = "W", TargetMap = "b.json" };
-    sa.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down, DragAxis = "S" };
+    sa.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up, TargetMap = "b.json" };
+    sa.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Left };
+    sa.Stairs[new CellKey(2, 0)] = new Stair { Direction = StairDirection.Right };
+    sa.Stairs[new CellKey(3, 0)] = new Stair { Direction = StairDirection.Down };
     var saJson = MapSerializer.ToJson(sa);
     var saBack = MapSerializer.FromJson(saJson);
-    Check(saBack.Stairs[new CellKey(0, 0)].DragAxis == "W", "stair drag axis: W round-trips");
-    Check(saBack.Stairs[new CellKey(0, 0)].Direction == StairDirection.Up, "stair drag axis: direction round-trips");
-    Check(saBack.Stairs[new CellKey(0, 0)].TargetMap == "b.json", "stair drag axis: target map round-trips");
-    Check(saBack.Stairs[new CellKey(1, 0)].DragAxis == "S", "stair drag axis: S round-trips");
-    // legacy json without dragAxis defaults to E (strip the field line, incl. leading comma)
-    var saLegacy = MapSerializer.FromJson(System.Text.RegularExpressions.Regex.Replace(saJson, ",\\s*\"dragAxis\":\\s*\"W\"", ""));
-    Check(saLegacy.Stairs[new CellKey(0, 0)].DragAxis == "E", "stair drag axis: missing field defaults to E");
+    Check(saBack.Stairs[new CellKey(0, 0)].Direction == StairDirection.Up, "stair direction: Up round-trips");
+    Check(saBack.Stairs[new CellKey(0, 0)].TargetMap == "b.json", "stair direction: target map round-trips");
+    Check(saBack.Stairs[new CellKey(1, 0)].Direction == StairDirection.Left, "stair direction: Left round-trips");
+    Check(saBack.Stairs[new CellKey(2, 0)].Direction == StairDirection.Right, "stair direction: Right round-trips");
+    Check(saBack.Stairs[new CellKey(3, 0)].Direction == StairDirection.Down, "stair direction: Down round-trips");
+    // legacy json that still carries a dragAxis field loads fine (field ignored)
+    var saLegacy = MapSerializer.FromJson(saJson.Replace("\"targetMap\":\"b.json\"", "\"targetMap\":\"b.json\",\"dragAxis\":\"W\""));
+    Check(saLegacy.Stairs[new CellKey(0, 0)].Direction == StairDirection.Up, "stair direction: legacy dragAxis field ignored");
 
-    // toggle sync: a group that drifted out of sync (some up, some down) re-syncs
-    // when every connected stair is SET to one target, not toggled individually.
+    // dropdown sets the whole connected group to one direction (group re-syncs
+    // on one choice, not toggled individually)
     var sy = new MapDocument();
     for (int x = 0; x < 4; x++)
         sy.Stairs[new CellKey(x, 0)] = new Stair { Direction = x % 2 == 0 ? StairDirection.Up : StairDirection.Down };
-    var target = StairDirection.Down; // clicked stair (0,0) is Up -> target Down
+    var target = StairDirection.Left;
     foreach (var s2 in sy.ConnectedStairs(new CellKey(0, 0)))
         s2.Direction = target;
-    Check(sy.Stairs[new CellKey(0, 0)].Direction == StairDirection.Down, "toggle sync: clicked stair set to target");
-    Check(sy.Stairs[new CellKey(1, 0)].Direction == StairDirection.Down, "toggle sync: down stair stays down (not toggled back up)");
-    Check(sy.Stairs[new CellKey(2, 0)].Direction == StairDirection.Down, "toggle sync: up stair re-synced to down");
-    Check(sy.Stairs[new CellKey(3, 0)].Direction == StairDirection.Down, "toggle sync: whole group synced to target");
+    Check(sy.Stairs[new CellKey(0, 0)].Direction == StairDirection.Left, "direction dropdown: clicked stair set to target");
+    Check(sy.Stairs[new CellKey(1, 0)].Direction == StairDirection.Left, "direction dropdown: down stair set to Left");
+    Check(sy.Stairs[new CellKey(2, 0)].Direction == StairDirection.Left, "direction dropdown: up stair re-synced to Left");
+    Check(sy.Stairs[new CellKey(3, 0)].Direction == StairDirection.Left, "direction dropdown: whole group synced to target");
 
     // ===== eraser adjust walls: RebuildRoomBoundaryWalls =====
     // strip every wall from a room, rebuild re-seals the outer boundary and

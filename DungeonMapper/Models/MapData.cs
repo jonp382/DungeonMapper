@@ -76,18 +76,32 @@ public sealed class Door : IDoorConfig
     public DoorState State { get; set; } = DoorState.Closed;
 }
 
-public enum StairDirection { Up, Down }
+public enum StairDirection { Up, Down, Left, Right }
+
+/// Direction from a stair drag: horizontal drags (|dx| >= |dy|) give Right for
+/// L-to-R, Left for R-to-L; vertical drags give Down for top-to-bottom (y
+/// grows downward), Up for bottom-to-top. A zero drag (single click) defaults
+/// to Down. Diagonal drags resolve to the dominant axis - no diagonal direction.
+public static class StairDrag
+{
+    public static StairDirection FromDrag(int dx, int dy)
+        => dx == 0 && dy == 0
+            ? StairDirection.Down
+            : Math.Abs(dx) >= Math.Abs(dy)
+                ? (dx >= 0 ? StairDirection.Right : StairDirection.Left)
+                : (dy >= 0 ? StairDirection.Down : StairDirection.Up);
+}
 
 /// A stair is a cell feature, not an edge. TargetMap is reserved for future
 /// multi-map tracking (stairs connecting maps); null = same map.
 public sealed class Stair
 {
+    /// Axis-aligned only: Up/Down render as vertical triangles, Left/Right as
+    /// horizontal. Dragging sets the default (bottom-to-top = Up, top-to-bottom
+    /// = Down, left-to-right = Right, right-to-left = Left); the config dropdown
+    /// overrides it. No diagonal directions.
     public StairDirection Direction { get; set; } = StairDirection.Down;
     public string? TargetMap { get; set; }
-    /// The dominant axis the stairs were dragged: "E","W","N","S". The triangle
-    /// glyph points diagonally: tip = (axis sign, -1 for Up / +1 for Down).
-    /// L-to-R + UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Default "E".
-    public string DragAxis { get; set; } = "E";
 }
 
 /// Text anchored to a cell, rendered centered on that cell.
