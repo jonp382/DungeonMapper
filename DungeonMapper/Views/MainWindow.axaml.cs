@@ -286,16 +286,16 @@ public partial class MainWindow : Window
 
             case ToolMode.Move:
                 ToolPanel.Clear("Move options");
-                ToolPanel.AddHint("drag a pawn directly to move just that pawn. drag on empty space (or non-pawn) to select a region, then click the destination - the region move includes pawns. the source is removed on move. works across maps: select on one map, switch, click the target.");
-                ToolPanel.AddCheck("move pawns only (other elements untouched; floor tiles stay, walls/stairs/labels at the destination are removed)", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
-                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
+                ToolPanel.AddHint("click + drag on empty space to select a region, then click the destination point. drag a pawn directly to move just that pawn.");
+                ToolPanel.AddCheck("move pawns only", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
+                ToolPanel.AddCheck("show destination ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 break;
 
             case ToolMode.Room:
                 ToolPanel.Clear("Room settings");
-                ToolPanel.AddHint("normal: drawing over existing rooms merges them (shared walls removed); a room grown out of a room opens a passageway.");
-                ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
-                ToolPanel.AddCheck("merge with nearby walls (a room drawn touching an existing room connects to it - shared boundary stays open)", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
+                ToolPanel.AddHint("drawing over an existing room merges them. use the options below for fine control.");
+                ToolPanel.AddCheck("strict outer walls", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
+                ToolPanel.AddCheck("merge adjacent walls", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
                 break;
 
             case ToolMode.Door:
@@ -372,8 +372,8 @@ public partial class MainWindow : Window
 
             case ToolMode.Polygon:
                 ToolPanel.Clear("Polygon");
-                ToolPanel.AddHint("angled room tool: click grid intersections to add vertices. the fill preview shows which cells will fill. click the FIRST vertex, or press Enter, to close the polygon. straight edges become walls, diagonal edges become angled walls. drawing over existing rooms merges them (shared walls removed); a polygon grown out of a room opens a passageway.");
-                ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
+                ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polgyon, or hit enter to auto-complete.");
+                ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 
