@@ -837,9 +837,9 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     var mn = new MapDocument();
     mn.AddRoom(0, 0, 2, 2);
     Check(mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: first room east wall exists before merge");
-    mn.AddRoom(3, 0, 5, 2, false, false, true, new CellKey(3, 0));
-    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: shared boundary wall removed at drag-start row 0");
-    Check(mn.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "merge-nearby: shared boundary stays sealed away from drag start (row 2)");
+    mn.AddRoom(3, 0, 5, 2, false, false, true);
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: shared boundary wall removed (row 0)");
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "merge-nearby: shared boundary wall removed (row 2)");
     Check(mn.HasWall(new EdgeKey(new CellKey(5, 0), Side.East)), "merge-nearby: outer east wall of new room exists");
     Check(mn.HasWall(new EdgeKey(new CellKey(3, 0), Side.North)), "merge-nearby: outer north wall of new room exists");
     Check(mn.Cells.Contains(new CellKey(4, 1)), "merge-nearby: new room cells added");
@@ -855,11 +855,11 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     mn3.AddRoom(3, 0, 5, 2);
     Check(mn3.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby off: shared wall stays (default behavior)");
 
-    // user scenario from Room Merge Broken.json: 2x4 room (x6-7, y2-5) bisected
-    // by walls at x=7 for rows 3-5, plus a protruding cell (8,2) at the top
-    // right. Drag from the protrusion straight down to y=5 with merge mode:
-    // the new column connects to the protrusion at the top ONLY, the bisection
-    // walls survive, and walls are added on the new right edge.
+    // user scenario: 2x4 room (x6-7, y2-5) bisected by walls at x=7 for rows
+    // 3-5, plus a protruding cell (8,2) at the top right. Drag from the
+    // protrusion straight down to y=5 with merge mode: the FULL shared boundary
+    // opens (restored c77ab57 behavior), so the bisection walls are removed and
+    // the result is one clean 3x4 room with walls only on the outer edge.
     var rm = new MapDocument();
     for (int x = 6; x <= 7; x++)
         for (int y = 2; y <= 5; y++)
@@ -871,28 +871,44 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
                               (8,2,"north"),(8,2,"east"),(8,3,"north") })
         rm.SetWall(new EdgeKey(new CellKey(w.Item1, w.Item2),
             w.Item3 == "north" ? Side.North : Side.East), true);
-    rm.AddRoom(8, 2, 8, 5, false, false, true, new CellKey(8, 2));
-    Check(rm.Cells.Count == 12, "room merge broken: 12 cells after merge");
-    Check(!rm.HasWall(new EdgeKey(new CellKey(7, 2), Side.East)), "room merge broken: protrusion connects to new column at top");
-    Check(rm.HasWall(new EdgeKey(new CellKey(7, 3), Side.East)), "room merge broken: bisection wall at row 3 survives");
-    Check(rm.HasWall(new EdgeKey(new CellKey(7, 4), Side.East)), "room merge broken: bisection wall at row 4 survives");
-    Check(rm.HasWall(new EdgeKey(new CellKey(7, 5), Side.East)), "room merge broken: bisection wall at row 5 survives");
-    Check(rm.HasWall(new EdgeKey(new CellKey(8, 3), Side.East)), "room merge broken: new right wall row 3");
-    Check(rm.HasWall(new EdgeKey(new CellKey(8, 4), Side.East)), "room merge broken: new right wall row 4");
-    Check(rm.HasWall(new EdgeKey(new CellKey(8, 5), Side.East)), "room merge broken: new right wall row 5");
-    Check(rm.HasWall(new EdgeKey(new CellKey(8, 6), Side.North)), "room merge broken: new bottom wall");
-    Check(!rm.HasWall(new EdgeKey(new CellKey(8, 3), Side.North)), "room merge broken: old protrusion bottom wall removed");
+    rm.AddRoom(8, 2, 8, 5, false, false, true);
+    Check(rm.Cells.Count == 12, "merge hallway: 12 cells after merge");
+    Check(!rm.HasWall(new EdgeKey(new CellKey(7, 2), Side.East)), "merge hallway: shared wall at row 2 open");
+    Check(!rm.HasWall(new EdgeKey(new CellKey(7, 3), Side.East)), "merge hallway: shared wall at row 3 opens");
+    Check(!rm.HasWall(new EdgeKey(new CellKey(7, 4), Side.East)), "merge hallway: shared wall at row 4 opens");
+    Check(!rm.HasWall(new EdgeKey(new CellKey(7, 5), Side.East)), "merge hallway: shared wall at row 5 opens");
+    Check(rm.HasWall(new EdgeKey(new CellKey(8, 3), Side.East)), "merge hallway: new right wall row 3");
+    Check(rm.HasWall(new EdgeKey(new CellKey(8, 4), Side.East)), "merge hallway: new right wall row 4");
+    Check(rm.HasWall(new EdgeKey(new CellKey(8, 5), Side.East)), "merge hallway: new right wall row 5");
+    Check(rm.HasWall(new EdgeKey(new CellKey(8, 6), Side.North)), "merge hallway: new bottom wall");
+    Check(!rm.HasWall(new EdgeKey(new CellKey(8, 3), Side.North)), "merge hallway: old protrusion bottom wall removed");
+    Check(rm.HasWall(new EdgeKey(new CellKey(5, 3), Side.East)), "merge hallway: untouched outer wall at x=5 survives");
 
     // sub-room inside an existing room with merge OFF (plain passageway): every
     // shared edge opens, including the drag-start cell - the sub-room stays
     // invisible, no strict-wall behavior on the clicked cell.
     var sr = new MapDocument();
     sr.AddRoom(0, 0, 3, 3);
-    sr.AddRoom(1, 1, 2, 2, true, false, false, new CellKey(1, 1));
+    sr.AddRoom(1, 1, 2, 2, true, false, false);
     Check(!sr.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "sub-room merge off: drag-start cell keeps its shared edges open");
     Check(!sr.HasWall(new EdgeKey(new CellKey(1, 1), Side.West)), "sub-room merge off: west edge open");
     Check(!sr.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "sub-room merge off: far edges open too");
     Check(!sr.HasWall(new EdgeKey(new CellKey(2, 1), Side.East)), "sub-room merge off: east edge open");
+
+    // user-reported bug: sub-room inside a room with merge ON must NOT create
+    // walls. Every edge of the sub-room faces an existing room cell, so every
+    // edge opens - the sub-room is invisible, no new wall set appears.
+    var sm = new MapDocument();
+    sm.AddRoom(0, 0, 3, 3);
+    sm.AddRoom(1, 1, 2, 2, true, false, true);
+    Check(!sm.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "sub-room merge on: no wall on the clicked cell");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(2, 1), Side.North)), "sub-room merge on: no wall row 1 east");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(1, 2), Side.North)), "sub-room merge on: no wall row 2 west");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(2, 2), Side.North)), "sub-room merge on: no wall row 2 east");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(1, 1), Side.East)), "sub-room merge on: no wall inside the room");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(1, 1), Side.West)), "sub-room merge on: west edge open");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "sub-room merge on: east edge open");
+    Check(!sm.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "sub-room merge on: south edge open");
 
     // ===== stair drag axis round-trip =====
     var sa = new MapDocument();

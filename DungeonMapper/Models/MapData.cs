@@ -248,7 +248,7 @@ public sealed class MapDocument
     /// When strict is true, every outer boundary edge gets a wall regardless of
     /// existing cells, and interior walls are NOT removed - so a sub-room drawn
     /// inside an existing room gets its own visible walls.
-    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false, CellKey? dragStart = null)
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false)
     {
         // existing cells outside the new region, captured before we add new cells
         var existing = new HashSet<CellKey>();
@@ -265,17 +265,6 @@ public sealed class MapDocument
         {
             if (strict) return false; // strict: every outer edge is walled
             if (!(passageway || mergeNearby)) return false;
-            // the connection to the existing room opens ONLY at the drag-start
-            // cell - the point where the user pressed. A room grown beside an
-            // existing room connects at the top (where the drag began), not
-            // along the whole shared boundary, so the existing room's internal
-            // walls (e.g. a bisection wall) survive.
-            // the drag-start restriction applies ONLY to merge mode: a merged
-            // room connects at the press point alone, so the existing room's
-            // internal walls survive. Plain passageway (sub-room inside a room,
-            // merge off) keeps opening every shared edge - the sub-room stays
-            // invisible, walls only where it faces empty space.
-            if (mergeNearby && dragStart is not null && (cx, cy) != (dragStart.Value.X, dragStart.Value.Y)) return false;
             var (nx, ny) = side switch
             {
                 Side.North => (cx, cy - 1),
@@ -301,10 +290,7 @@ public sealed class MapDocument
             if (Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), false);
             else SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
         }
-        // interior walls removed so adjacent rooms merge (skipped in strict mode).
-        // The merge-nearby connection is restricted to the drag-start cell via
-        // Open() above, so a partitioned room's internal walls survive: the
-        // interior loop only removes walls inside the NEW region.
+        // interior walls removed so adjacent rooms merge (skipped in strict mode)
         if (!strict)
         {
             for (int x = x0 + 1; x <= x1; x++)

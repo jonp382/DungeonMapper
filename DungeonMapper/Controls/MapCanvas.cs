@@ -1254,7 +1254,7 @@ public sealed class MapCanvas : Control
                 // passageway instead of being sealed off.
                 bool strict = RoomStrict;
                 bool passageway = !strict && Document.Cells.Contains(_dragStart);
-                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby, _dragStart);
+                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby);
                 Commit();
                 break;
             }
