@@ -126,8 +126,9 @@ public sealed class AppSettings
     public int BackgroundR = 20, BackgroundG = 20, BackgroundB = 25;
     public int CellFillR = 60, CellFillG = 75, CellFillB = 105;
     public int WallR = 235, WallG = 235, WallB = 240;
-    public int StairUpR = 120, StairUpG = 220, StairUpB = 120;
-    public int StairDownR = 230, StairDownG = 160, StairDownB = 80;
+    // single stair color: all stairs (up/down/left/right) render in this color.
+    // directional coloring was removed; default is the old down-stair orange.
+    public int StairColorR = 230, StairColorG = 160, StairColorB = 80;
     public int LabelR = 250, LabelG = 250, LabelB = 250;
 
     // Autosave interval in minutes; 0 = autosave off. Writes to

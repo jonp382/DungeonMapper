@@ -623,15 +623,9 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             MarkSetting();
         });
-        ToolPanel.AddColorField("stair up color", _settings.StairUpR, _settings.StairUpG, _settings.StairUpB, gpresets, c =>
+        ToolPanel.AddColorField("stair color", _settings.StairColorR, _settings.StairColorG, _settings.StairColorB, gpresets, c =>
         {
-            _settings.StairUpR = c.r; _settings.StairUpG = c.g; _settings.StairUpB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("stair down color", _settings.StairDownR, _settings.StairDownG, _settings.StairDownB, gpresets, c =>
-        {
-            _settings.StairDownR = c.r; _settings.StairDownG = c.g; _settings.StairDownB = c.b;
+            _settings.StairColorR = c.r; _settings.StairColorG = c.g; _settings.StairColorB = c.b;
             Canvas.Refresh();
             MarkSetting();
         });

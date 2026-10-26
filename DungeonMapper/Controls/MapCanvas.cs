@@ -342,8 +342,7 @@ public sealed class MapCanvas : Control
     private IBrush Background => new SolidColorBrush(Color.FromRgb((byte)Settings.BackgroundR, (byte)Settings.BackgroundG, (byte)Settings.BackgroundB));
     private IBrush CellFill => new SolidColorBrush(Color.FromRgb((byte)Settings.CellFillR, (byte)Settings.CellFillG, (byte)Settings.CellFillB));
     private IPen WallPen => new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.WallR, (byte)Settings.WallG, (byte)Settings.WallB)), 3);
-    private IBrush StairUp => new SolidColorBrush(Color.FromRgb((byte)Settings.StairUpR, (byte)Settings.StairUpG, (byte)Settings.StairUpB));
-    private IBrush StairDown => new SolidColorBrush(Color.FromRgb((byte)Settings.StairDownR, (byte)Settings.StairDownG, (byte)Settings.StairDownB));
+    private IBrush StairColor => new SolidColorBrush(Color.FromRgb((byte)Settings.StairColorR, (byte)Settings.StairColorG, (byte)Settings.StairColorB));
     private IBrush LabelBrush => new SolidColorBrush(Color.FromRgb((byte)Settings.LabelR, (byte)Settings.LabelG, (byte)Settings.LabelB));
 
     // Door color per type, from the configurable DoorTypes list; unknown types
@@ -497,9 +496,8 @@ public sealed class MapCanvas : Control
         {
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
-            // coloring is unchanged (up = up color, everything else = down
-            // color); a dedicated left/right color is a subsequent task.
-            var brush = s.Direction == StairDirection.Up ? StairUp : StairDown;
+            // single stair color: every direction renders in the same color.
+            var brush = StairColor;
             var col = ((SolidColorBrush)brush).Color;
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
