@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -50,9 +50,41 @@ public sealed class MapCanvas : Control
     /// Template armed for placement from the floating submenu. Clicking a cell
     /// places a pawn referencing this template. Null = no pawn armed.
     public PawnTemplate? ArmedPawn { get; set; }
+    // folder of unique-pawn images (filenames stored on templates as PawnTemplate.Image)
+    public string PawnImagesDir { get; set; } = "";
+    private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _bitmapCache = new();
+
+    /// Drops every cached bitmap. Call when a template's image is uploaded,
+    /// removed, or the template is deleted, so the next render reloads.
+    public void InvalidateImageCache()
+    {
+        foreach (var b in _bitmapCache.Values) b.Dispose();
+        _bitmapCache.Clear();
+    }
+
+    /// Loads (and caches) a pawn image bitmap from the pawn_images folder.
+    /// Public so the pawn management modal and the pawn tool swatch grids can
+    /// render template images in their swatches, not just on the map.
+    public Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string fileName)
+    {
+        if (_bitmapCache.TryGetValue(fileName, out var cached)) return cached;
+        var path = System.IO.Path.Combine(PawnImagesDir, fileName);
+        if (!System.IO.File.Exists(path)) return null;
+        try
+        {
+            var bmp = new Avalonia.Media.Imaging.Bitmap(path);
+            _bitmapCache[fileName] = bmp;
+            return bmp;
+        }
+        catch { return null; }
+    }
+    // special move mode: selection captures and moves ONLY pawns; other elements
+    // are untouched at the source, and incompatible elements at the destination
+    // are removed so the pawn lands clean.
+    public bool MovePawnsOnly { get; set; }
 
     public event Action? ActionCompleted;
-    public event Action<Door>? DoorConfigRequested;
+    public event Action<IDoorConfig>? DoorConfigRequested;
     public event Action<Stair>? StairConfigRequested;
     public event Action<MapLabel>? LabelConfigRequested;
     public event Action<Pawn>? PawnConfigRequested;
@@ -64,11 +96,18 @@ public sealed class MapCanvas : Control
     private MapDocument.RegionSnapshot? _clipboard;
     private CellKey _selectStart, _selectEnd;
     private bool _selectDragging;
+    // per-pawn drag in the Move tool: pressing directly on a pawn drags that
+    // single pawn to the release cell; a press without drag shows its config.
+    private Pawn? _pawnDragPawn;
+    private CellKey _pawnDragStart, _pawnDragEnd;
+    private bool _pawnDragging;
     private Point? _pasteCursor; // world cursor for paste ghost
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
+    public bool RoomMergeNearby { get; set; } = false; // Room tool: a room drawn adjacent to (touching, not overlapping) an existing room connects to it - shared boundary walls stay open
+    public bool PolygonStrict { get; set; } = false; // Polygon tool: same as RoomStrict - outer walls always, interior walls kept
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -138,6 +177,47 @@ public sealed class MapCanvas : Control
     {
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var src = _moveSourceDoc ?? Document;
+
+        if (MovePawnsOnly)
+        {
+            // special move: capture ONLY pawns in the region. other elements stay
+            // at the source; at the destination, incompatible elements (walls,
+            // cells, stairs, labels) are removed so the pawn lands clean.
+            var pawns = new List<Pawn>();
+            foreach (var (c, p) in src.Pawns)
+                if (c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1) pawns.Add(p);
+            if (pawns.Count == 0) { StatusMessage?.Invoke("no pawns in the selection"); return; }
+            int dx = target.X - x0, dy = target.Y - y0;
+            // landing on a pawn outside the moving set SWAPS positions (unique to
+            // pawns). capture occupants before removing movers so swaps pair the
+            // occupant with the mover's source cell.
+            var swaps = new List<(CellKey dest, Pawn occupant)>();
+            foreach (var p in pawns)
+            {
+                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+                if (Document.Pawns.TryGetValue(nc, out var occ) && !pawns.Contains(occ))
+                    swaps.Add((nc, occ));
+            }
+            foreach (var p in pawns) src.Pawns.Remove(p.Cell);
+            foreach (var p in pawns)
+            {
+                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+                ClearCellObstacles(Document, nc);
+                Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
+            }
+            foreach (var (dest, occ) in swaps)
+            {
+                // the mover's source cell is where the swapped occupant lands
+                var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
+                Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status };
+            }
+            StatusMessage?.Invoke(swaps.Count > 0
+                ? $"moved {pawns.Count} pawns, swapped {swaps.Count}"
+                : $"moved {pawns.Count} pawns");
+            Commit();
+            return;
+        }
+
         var snap = src.CaptureRegion(x0, y0, x1, y1);
         if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
         _clipboard = snap; // armed region shows as the paste ghost at the cursor
@@ -152,6 +232,23 @@ public sealed class MapCanvas : Control
         }
         StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
         Commit();
+    }
+
+    /// Removes everything incompatible with a pawn landing on a cell: stairs,
+    /// labels, and straight walls on the cell's edges - straight walls are
+    /// cleared ONLY when the cell is not a room/floor tile (a pawn landing on a
+    /// room edge keeps the room's walls). Angled walls and angled doors are
+    /// NEVER removed by a pawn landing - the intersection rules are too complex,
+    /// so angled geometry is left alone in every case. Room/floor cells
+    /// themselves are never removed - a pawn sits on top of a floor tile.
+    private static void ClearCellObstacles(MapDocument doc, CellKey c)
+    {
+        doc.Stairs.Remove(c);
+        doc.Labels.RemoveAll(l => l.Cell == c);
+        bool onFloor = doc.Cells.Contains(c);
+        if (!onFloor)
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                doc.SetWall(new EdgeKey(c, side), false);
     }
 
     /// Pastes at the current cursor cell, if a paste ghost is showing.
@@ -180,6 +277,13 @@ public sealed class MapCanvas : Control
                     foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                         Document.SetWall(new EdgeKey(c, side), false);
             }
+        if (f.Walls)
+        {
+            foreach (var w in Document.AngledWalls
+                         .Where(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1)).ToList())
+                Document.AngledDoors.Remove(w);
+            Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
+        }
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -195,6 +299,28 @@ public sealed class MapCanvas : Control
         _ghostVisible = false;
     }
 
+    /// Polygon tool: close the polygon by appending the first vertex (Enter key).
+    /// No-op when fewer than 3 vertices are armed.
+    public void ClosePolygon()
+    {
+        if (_polyVerts.Count < 3) return;
+        var first = _polyVerts[0];
+        if (_polyVerts[^1] != first) _polyVerts.Add(first);
+        // passageway: if the closing vertex sits inside an existing room cell, the
+        // shared boundary stays open so the polygon connects as a passageway.
+        bool strict = PolygonStrict;
+        bool passageway = !strict && Document.Cells.Contains(new CellKey(first.x, first.y));
+        Document.AddPolygon(_polyVerts, passageway, strict);
+        _polyVerts.Clear();
+        Commit();
+    }
+
+    /// Polygon tool: discard the vertices armed so far (cancel button / Escape).
+    public void CancelPolygon()
+    {
+        _polyVerts.Clear();
+    }
+
     public void ClearSelection()
     {
         _selectDragging = false;
@@ -208,14 +334,15 @@ public sealed class MapCanvas : Control
     private const double MinScale = 8, MaxScale = 200;
 
     // High-contrast palette (dark bg, bright fills)
-    private static readonly IBrush Background = new SolidColorBrush(Color.FromRgb(20, 20, 25));
-    private static readonly IBrush CellFill = new SolidColorBrush(Color.FromRgb(60, 75, 105));
-    private static readonly IBrush GridLine = new SolidColorBrush(Color.FromRgb(45, 52, 66));
-    private static readonly IBrush FaintGridLine = new SolidColorBrush(Color.FromArgb(120, 45, 52, 66));
-    private static readonly IPen WallPen = new Pen(new SolidColorBrush(Color.FromRgb(235, 235, 240)), 3);
-    private static readonly IBrush StairUp = new SolidColorBrush(Color.FromRgb(120, 220, 120));
-    private static readonly IBrush StairDown = new SolidColorBrush(Color.FromRgb(230, 160, 80));
-    private static readonly IBrush LabelBrush = new SolidColorBrush(Color.FromRgb(250, 250, 250));
+    // Canvas element colors come from Settings (settings menu). The old static
+    // GridLine/FaintGridLine brushes were dead code - grid rendering uses the
+    // MajorGrid/MinorGrid settings colors - and were removed.
+    private IBrush Background => new SolidColorBrush(Color.FromRgb((byte)Settings.BackgroundR, (byte)Settings.BackgroundG, (byte)Settings.BackgroundB));
+    private IBrush CellFill => new SolidColorBrush(Color.FromRgb((byte)Settings.CellFillR, (byte)Settings.CellFillG, (byte)Settings.CellFillB));
+    private IPen WallPen => new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.WallR, (byte)Settings.WallG, (byte)Settings.WallB)), 3);
+    private IBrush StairUp => new SolidColorBrush(Color.FromRgb((byte)Settings.StairUpR, (byte)Settings.StairUpG, (byte)Settings.StairUpB));
+    private IBrush StairDown => new SolidColorBrush(Color.FromRgb((byte)Settings.StairDownR, (byte)Settings.StairDownG, (byte)Settings.StairDownB));
+    private IBrush LabelBrush => new SolidColorBrush(Color.FromRgb((byte)Settings.LabelR, (byte)Settings.LabelG, (byte)Settings.LabelB));
 
     // Door color per type, from the configurable DoorTypes list; unknown types
     // fall back to the first category.
@@ -224,6 +351,45 @@ public sealed class MapCanvas : Control
         var t = Settings.FindDoorType(type);
         return new SolidColorBrush(Color.FromRgb((byte)t.R, (byte)t.G, (byte)t.B));
     }
+
+    // Door square glyph centered at mid, rotated by ang (radians). Open = hollow
+    // outline, closed = solid, locked = solid + red core. Shared by placed doors,
+    // angled doors, and the door tool placement ghost.
+    private void DrawDoorGlyph(DrawingContext ctx, Point mid, double ang, IBrush brush, DoorState state)
+    {
+        double s2 = Math.Max(4, _scale * 0.18);
+        var rect = new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2);
+        void core()
+        {
+            if (state == DoorState.Open)
+            {
+                var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
+                ctx.DrawRectangle(pen, rect);
+            }
+            else
+            {
+                ctx.FillRectangle(brush, rect);
+                if (state == DoorState.Locked)
+                {
+                    double inner = s2 * 2 * 0.5;
+                    // locked inner core is always RED, independent of door type.
+                    ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
+                        new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+                }
+            }
+        }
+        if (Math.Abs(ang) < 0.0001) { core(); return; }
+        // Avalonia transforms points as point * matrix (row-vector), so the
+        // composition applies right-to-left: shift mid to origin, rotate, shift back.
+        using (ctx.PushTransform(Matrix.CreateTranslation(-mid.X, -mid.Y)
+                                 * Matrix.CreateRotation(ang)
+                                 * Matrix.CreateTranslation(mid.X, mid.Y)))
+            core();
+    }
+
+    // Semi-transparent version of a door type color, for the placement ghost.
+    private SolidColorBrush GhostBrush(SolidColorBrush src)
+        => new SolidColorBrush(Color.FromArgb(120, src.Color.R, src.Color.G, src.Color.B));
 
     public void AutoFit()
     {
@@ -259,11 +425,46 @@ public sealed class MapCanvas : Control
         int sp = Math.Max(1, Settings.GridDrawSpacing);
         var majorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
         var minorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
-        foreach (var c in Document.Cells)
+        // Fill CONTIGUOUS CELLS AS ONE MERGED RECTANGLE per maximal block, so a
+        // room built from adjacent cells (e.g. a 10x10 room = 4 connected 5x5
+        // tiles) renders as one contiguous square. Filling each cell as its own
+        // _scale rect leaves sub-pixel seams between adjacent rects that read as
+        // grid lines inside rooms even when minor gridlines are disabled.
+        // Greedy maximal rectangles: extend right along the row, extend down
+        // while every column of the row is filled, mark cells consumed.
+        // Two fixes for the seam lines the user sees inside rooms:
+        // 1. iterate top-left-first (hashset order is arbitrary, so the greedy
+        //    split a room into two rects at an arbitrary column);
+        // 2. overlap each rect by half a pixel into any edge shared with a
+        //    neighboring filled cell. The rects meet at fractional pixel
+        //    coordinates under pan/zoom, and anti-aliasing at the shared edge
+        //    lets the background bleed through as a faint line. Same-color
+        //    overlap is invisible; overlap only happens where the neighbor is
+        //    filled, so rooms never overhang their boundary.
+        var remaining = new HashSet<CellKey>(Document.Cells);
+        foreach (var c in Document.Cells.OrderBy(c => c.Y).ThenBy(c => c.X))
         {
-            if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
+            if (!remaining.Contains(c)) continue;
+            int w = 1;
+            while (remaining.Contains(new CellKey(c.X + w, c.Y))) w++;
+            int h = 1;
+            while (remaining.Contains(new CellKey(c.X, c.Y + h)))
+            {
+                bool full = true;
+                for (int i = 1; i < w; i++)
+                    if (!remaining.Contains(new CellKey(c.X + i, c.Y + h))) { full = false; break; }
+                if (!full) break;
+                h++;
+            }
+            for (int dx = 0; dx < w; dx++)
+                for (int dy = 0; dy < h; dy++)
+                    remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
+            if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
+            double pad = 0.6;
+            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
+            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
-            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, _scale, _scale));
+            ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
 
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
@@ -287,7 +488,10 @@ public sealed class MapCanvas : Control
             ctx.DrawLine(major ? majorPen : minorPen, new Point(0, sy), new Point(Bounds.Width, sy));
         }
 
-        // Stairs: fill tint + arrow glyph
+        // Stairs: fill tint + arrow glyph. The triangle points diagonally:
+        // tip = drag axis + (0, -1 for Up / +1 for Down), normalized. L-to-R +
+        // UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Pure vertical drags
+        // (N/S axis) degenerate to straight up/down.
         foreach (var (c, s) in Document.Stairs)
         {
             var p0 = WorldToScreen(c.X, c.Y);
@@ -297,15 +501,27 @@ public sealed class MapCanvas : Control
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             double a = _scale * 0.28;
-            // tip points up for Up stairs, down for Down; base is opposite the tip
-            double tipY = s.Direction == StairDirection.Up ? center.Y - a : center.Y + a;
-            double baseY = s.Direction == StairDirection.Up ? center.Y + a : center.Y - a;
+            var axis = s.DragAxis switch { "W" => (-1, 0), "N" => (0, -1), "S" => (0, 1), _ => (1, 0) };
+            double tx = axis.Item1, ty = axis.Item2 + (s.Direction == StairDirection.Up ? -1 : 1);
+            double len = Math.Sqrt(tx * tx + ty * ty);
+            if (len < 1e-9)
+            {
+                // pure vertical drag + opposite up/down cancels out: fall back
+                // to a straight up/down tip so the glyph never degenerates.
+                tx = 0; ty = s.Direction == StairDirection.Up ? -1 : 1; len = 1;
+            }
+            tx /= len; ty /= len;
+            // perpendicular for the base corners
+            double px = -ty, py = tx;
+            var tip = new Point(center.X + tx * a, center.Y + ty * a);
+            var b1 = new Point(center.X - tx * a + px * a, center.Y - ty * a + py * a);
+            var b2 = new Point(center.X - tx * a - px * a, center.Y - ty * a - py * a);
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
-                g.BeginFigure(new Point(center.X, tipY), isFilled: true);
-                g.LineTo(new Point(center.X - a, baseY));
-                g.LineTo(new Point(center.X + a, baseY));
+                g.BeginFigure(tip, isFilled: true);
+                g.LineTo(b1);
+                g.LineTo(b2);
                 g.EndFigure(true);
             }
             ctx.DrawGeometry(brush, null, geo);
@@ -323,12 +539,29 @@ public sealed class MapCanvas : Control
                 DrawDoor(ctx, e, a, b, door);
         }
 
+        // Angled walls: line segments between lattice vertices, drawn with the
+        // same wall pen. Doors on angled walls render as a gap in the segment
+        // (the wall is drawn as the sub-segments between door gaps) plus a door
+        // glyph rotated to the segment angle.
+        foreach (var w in Document.AngledWalls)
+        {
+            var a = WorldToScreen(w.Ax, w.Ay);
+            var b = WorldToScreen(w.Bx, w.By);
+            var doors = Document.GetAngledDoors(w);
+            DrawAngledWall(ctx, w, a, b, doors);
+        }
+
         // Labels centered on their cell
         foreach (var l in Document.Labels)
         {
             var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
+            // per-label overrides: FontSize 0 = zoom-scaled auto, color -1 = inherit
+            double fs = l.FontSize > 0 ? l.FontSize : Math.Max(10, _scale * 0.35);
+            var brush = (l.R >= 0 && l.G >= 0 && l.B >= 0)
+                ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
+                : LabelBrush;
             var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                new Typeface("Inter"), Math.Max(10, _scale * 0.35), LabelBrush);
+                new Typeface("Inter"), fs, brush);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             ctx.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
         }
@@ -337,34 +570,12 @@ public sealed class MapCanvas : Control
         // by zoom. Visual data resolves from the library template (hard reference);
         // a missing template renders an X (broken reference). Drawn after labels.
         foreach (var (c, p) in Document.Pawns)
-        {
-            var p0 = WorldToScreen(c.X, c.Y);
-            var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
-            var t = Library.Find(p.TemplateId);
-            if (t is null)
-            {
-                // broken reference: X symbol
-                var xPen = new Pen(Brushes.Red, Math.Max(2, _scale * 0.08));
-                double r = _scale * 0.3;
-                ctx.DrawLine(xPen, new Point(center.X - r, center.Y - r), new Point(center.X + r, center.Y + r));
-                ctx.DrawLine(xPen, new Point(center.X - r, center.Y + r), new Point(center.X + r, center.Y - r));
-                continue;
-            }
-            double outerR = _scale * 0.42;
-            double innerR = _scale * 0.22;
-            var (effOuter, effInner) = t.Effective(Settings);
-            var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
-            var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
-            ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
-            ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
-            // status border ring on the outer edge
-            var st = Settings.FindPawnStatus(t.Status);
-            if (st.Thickness > 0)
-            {
-                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
-                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
-            }
-        }
+            DrawPawnGlyph(ctx, c, p.TemplateId, p.Status);
+
+        // per-pawn drag ghost: the dragged pawn follows the cursor as a
+        // semi-transparent glyph at the cell it will land on.
+        if (_pawnDragging && _pawnDragPawn is not null && _pawnDragEnd != _pawnDragStart)
+            DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Status, 0.45);
 
         DrawPreview(ctx);
     }
@@ -373,9 +584,16 @@ public sealed class MapCanvas : Control
     private bool _dragging;
     private CellKey _dragStart, _dragEnd;
     private EdgeKey? _previewEdge;
+    private (AngledWall wall, double t)? _previewAngled; // door ghost on hovered angled segment (t in cell units)
     private EdgeKey? _wallDragStart;
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
     private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
+
+    // polygon tool: vertices are LATTICE points (integer grid intersections).
+    // Click adds a snapped vertex; clicking the first vertex closes the polygon;
+    // Enter closes by appending the first vertex (ClosePolygon).
+    private readonly List<(int x, int y)> _polyVerts = new();
+    private Point _polyCursor; // world cursor, for the closing preview segment
 
     private void DrawPreview(DrawingContext ctx)
     {
@@ -416,6 +634,38 @@ public sealed class MapCanvas : Control
             var a = WorldToScreen(seg.a.X, seg.a.Y);
             var b = WorldToScreen(seg.b.X, seg.b.Y);
             ctx.DrawLine(new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2), a, b);
+            // door tool ghost: the wall-line preview is invisible over an existing
+            // wall, so show the door square icon at the edge midpoint instead
+            // Ghost uses the armed default type/state, semi-transparent.
+            if (Mode == ToolMode.Door && Document.GetDoor(pe) is null)
+            {
+                var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
+                var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                    ? s : DoorState.Closed;
+                DrawDoorGlyph(ctx, mid, 0, GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+            }
+        }
+        // angled door ghost: hover near an angled segment shows the rotated door
+        // square at the projected t, same priority as the click handler.
+        if (Mode == ToolMode.Door && _previewAngled is not null)
+        {
+            var (wall, t) = _previewAngled.Value;
+            var doors = Document.GetAngledDoors(wall);
+            if (doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5) is null)
+            {
+                var wa = WorldToScreen(wall.Ax, wall.Ay);
+                var wb = WorldToScreen(wall.Bx, wall.By);
+                double len = Math.Sqrt((wb.X - wa.X) * (wb.X - wa.X) + (wb.Y - wa.Y) * (wb.Y - wa.Y));
+                if (len > 0.0001)
+                {
+                    double ux = (wb.X - wa.X) / len, uy = (wb.Y - wa.Y) / len;
+                    var mid = new Point(wa.X + ux * t * _scale, wa.Y + uy * t * _scale);
+                    var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                        ? s : DoorState.Closed;
+                    DrawDoorGlyph(ctx, mid, Math.Atan2(uy, ux),
+                        GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                }
+            }
         }
 
         // selection rectangle (cyan)
@@ -426,6 +676,49 @@ public sealed class MapCanvas : Control
             var rect = new Rect(tl.X, tl.Y, (x1 - x0 + 1) * _scale, (y1 - y0 + 1) * _scale);
             ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(60, 80, 200, 220)), rect);
             ctx.DrawRectangle(new Pen(new SolidColorBrush(Color.FromRgb(80, 200, 220)), 2), rect);
+        }
+
+        // polygon preview: outline of the armed vertices + the closing preview
+        // segment (cursor to first vertex) + the cells that would fill.
+        if (Mode == ToolMode.Polygon && _polyVerts.Count > 0)
+        {
+            var polyPen = new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2);
+            // fill preview: cells whose center is inside the polygon (closed, with
+            // the cursor as the provisional last vertex when >=2 vertices armed)
+            var previewVerts = new List<(int x, int y)>(_polyVerts);
+            if (_polyVerts.Count >= 2)
+                previewVerts.Add(((int)Math.Round(_polyCursor.X), (int)Math.Round(_polyCursor.Y)));
+            if (previewVerts.Count >= 3)
+            {
+                var fillCells = Document.PolygonFillCells(previewVerts);
+                var fill = new SolidColorBrush(Color.FromArgb(70, 60, 75, 105));
+                foreach (var c in fillCells)
+                {
+                    var p0 = WorldToScreen(c.X, c.Y);
+                    ctx.FillRectangle(fill, new Rect(p0.X, p0.Y, _scale, _scale));
+                }
+            }
+            // outline
+            for (int i = 0; i < _polyVerts.Count - 1; i++)
+            {
+                var a = WorldToScreen(_polyVerts[i].x, _polyVerts[i].y);
+                var b = WorldToScreen(_polyVerts[i + 1].x, _polyVerts[i + 1].y);
+                ctx.DrawLine(polyPen, a, b);
+            }
+            // closing preview segment: last vertex -> cursor (and cursor -> first
+            // vertex when >=2 armed, so the loop shape is visible)
+            var last = WorldToScreen(_polyVerts[^1].x, _polyVerts[^1].y);
+            var cur = WorldToScreen(_polyCursor.X, _polyCursor.Y);
+            ctx.DrawLine(polyPen, last, cur);
+            if (_polyVerts.Count >= 2)
+                ctx.DrawLine(polyPen, cur, WorldToScreen(_polyVerts[0].x, _polyVerts[0].y));
+            // vertex dots
+            var dot = new SolidColorBrush(Color.FromRgb(250, 250, 250));
+            foreach (var (vx, vy) in _polyVerts)
+            {
+                var p = WorldToScreen(vx, vy);
+                ctx.DrawEllipse(dot, null, p, 3, 3);
+            }
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
@@ -442,6 +735,59 @@ public sealed class MapCanvas : Control
             {
                 var p0 = WorldToScreen(c.X + dx, c.Y + dy);
                 ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
+            }
+        }
+    }
+
+    /// Draws one pawn glyph (two-tone circles, unique image, broken-reference X,
+    /// status ring) at a cell. Shared by the placed-pawn pass and the per-pawn
+    /// drag ghost. alpha < 1 renders it semi-transparent (ghost).
+    private void DrawPawnGlyph(DrawingContext ctx, CellKey c, string templateId, string? instanceStatus, double alpha = 1.0)
+    {
+        var p0 = WorldToScreen(c.X, c.Y);
+        var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
+        var t = Library.Find(templateId);
+        using (ctx.PushOpacity(alpha))
+        {
+            if (t is null)
+            {
+                // broken reference: X symbol
+                var xPen = new Pen(Brushes.Red, Math.Max(2, _scale * 0.08));
+                double r = _scale * 0.3;
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y - r), new Point(center.X + r, center.Y + r));
+                ctx.DrawLine(xPen, new Point(center.X - r, center.Y + r), new Point(center.X + r, center.Y - r));
+                return;
+            }
+            double outerR = _scale * 0.42;
+            double innerR = _scale * 0.22;
+            if (!string.IsNullOrEmpty(t.Image))
+            {
+                // unique pawn: the image replaces the two-tone circles entirely.
+                // center-crop to a square so any aspect ratio fits the cell.
+                var bmp = LoadPawnImage(t.Image);
+                if (bmp is not null)
+                {
+                    double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                    var srcRect = new Rect((bmp.PixelSize.Width - side) / 2, (bmp.PixelSize.Height - side) / 2, side, side);
+                    var dest = new Rect(p0.X + _scale * 0.08, p0.Y + _scale * 0.08, _scale * 0.84, _scale * 0.84);
+                    ctx.DrawImage(bmp, srcRect, dest);
+                }
+            }
+            else
+            {
+                var (effOuter, effInner) = t.Effective(Settings);
+                var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
+                var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
+                ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
+                ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
+            }
+            // status border ring on the outer edge. per-instance override wins,
+            // null inherits the template's status.
+            var st = Settings.FindPawnStatus(instanceStatus ?? t.Status);
+            if (st.Thickness > 0)
+            {
+                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
+                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
             }
         }
     }
@@ -505,6 +851,27 @@ public sealed class MapCanvas : Control
         return Math.Sqrt(dx * dx + dy * dy);
     }
 
+    /// Nearest angled wall to a world point, within tolerance, plus the projected
+    /// parameter t (in world units along the segment) of the click. Null if none.
+    private (AngledWall wall, double t)? HitAngledWall(Point world)
+    {
+        AngledWall? best = null;
+        double bestT = 0, bestD = 0.3; // tolerance in cells
+        foreach (var w in Document.AngledWalls)
+        {
+            var a = new Point(w.Ax, w.Ay);
+            var b = new Point(w.Bx, w.By);
+            double abx = b.X - a.X, aby = b.Y - a.Y;
+            double len2 = abx * abx + aby * aby;
+            if (len2 == 0) continue;
+            double t = Math.Clamp(((world.X - a.X) * abx + (world.Y - a.Y) * aby) / len2, 0, 1);
+            double dx = world.X - (a.X + t * abx), dy = world.Y - (a.Y + t * aby);
+            double d = Math.Sqrt(dx * dx + dy * dy);
+            if (d < bestD) { bestD = d; best = w; bestT = t * Math.Sqrt(len2); }
+        }
+        return best is null ? null : (best.Value, bestT);
+    }
+
     private void Commit()
     {
         ActionCompleted?.Invoke();
@@ -554,6 +921,18 @@ public sealed class MapCanvas : Control
                     PawnConfigRequested?.Invoke(selPawn);
                     break;
                 }
+                if (Mode == ToolMode.Move && Document.Pawns.TryGetValue(cell, out var hitPawn))
+                {
+                    // pressing directly on a pawn: per-pawn drag. the pawn follows
+                    // the cursor as a ghost and lands on the release cell. a press
+                    // without drag (release on the same cell) shows its config.
+                    _pawnDragging = true;
+                    _pawnDragPawn = hitPawn;
+                    _pawnDragStart = cell;
+                    _pawnDragEnd = cell;
+                    e.Pointer.Capture(this);
+                    break;
+                }
                 _selectDragging = true;
                 _selectStart = cell;
                 _selectEnd = cell;
@@ -596,6 +975,25 @@ public sealed class MapCanvas : Control
                 break;
 
             case ToolMode.Door:
+                // angled walls take priority: a click near an angled wall places a
+                // door on it (or opens config for a door already near that spot).
+                var aw = HitAngledWall(world);
+                if (aw is not null)
+                {
+                    var (wall, t) = aw.Value;
+                    var doors = Document.GetAngledDoors(wall);
+                    var near = doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5);
+                    if (near is not null)
+                    {
+                        DoorConfigRequested?.Invoke(near);
+                    }
+                    else if (Document.TryPlaceAngledDoor(wall, t, Settings.DefaultDoorType, Settings.DefaultDoorState, out var ad))
+                    {
+                        Commit();
+                        DoorConfigRequested?.Invoke(ad);
+                    }
+                    break;
+                }
                 var de = HitEdge(world);
                 if (de is null) break;
                 var doorEdge = de.Value;
@@ -646,6 +1044,27 @@ public sealed class MapCanvas : Control
                     StatusMessage?.Invoke("select a pawn in the pawn menu first");
                 }
                 break;
+
+            case ToolMode.Polygon:
+                // snap the click to the nearest LATTICE vertex (grid intersection)
+                int vx = (int)Math.Round(world.X), vy = (int)Math.Round(world.Y);
+                if (_polyVerts.Count >= 3 && vx == _polyVerts[0].x && vy == _polyVerts[0].y)
+                {
+                    // clicking the first vertex closes the polygon
+                    if (_polyVerts[^1] != (vx, vy)) _polyVerts.Add((vx, vy));
+                    bool strict = PolygonStrict;
+                    bool passageway = !strict && Document.Cells.Contains(new CellKey(vx, vy));
+                    Document.AddPolygon(_polyVerts, passageway, strict);
+                    _polyVerts.Clear();
+                    Commit();
+                    StatusMessage?.Invoke("polygon closed");
+                }
+                else
+                {
+                    _polyVerts.Add((vx, vy));
+                    StatusMessage?.Invoke($"vertex ({vx},{vy}) added - click first vertex or press Enter to close");
+                }
+                break;
         }
         InvalidateVisual();
     }
@@ -662,6 +1081,7 @@ public sealed class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
         {
@@ -669,6 +1089,13 @@ public sealed class MapCanvas : Control
             // redraw so the paste ghost tracks the cursor on hover
             if (_clipboard is not null && !_clipboard.Empty && (Mode == ToolMode.Select || Mode == ToolMode.Move))
                 InvalidateVisual();
+        }
+
+        if (_pawnDragging)
+        {
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            if (cell != _pawnDragEnd) { _pawnDragEnd = cell; InvalidateVisual(); }
+            return;
         }
 
         if (_selectDragging)
@@ -715,6 +1142,15 @@ public sealed class MapCanvas : Control
         {
             var edge = HitEdge(world);
             if (edge != _previewEdge) { _previewEdge = edge; InvalidateVisual(); }
+            if (Mode == ToolMode.Door)
+            {
+                // door ghost priority: a hover near an angled segment shows the
+                // door square on that segment (the wall-line preview is invisible
+                // over an existing wall).
+                var aw = HitAngledWall(world);
+                if (aw?.wall != _previewAngled?.wall || aw?.t != _previewAngled?.t)
+                { _previewAngled = aw; InvalidateVisual(); }
+            }
         }
     }
 
@@ -724,6 +1160,44 @@ public sealed class MapCanvas : Control
         {
             _panning = false;
             e.Pointer.Capture(null);
+            return;
+        }
+
+        if (_pawnDragging)
+        {
+            _pawnDragging = false;
+            e.Pointer.Capture(null);
+            var world = ScreenToWorld(e.GetPosition(this));
+            var target = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            var pawn = _pawnDragPawn!;
+            _pawnDragPawn = null;
+            if (target == _pawnDragStart)
+            {
+                // no drag: release on the same cell shows the pawn's config
+                PawnConfigRequested?.Invoke(pawn);
+            }
+            else
+            {
+                // per-pawn move: lift the pawn from its source cell, clear
+                // obstacles at the landing cell, place it there. one undoable commit.
+                // landing on another pawn SWAPS the two pawns' positions (unique
+                // to pawns - other elements are overwritten, not swapped).
+                var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
+                ClearCellObstacles(Document, target);
+                Document.Pawns.Remove(_pawnDragStart);
+                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status };
+                if (occupant is not null)
+                {
+                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status };
+                    StatusMessage?.Invoke("swapped pawns");
+                }
+                else
+                {
+                    StatusMessage?.Invoke($"moved pawn to ({target.X}, {target.Y})");
+                }
+                Commit();
+            }
+            InvalidateVisual();
             return;
         }
 
@@ -778,7 +1252,7 @@ public sealed class MapCanvas : Control
                 // passageway instead of being sealed off.
                 bool strict = RoomStrict;
                 bool passageway = !strict && Document.Cells.Contains(_dragStart);
-                Document.AddRoom(x0, y0, x1, y1, passageway, strict);
+                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby);
                 Commit();
                 break;
             }
@@ -799,6 +1273,11 @@ public sealed class MapCanvas : Control
                 }
                 else
                 {
+                    // dominant drag axis: the longer component of the drag
+                    double adx = _dragEnd.X - _dragStart.X, ady = _dragEnd.Y - _dragStart.Y;
+                    string axis = Math.Abs(adx) >= Math.Abs(ady)
+                        ? (adx >= 0 ? "E" : "W")
+                        : (ady >= 0 ? "S" : "N");
                     Stair first = null!;
                     for (int x = x0; x <= x1; x++)
                         for (int y = y0; y <= y1; y++)
@@ -806,10 +1285,9 @@ public sealed class MapCanvas : Control
                             var c = new CellKey(x, y);
                             if (!Document.Stairs.TryGetValue(c, out var s))
                             {
-                                s = new Stair { Direction = StairDirection.Down };
+                                s = new Stair { Direction = StairDirection.Down, DragAxis = axis };
                                 Document.Stairs[c] = s;
                             }
-                            if (ReferenceEquals(s, first)) { }
                             if (first is null) first = s;
                         }
                     Commit();
@@ -837,6 +1315,15 @@ public sealed class MapCanvas : Control
                             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                                 Document.SetWall(new EdgeKey(c, side), false);
                     }
+                // angled walls touching the erase rect are removed (Walls filter),
+                // doors on them go with the wall (door implies wall)
+                if (f.Walls)
+                {
+                    foreach (var w in Document.AngledWalls
+                                 .Where(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1)).ToList())
+                        Document.AngledDoors.Remove(w);
+                    Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
+                }
                 Commit();
                 break;
             }
@@ -863,26 +1350,40 @@ public sealed class MapCanvas : Control
             ? new Rect(mid.X - gap / 2, mid.Y - 1.5, gap, 3)
             : new Rect(mid.X - 1.5, mid.Y - gap / 2, 3, gap);
         ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
-        var brush = DoorBrush(door.Type);
-        double s2 = Math.Max(4, _scale * 0.18);
-        // symbol: solid square for closed, hollow square (outline only,
-        // transparent core) for open, square + big inner square for locked.
-        // The inner square is 30% of the door side, so it scales with zoom.
-        if (door.State == DoorState.Open)
+        DrawDoorGlyph(ctx, mid, 0, DoorBrush(door.Type), door.State);
+    }
+
+    /// Draws an angled wall segment with door gaps. The wall is drawn as the
+    /// sub-segments between the door gaps (gap half-width = 0.45*scale, matching
+    /// axis-aligned doors), then each door glyph is drawn centered at its T along
+    /// the segment, rotated to the segment angle. Doors are sorted by T so gaps
+    /// tile the segment left-to-right. Door T is stored in CELL units; screen
+    /// positions are in pixels, so T is multiplied by _scale to convert.
+    private void DrawAngledWall(DrawingContext ctx, AngledWall w, Point a, Point b, List<AngledDoor> doors)
+    {
+        double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
+        if (len < 0.0001) return;
+        double ux = (b.X - a.X) / len, uy = (b.Y - a.Y) / len; // unit direction
+        double gapHalf = _scale * 0.45; // door gap half-width in screen px
+        Point At(double tPx) => new Point(a.X + ux * tPx, a.Y + uy * tPx);
+
+        // draw wall sub-segments between gaps (door T in cells -> px via _scale)
+        double cursor = 0;
+        foreach (var d in doors.OrderBy(d => d.T))
         {
-            var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
-            ctx.DrawRectangle(pen, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
+            double center = d.T * _scale;
+            double gapStart = center - gapHalf, gapEnd = center + gapHalf;
+            if (gapStart > cursor) ctx.DrawLine(WallPen, At(cursor), At(gapStart));
+            cursor = Math.Max(cursor, gapEnd);
         }
-        else
+        if (cursor < len) ctx.DrawLine(WallPen, At(cursor), At(len));
+
+        // draw door glyphs rotated to the segment angle
+        foreach (var d in doors)
         {
-            ctx.FillRectangle(brush, new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2));
-            if (door.State == DoorState.Locked)
-            {
-                double inner = s2 * 2 * 0.5;
-                // locked inner core is always RED, independent of door type.
-                ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
-                    new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
-            }
+            var mid = At(d.T * _scale);
+            double ang = Math.Atan2(uy, ux);
+            DrawDoorGlyph(ctx, mid, ang, DoorBrush(d.Type), d.State);
         }
     }
 }

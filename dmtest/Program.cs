@@ -142,6 +142,28 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(s.ConnectedStairs(new CellKey(9, 9)).Count == 0, "connected stairs: empty for non-stair cell");
 }
 
+// --- connected stairs: walls block the flood fill ---
+{
+    var sw = new MapDocument();
+    for (int x = 0; x < 12; x++) sw.Stairs[new CellKey(x, 0)] = new Stair { Direction = StairDirection.Down };
+    sw.SetWall(EdgeKey.Normalize(new CellKey(5, 0), Side.East), true); // wall between cells 5 and 6
+    var left = sw.ConnectedStairs(new CellKey(0, 0));
+    var right = sw.ConnectedStairs(new CellKey(11, 0));
+    Check(left.Count == 6, "connected stairs: wall splits row, left segment is 6");
+    Check(right.Count == 6, "connected stairs: wall splits row, right segment is 6");
+    Check(!left.Contains(sw.Stairs[new CellKey(6, 0)]), "connected stairs: flood does not cross wall");
+    sw.SetWall(EdgeKey.Normalize(new CellKey(5, 0), Side.East), false); // wall removed
+    Check(sw.ConnectedStairs(new CellKey(0, 0)).Count == 12, "connected stairs: whole row after wall removed");
+    // wall + door on the shared edge also blocks (door implies wall; the wall
+    // is the blocker)
+    var sd = new MapDocument();
+    sd.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Down };
+    sd.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down };
+    sd.SetWall(EdgeKey.Normalize(new CellKey(0, 0), Side.East), true);
+    sd.Doors[EdgeKey.Normalize(new CellKey(0, 0), Side.East)] = new Door { Type = "standard", State = DoorState.Open };
+    Check(sd.ConnectedStairs(new CellKey(0, 0)).Count == 1, "connected stairs: wall with open door still blocks");
+}
+
 // --- erase filter ---
 {
     var e = new MapDocument();
@@ -317,6 +339,19 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     Check(back.Maps[1].Doc.Stairs[new CellKey(3, 3)].TargetMap == "Cavern", "project: stair target map round-trip");
 }
 
+// --- label per-instance size + color round-trip ---
+{
+    var lm = new MapDocument();
+    lm.Labels.Add(new MapLabel { Cell = new CellKey(2, 3), Text = "L", FontSize = 24, R = 200, G = 10, B = 50 });
+    lm.Labels.Add(new MapLabel { Cell = new CellKey(4, 4), Text = "inherit" });
+    string ljson = MapSerializer.ToJson(lm);
+    var lback = MapSerializer.FromJson(ljson);
+    var l1 = lback.Labels.First(l => l.Cell == new CellKey(2, 3));
+    var l2 = lback.Labels.First(l => l.Cell == new CellKey(4, 4));
+    Check(l1.FontSize == 24 && l1.R == 200 && l1.G == 10 && l1.B == 50, "label: size + color round-trip");
+    Check(l2.FontSize == 0 && l2.R == -1 && l2.G == -1 && l2.B == -1, "label: inherit defaults round-trip");
+}
+
 // --- delete hotkey (erase selection with all categories on) ---
 {
     var d = new MapDocument();
@@ -460,6 +495,23 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(m2.Pawns.ContainsKey(new CellKey(7, 7)), "paste offsets pawn");
     Check(m2.Pawns[new CellKey(7, 7)].TemplateId == t.Id, "paste preserves template reference");
 
+    // per-instance status override: null inherits, set overrides, paste + round-trip carry it
+    var ps = new Pawn { Cell = new CellKey(2, 2), TemplateId = t.Id, Status = "alert" };
+    m.PlacePawn(ps);
+    Check(m.Pawns[new CellKey(2, 2)].Status == "alert", "pawn stores per-instance status");
+    var snapS = m.CaptureRegion(0, 0, 3, 3);
+    var m3St = new MapDocument();
+    m3St.PasteRegion(snapS, 5, 5);
+    Check(m3St.Pawns[new CellKey(7, 7)].Status == "alert", "paste carries per-instance status");
+    var jsonSt = MapSerializer.ToJson(m);
+    var m4St = MapSerializer.FromJson(jsonSt);
+    Check(m4St.Pawns[new CellKey(2, 2)].Status == "alert", "status round-trips through json");
+    // null status round-trips as inherit (fresh doc so the shared map stays clean)
+    var m6St = new MapDocument();
+    m6St.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = t.Id });
+    var m7St = MapSerializer.FromJson(MapSerializer.ToJson(m6St));
+    Check(m7St.Pawns[new CellKey(1, 1)].Status is null, "null status round-trips as inherit");
+
     // no stacking: placing on an occupied cell replaces
     var p2 = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p9" };
     m.PlacePawn(p2);
@@ -559,6 +611,276 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(W(-1, 0, Side.West), "overlap move: new left wall");
     Check(W(2, 0, Side.East), "overlap move: new right wall");
     Check(!W(3, 0, Side.East), "overlap move: old right wall gone");
+}
+
+// --- polygon tool: cell-center fill, edge decomposition, capture/paste, erase, round-trip ---
+{
+    var p = new MapDocument();
+    // 2x1 triangle: (0,0),(2,0),(0,1). cell (0,0) center (0.5,0.5) inside,
+    // cell (1,0) center (1.5,0.5) outside -> room = cell (0,0).
+    p.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    Check(p.Cells.Contains(new CellKey(0, 0)), "polygon fill: cell (0,0) center inside triangle");
+    Check(!p.Cells.Contains(new CellKey(1, 0)), "polygon fill: cell (1,0) center outside triangle");
+    Check(p.Cells.Count == 1, "polygon fill: exactly 1 cell");
+    // edges: (0,0)->(2,0) horizontal at y=0 -> North walls of cells (0,0),(1,0)
+    Check(p.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "polygon: horizontal edge -> North wall cell (0,0)");
+    Check(p.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "polygon: horizontal edge -> North wall cell (1,0)");
+    // (2,0)->(0,1) diagonal -> AngledWall
+    Check(p.AngledWalls.Count == 1, "polygon: one diagonal edge -> one angled wall");
+    Check(p.AngledWalls[0] == new AngledWall(2, 0, 0, 1), "polygon: diagonal stored as AngledWall(2,0,0,1)");
+    // (0,1)->(0,0) vertical at x=0 -> East wall of cell (-1,0)
+    Check(p.HasWall(new EdgeKey(new CellKey(-1, 0), Side.East)), "polygon: vertical edge -> East wall of cell left");
+
+    // axis-aligned rectangle polygon = 4x3 room, no angled walls
+    var r = new MapDocument();
+    r.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) });
+    Check(r.Cells.Count == 12, "polygon rectangle: 4x3 = 12 cells");
+    Check(r.AngledWalls.Count == 0, "polygon rectangle: no angled walls");
+
+    // capture/paste translates angled wall endpoints
+    var src = new MapDocument();
+    src.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    var snap = src.CaptureRegion(0, 0, 1, 1);
+    Check(snap.AngledWalls.Count == 1, "polygon capture: angled wall fully inside region captured");
+    src.PasteRegion(snap, 5, 5);
+    Check(src.AngledWalls.Any(w => w == new AngledWall(7, 5, 5, 6)), "polygon paste: angled wall translated by offset");
+
+    // capture grabs angled walls that overlap ANY part of the region
+    var p2 = new MapDocument();
+    p2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) });
+    // long diagonal passes through the corner of the small region -> overlaps
+    p2.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    var snap2 = p2.CaptureRegion(0, 0, 3, 2);
+    Check(snap2.AngledWalls.Any(w => w == new AngledWall(0, 0, 10, 10)), "polygon capture: angled wall overlapping region captured (any-part rule)");
+
+    // capture excludes angled walls that do NOT touch the region
+    var p2b = new MapDocument();
+    p2b.AngledWalls.Add(new AngledWall(10, 10, 12, 12));
+    var snap2b = p2b.CaptureRegion(0, 0, 3, 2);
+    Check(!snap2b.AngledWalls.Any(w => w == new AngledWall(10, 10, 12, 12)), "polygon capture: angled wall fully outside region excluded");
+
+    // clear removes angled walls that overlap ANY part of the rect
+    var p3 = new MapDocument();
+    p3.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    p3.AngledWalls.Add(new AngledWall(5, 5, 7, 7)); // fully inside [0,0]-[8,8]
+    p3.ClearRegion(0, 0, 8, 8);
+    Check(p3.AngledWalls.Count == 0, "polygon clear: angled walls fully inside rect removed");
+
+    // clear removes angled walls that straddle the rect edge
+    var p4 = new MapDocument();
+    p4.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    p4.ClearRegion(0, 0, 3, 3);
+    Check(p4.AngledWalls.Count == 0, "polygon clear: angled wall straddling rect edge removed (any-part rule)");
+
+    // clear keeps angled walls fully outside the rect
+    var p4b = new MapDocument();
+    p4b.AngledWalls.Add(new AngledWall(10, 10, 12, 12));
+    p4b.ClearRegion(0, 0, 3, 3);
+    Check(p4b.AngledWalls.Count == 1, "polygon clear: angled wall fully outside rect kept");
+
+    // polygon union: drawing a polygon spanning two rooms removes the shared
+    // interior walls (the polygon acts as an angled room tool, same as AddRoom)
+    var u = new MapDocument();
+    u.AddRoom(0, 0, 1, 1);
+    u.AddRoom(1, 0, 2, 1);
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: shared wall exists before polygon union");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: shared wall exists before union (row 1)");
+    // polygon spanning [0,0]-[3,2] = 3x2 cells, union over both rooms
+    u.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) });
+    Check(u.Cells.Count == 6, "union: polygon spanning fills 6 cells");
+    Check(!u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: interior wall x=1 removed (row 0)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: interior wall x=1 removed (row 1)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(1, 0), Side.East)), "union: interior wall x=2 removed (row 0)");
+    Check(!u.HasWall(new EdgeKey(new CellKey(1, 1), Side.East)), "union: interior wall x=2 removed (row 1)");
+    // outer boundary walls remain
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "union: top wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 1), Side.South)), "union: bottom wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.West)), "union: left wall exists");
+    Check(u.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "union: right wall exists");
+
+    // polygon strict: interior walls present before the polygon are kept when strict.
+    // The shared wall at x=1 (East of cell (0,0)) exists (set by the second room's
+    // west boundary); strict keeps it, non-strict union would remove it.
+    var s = new MapDocument();
+    s.AddRoom(0, 0, 1, 1);
+    s.AddRoom(1, 0, 2, 1);
+    Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: shared wall x=1 exists before polygon");
+    s.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, true); // strict
+    Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: interior wall x=1 kept in strict mode");
+
+    // room grown over a polygon removes the polygon's interior diagonal (union
+    // handles angled walls, not just EdgeKey walls)
+    var rp = new MapDocument();
+    rp.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // triangle, diagonal (2,0)->(0,2)
+    Check(rp.AngledWalls.Count == 1, "room over polygon: diagonal present before union");
+    rp.AddRoom(0, 0, 2, 2); // 3x3 room covering the triangle fully
+    Check(rp.AngledWalls.Count == 0, "room over polygon: interior diagonal removed by union");
+
+    // room grown over a polygon keeps a diagonal that is NOT fully interior
+    var rp2 = new MapDocument();
+    rp2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 4), (0, 4) });
+    rp2.AngledWalls.Add(new AngledWall(4, 4, 6, 6)); // diagonal extends outside the room
+    rp2.AddRoom(0, 0, 3, 3); // room covers part of the polygon, not the far diagonal
+    Check(rp2.AngledWalls.Count == 1, "room over polygon: non-interior diagonal kept");
+
+    // round-trip preserves angled walls
+    var p5 = new MapDocument();
+    p5.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
+    string pj = MapSerializer.ToJson(p5);
+    var pl = MapSerializer.FromJson(pj);
+    Check(pl.AngledWalls.Count == 1 && pl.AngledWalls[0] == new AngledWall(2, 0, 0, 1), "polygon round-trip: angled wall preserved");
+    Check(pl.Cells.Contains(new CellKey(0, 0)), "polygon round-trip: filled cell preserved");
+
+    // ContentBounds includes angled wall endpoints
+    var p6 = new MapDocument();
+    p6.AngledWalls.Add(new AngledWall(0, 0, 10, 10));
+    var b = p6.ContentBounds();
+    Check(b != null && b.Value.maxX >= 10 && b.Value.maxY >= 10, "polygon bounds: angled wall endpoints extend bounds");
+
+    // ===== ANGLED DOORS (v2) =====
+    // door placement on an existing angled wall
+    var ad1 = new MapDocument();
+    ad1.AngledWalls.Add(new AngledWall(0, 0, 2, 2)); // len 2.83, t must be in [0.5, 2.33]
+    Check(ad1.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out var d1),
+          "angled door: placed on existing wall");
+    Check(d1.T == 1.4 && d1.Type == "standard" && d1.State == DoorState.Closed,
+          "angled door: fields set from defaults");
+    Check(ad1.GetAngledDoors(new AngledWall(0, 0, 2, 2)).Count == 1,
+          "angled door: door listed on its wall");
+
+    // door on a wall stored in reversed endpoint order matches
+    var ad1b = new MapDocument();
+    ad1b.AngledWalls.Add(new AngledWall(2, 2, 0, 0));
+    Check(ad1b.TryPlaceAngledDoor(new AngledWall(2, 2, 0, 0), 1.4, "standard", "closed", out _),
+          "angled door: placement on reversed-order wall");
+
+    // door on too-short wall fails; door near the ends fails
+    var ad2 = new MapDocument();
+    ad2.AngledWalls.Add(new AngledWall(0, 0, 1, 1)); // len 1.41
+    Check(!ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 0.3, "standard", "closed", out _),
+          "angled door: t near segment start fails (gap must fit)");
+    Check(!ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 1.1, "standard", "closed", out _),
+          "angled door: t near segment end fails (gap must fit)");
+    Check(ad2.TryPlaceAngledDoor(new AngledWall(0, 0, 1, 1), 0.7, "standard", "closed", out _),
+          "angled door: t mid-segment succeeds on short wall");
+
+    // multiple doors on one segment
+    var ad3 = new MapDocument();
+    ad3.AngledWalls.Add(new AngledWall(0, 0, 6, 6)); // len 8.49
+    ad3.TryPlaceAngledDoor(new AngledWall(0, 0, 6, 6), 1.0, "standard", "closed", out _);
+    ad3.TryPlaceAngledDoor(new AngledWall(0, 0, 6, 6), 5.0, "portcullis", "locked", out _);
+    Check(ad3.GetAngledDoors(new AngledWall(0, 0, 6, 6)).Count == 2,
+          "angled door: two doors on one segment");
+
+    // round-trip preserves angled doors
+    var ad4 = new MapDocument();
+    ad4.AngledWalls.Add(new AngledWall(2, 0, 0, 1));
+    ad4.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 1), 0.8, "magical", "locked", out _);
+    string adj = MapSerializer.ToJson(ad4);
+    var adl = MapSerializer.FromJson(adj);
+    Check(adl.AngledWalls.Count == 1 && adl.GetAngledDoors(adl.AngledWalls[0]).Count == 1,
+          "angled door: round-trip preserves door on wall");
+    var adlDoor = adl.GetAngledDoors(adl.AngledWalls[0])[0];
+    Check(adlDoor.T == 0.8 && adlDoor.Type == "magical" && adlDoor.State == DoorState.Locked,
+          "angled door: round-trip preserves T/type/state");
+
+    // door referencing a wall stored in reversed order loads onto that wall
+    var adl2 = MapSerializer.FromJson("{\"angled_walls\":[\"2,0,0,1\"],\"angled_doors\":[{\"wall\":\"0,1,2,0\",\"t\":0.8,\"type\":\"standard\",\"state\":\"closed\"}]}");
+    Check(adl2.AngledWalls.Count == 1 && adl2.GetAngledDoors(adl2.AngledWalls[0]).Count == 1,
+          "angled door: reversed-order wall reference matches on load");
+
+    // orphan door (no matching wall) is dropped on load
+    var adl3 = MapSerializer.FromJson("{\"angled_walls\":[],\"angled_doors\":[{\"wall\":\"0,0,2,2\",\"t\":1.0,\"type\":\"standard\",\"state\":\"closed\"}]}");
+    Check(adl3.AngledDoors.Count == 0, "angled door: orphan door dropped on load");
+
+    // capture/paste: doors travel with their wall
+    var ad5 = new MapDocument();
+    ad5.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad5.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out _);
+    var snapAd = ad5.CaptureRegion(0, 0, 2, 2);
+    Check(snapAd.AngledDoors.Count == 1, "angled door: captured with its wall");
+    var ad6 = new MapDocument();
+    ad6.PasteRegion(snapAd, 5, 5);
+    Check(ad6.AngledWalls.Count == 1 && ad6.GetAngledDoors(new AngledWall(5, 5, 7, 7)).Count == 1,
+          "angled door: pasted door sits on pasted wall");
+
+    // clear region: doors on cleared walls go with them
+    var ad7 = new MapDocument();
+    ad7.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad7.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "standard", "closed", out _);
+    ad7.ClearRegion(0, 0, 2, 2);
+    Check(ad7.AngledWalls.Count == 0 && ad7.AngledDoors.Count == 0,
+          "angled door: door removed with wall by clear region");
+
+    // room union over a polygon removes interior diagonal AND its door
+    var ad8 = new MapDocument();
+    ad8.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // diagonal (2,0)->(0,2)
+    ad8.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 2), 1.4, "standard", "closed", out _);
+    Check(ad8.GetAngledDoors(new AngledWall(2, 0, 0, 2)).Count == 1,
+          "angled door: placed on polygon diagonal");
+    ad8.AddRoom(0, 0, 2, 2);
+    Check(ad8.AngledWalls.Count == 0 && ad8.AngledDoors.Count == 0,
+          "angled door: door removed when union removes interior diagonal");
+
+    // ApplyFrom copies doors
+    var ad9 = new MapDocument();
+    ad9.AngledWalls.Add(new AngledWall(0, 0, 2, 2));
+    ad9.TryPlaceAngledDoor(new AngledWall(0, 0, 2, 2), 1.4, "portcullis", "open", out _);
+    var ad10 = new MapDocument();
+    ad10.ApplyFrom(ad9);
+    Check(ad10.AngledDoors.Count == 1 && ad10.GetAngledDoors(new AngledWall(0, 0, 2, 2))[0].Type == "portcullis",
+          "angled door: ApplyFrom copies doors");
+
+    // ===== room merge-nearby =====
+    // user example: room (0,0)-(2,2), draw adjacent room (3,0)-(5,2) with merge
+    // mode: shared boundary (x=2 east edges) opens, rooms connect.
+    var mn = new MapDocument();
+    mn.AddRoom(0, 0, 2, 2);
+    Check(mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: first room east wall exists before merge");
+    mn.AddRoom(3, 0, 5, 2, false, false, true);
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: shared boundary wall removed (row 0)");
+    Check(!mn.HasWall(new EdgeKey(new CellKey(2, 2), Side.East)), "merge-nearby: shared boundary wall removed (row 2)");
+    Check(mn.HasWall(new EdgeKey(new CellKey(5, 0), Side.East)), "merge-nearby: outer east wall of new room exists");
+    Check(mn.HasWall(new EdgeKey(new CellKey(3, 0), Side.North)), "merge-nearby: outer north wall of new room exists");
+    Check(mn.Cells.Contains(new CellKey(4, 1)), "merge-nearby: new room cells added");
+    // gap of 2 cells: not touching, stays sealed
+    var mn2 = new MapDocument();
+    mn2.AddRoom(0, 0, 2, 2);
+    mn2.AddRoom(4, 0, 6, 2, false, false, true);
+    Check(mn2.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby: non-touching room keeps first room's wall");
+    Check(mn2.HasWall(new EdgeKey(new CellKey(4, 0), Side.West)), "merge-nearby: non-touching room keeps its own west wall");
+    // merge mode off: adjacent room stays sealed (default union behavior unchanged)
+    var mn3 = new MapDocument();
+    mn3.AddRoom(0, 0, 2, 2);
+    mn3.AddRoom(3, 0, 5, 2);
+    Check(mn3.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "merge-nearby off: shared wall stays (default behavior)");
+
+    // ===== stair drag axis round-trip =====
+    var sa = new MapDocument();
+    sa.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up, DragAxis = "W", TargetMap = "b.json" };
+    sa.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Down, DragAxis = "S" };
+    var saJson = MapSerializer.ToJson(sa);
+    var saBack = MapSerializer.FromJson(saJson);
+    Check(saBack.Stairs[new CellKey(0, 0)].DragAxis == "W", "stair drag axis: W round-trips");
+    Check(saBack.Stairs[new CellKey(0, 0)].Direction == StairDirection.Up, "stair drag axis: direction round-trips");
+    Check(saBack.Stairs[new CellKey(0, 0)].TargetMap == "b.json", "stair drag axis: target map round-trips");
+    Check(saBack.Stairs[new CellKey(1, 0)].DragAxis == "S", "stair drag axis: S round-trips");
+    // legacy json without dragAxis defaults to E (strip the field line, incl. leading comma)
+    var saLegacy = MapSerializer.FromJson(System.Text.RegularExpressions.Regex.Replace(saJson, ",\\s*\"dragAxis\":\\s*\"W\"", ""));
+    Check(saLegacy.Stairs[new CellKey(0, 0)].DragAxis == "E", "stair drag axis: missing field defaults to E");
+
+    // toggle sync: a group that drifted out of sync (some up, some down) re-syncs
+    // when every connected stair is SET to one target, not toggled individually.
+    var sy = new MapDocument();
+    for (int x = 0; x < 4; x++)
+        sy.Stairs[new CellKey(x, 0)] = new Stair { Direction = x % 2 == 0 ? StairDirection.Up : StairDirection.Down };
+    var target = StairDirection.Down; // clicked stair (0,0) is Up -> target Down
+    foreach (var s2 in sy.ConnectedStairs(new CellKey(0, 0)))
+        s2.Direction = target;
+    Check(sy.Stairs[new CellKey(0, 0)].Direction == StairDirection.Down, "toggle sync: clicked stair set to target");
+    Check(sy.Stairs[new CellKey(1, 0)].Direction == StairDirection.Down, "toggle sync: down stair stays down (not toggled back up)");
+    Check(sy.Stairs[new CellKey(2, 0)].Direction == StairDirection.Down, "toggle sync: up stair re-synced to down");
+    Check(sy.Stairs[new CellKey(3, 0)].Direction == StairDirection.Down, "toggle sync: whole group synced to target");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

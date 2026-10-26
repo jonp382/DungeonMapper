@@ -8,9 +8,10 @@
         Width="1100" Height="700">
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,12">
-            <ScrollViewer HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled">
-                <StackPanel Orientation="Horizontal" Spacing="6">
+        <!-- toolbar wraps to multiple rows on narrow windows (no horizontal scroll
+             needed below 2560x1440); padding trimmed to keep the bar compact -->
+        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,4">
+            <WrapPanel ItemSpacing="6" LineSpacing="4">
                 <Button x:Name="ToolSelect" Content="Select" />
                 <Button x:Name="ToolMove" Content="Move" />
                 <Button x:Name="ToolRoom" Content="Room" />
@@ -21,7 +22,8 @@
                 <Button x:Name="ToolLabel" Content="Label" />
                 <Button x:Name="ToolErase" Content="Erase" />
                 <Button x:Name="ToolPawn" Content="Pawn" />
-                <Separator />
+                <Button x:Name="ToolPolygon" Content="Polygon" />
+                <Separator/>
                 <ComboBox x:Name="MapList" MinWidth="120" />
                 <Button x:Name="BtnAddMap" Content="+Map" />
                 <Button x:Name="BtnRenameMap" Content="Rename" />
@@ -34,8 +36,7 @@
                 <Button x:Name="BtnFit" Content="Fit" />
                 <Separator />
                 <Button x:Name="BtnSettings" Content="Settings" />
-                </StackPanel>
-            </ScrollViewer>
+            </WrapPanel>
         </Border>
 
         <Panel>
@@ -61,10 +62,11 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
                         <StackPanel Spacing="8">
                             <Button x:Name="ModalAddPawn" Content="+ add pawn" />
+                            <StackPanel x:Name="ModalSortRow" Orientation="Horizontal" Spacing="6" />
                             <TextBlock Text="library (click a pawn to edit):" Foreground="White" FontSize="12" />
                             <!-- inner ScrollViewer gives the VirtualizingStackPanel a
                                  bounded viewport so only visible rows render -->
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+                            <ScrollViewer VerticalScrollBarVisibility="Visible" MaxHeight="320">
                                 <ItemsControl x:Name="LibraryGrid">
                                     <ItemsControl.ItemsPanel>
                                         <ItemsPanelTemplate>
@@ -78,6 +80,39 @@
                             <TextBlock Text="status styles (name -> #hex, thickness):" Foreground="White" FontSize="12" />
                             <StackPanel x:Name="ModalStatuses" Spacing="4" />
                         </StackPanel>
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            <!-- settings modal: centered popup like Pawn Management. Sections are
+                 built in code (ShowSettingsModal) into SettingsSections. -->
+            <Border x:Name="SettingsOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="460" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Settings" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="SettingsClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
+                        <StackPanel x:Name="SettingsSections" Spacing="10" />
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            <!-- door presets modal: Manage Door Presets, opened from the Door tool.
+                 Door categories (name + color) with add/remove; Standard is the
+                 undeletable default. Door tool itself shows only placement options. -->
+            <Border x:Name="DoorPresetsOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="420" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Manage Door Presets" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="DoorPresetsClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
+                        <StackPanel x:Name="DoorPresetsSections" Spacing="10" />
                     </ScrollViewer>
                 </StackPanel>
             </Border>

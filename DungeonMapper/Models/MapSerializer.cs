@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -19,6 +20,16 @@ public sealed class MapFileDto
     [JsonPropertyName("stairs")] public List<StairDto> Stairs { get; set; } = new();
     [JsonPropertyName("labels")] public List<LabelDto> Labels { get; set; } = new();
     [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
+    [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
+    [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
+}
+
+public sealed class AngledDoorDto
+{
+    [JsonPropertyName("wall")] public string Wall { get; set; } = "";
+    [JsonPropertyName("t")] public double T { get; set; } = 0.5;
+    [JsonPropertyName("type")] public string Type { get; set; } = "standard";
+    [JsonPropertyName("state")] public string State { get; set; } = "closed";
 }
 
 public sealed class DoorDto
@@ -33,12 +44,18 @@ public sealed class StairDto
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
     [JsonPropertyName("direction")] public string Direction { get; set; } = "down";
     [JsonPropertyName("targetMap")] public string? TargetMap { get; set; }
+    [JsonPropertyName("dragAxis")] public string DragAxis { get; set; } = "E";
 }
 
 public sealed class LabelDto
 {
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
     [JsonPropertyName("text")] public string Text { get; set; } = "";
+    // per-label overrides; 0/-1 = inherit (auto font size / settings label color).
+    [JsonPropertyName("font_size")] public int FontSize { get; set; } = 0;
+    [JsonPropertyName("r")] public int R { get; set; } = -1;
+    [JsonPropertyName("g")] public int G { get; set; } = -1;
+    [JsonPropertyName("b")] public int B { get; set; } = -1;
 }
 
 public sealed class PawnDto
@@ -69,6 +86,13 @@ public sealed class NamedMapDto
 
 public static class MapSerializer
 {
+    // JSON spec versions. Tracked inside every saved file and here in the app.
+    // Increment ONLY when the wire format changes in a way old maps cannot load
+    // as-is; app-only additive changes with backwards-compatible defaults do NOT
+    // increment (the map porter app ports old files to the latest spec).
+    public const int MapSpecVersion = 1;
+    public const int ProjectSpecVersion = 2;
+
     private static readonly JsonSerializerOptions Opts = new()
     {
         WriteIndented = true,
@@ -77,6 +101,40 @@ public static class MapSerializer
     // "x,y" <-> CellKey
     private static string Key(CellKey c) => $"{c.X},{c.Y}";
     private static string Key(EdgeKey e) => $"{e.Cell.X},{e.Cell.Y},{e.Side.ToString().ToLowerInvariant()}";
+
+    // "ax,ay,bx,by" <-> AngledWall
+    private static string Key(AngledWall w) => $"{w.Ax},{w.Ay},{w.Bx},{w.By}";
+    private static bool TryParseAngled(string s, out AngledWall w)
+    {
+        w = default;
+        var parts = s.Split(',');
+        if (parts.Length != 4) return false;
+        if (!int.TryParse(parts[0], out int ax) || !int.TryParse(parts[1], out int ay)
+            || !int.TryParse(parts[2], out int bx) || !int.TryParse(parts[3], out int by)) return false;
+        w = new AngledWall(ax, ay, bx, by);
+        return true;
+    }
+
+    // shared loader for angled walls + doors. Walls keep their stored orientation;
+    // a door matches its wall in either endpoint order, and doors whose wall is
+    // absent are dropped (door implies wall).
+    private static void AddAngled(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var s in dto.AngledWalls)
+            if (TryParseAngled(s, out var w)) doc.AngledWalls.Add(w);
+        foreach (var d in dto.AngledDoors)
+        {
+            if (!TryParseAngled(d.Wall, out var w)) continue;
+            var wall = doc.AngledWalls.FirstOrDefault(x =>
+                (x.Ax == w.Ax && x.Ay == w.Ay && x.Bx == w.Bx && x.By == w.By) ||
+                (x.Ax == w.Bx && x.Ay == w.By && x.Bx == w.Ax && x.By == w.Ay));
+            if (wall == default) continue; // door implies wall
+            var list = doc.AngledDoors.TryGetValue(wall, out var l) ? l : (doc.AngledDoors[wall] = new List<AngledDoor>());
+            var door = new AngledDoor { T = d.T, Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
+            list.Add(door);
+        }
+    }
 
     private static bool TryParseCell(string s, out CellKey cell)
     {
@@ -113,17 +171,23 @@ public static class MapSerializer
 
     public static string ToJson(MapDocument doc)
     {
-        var dto = new MapFileDto();
+        var dto = new MapFileDto { Version = MapSpecVersion };
         foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
         foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
         foreach (var (e, d) in doc.Doors)
             dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         foreach (var (c, s) in doc.Stairs)
-            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
+            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap, DragAxis = s.DragAxis });
         foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
+            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
+        foreach (var w in doc.AngledWalls)
+        {
+            dto.AngledWalls.Add(Key(w));
+            foreach (var d in doc.GetAngledDoors(w))
+                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        }
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -131,6 +195,7 @@ public static class MapSerializer
     {
         Cell = Key(c),
         TemplateId = p.TemplateId,
+        Status = p.Status ?? "",
     };
 
     private static void AddPawns(MapFileDto dto, MapDocument doc)
@@ -138,7 +203,7 @@ public static class MapSerializer
         foreach (var d in dto.Pawns)
         {
             if (!TryParseCell(d.Cell, out var c)) continue;
-            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId };
+            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Status = string.IsNullOrEmpty(d.Status) ? null : d.Status };
         }
     }
 
@@ -166,15 +231,17 @@ public static class MapSerializer
             {
                 Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
                 TargetMap = s.TargetMap,
+                DragAxis = string.IsNullOrEmpty(s.DragAxis) ? "E" : s.DragAxis,
             };
             doc.Stairs[c] = stair;
         }
         foreach (var l in dto.Labels)
         {
             if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
+            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         }
         AddPawns(dto, doc);
+        AddAngled(dto, doc);
         return doc;
     }
 
@@ -184,7 +251,7 @@ public static class MapSerializer
 
     public static string ProjectToJson(MapProject project)
     {
-        var dto = new ProjectFileDto { Active = project.ActiveIndex };
+        var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         return JsonSerializer.Serialize(dto, Opts);
@@ -210,17 +277,23 @@ public static class MapSerializer
     // build a MapFileDto from a document (shared by ToJson and ProjectToJson)
     private static MapFileDto ToDto(MapDocument doc)
     {
-        var dto = new MapFileDto();
+        var dto = new MapFileDto { Version = MapSpecVersion };
         foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
         foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
         foreach (var (e, d) in doc.Doors)
             dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         foreach (var (c, s) in doc.Stairs)
-            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
+            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap, DragAxis = s.DragAxis });
         foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text });
+            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
+        foreach (var w in doc.AngledWalls)
+        {
+            dto.AngledWalls.Add(Key(w));
+            foreach (var d in doc.GetAngledDoors(w))
+                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        }
         return dto;
     }
 
@@ -246,15 +319,17 @@ public static class MapSerializer
             {
                 Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
                 TargetMap = s.TargetMap,
+                DragAxis = string.IsNullOrEmpty(s.DragAxis) ? "E" : s.DragAxis,
             };
             doc.Stairs[c] = stair;
         }
         foreach (var l in dto.Labels)
         {
             if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text });
+            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
         }
         AddPawns(dto, doc);
+        AddAngled(dto, doc);
         return doc;
     }
 }

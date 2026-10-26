@@ -1,10 +1,27 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DungeonMapper.Models;
 
 /// A cell coordinate. 1 unit = 5ft. Y increases downward (screen space).
 public readonly record struct CellKey(int X, int Y);
+
+/// An angled wall: a line segment between two LATTICE vertices (integer grid
+/// points = cell corners). Endpoints are grid-anchored (the "never free-floating"
+/// rule); the segment itself may cut diagonally through cells. Axis-aligned edges
+/// are stored as EdgeKey walls, so this type only holds diagonal segments.
+public readonly record struct AngledWall(int Ax, int Ay, int Bx, int By);
+
+/// A door on an angled wall. The door sits at parameter T (0..1) along its wall
+/// segment, centered, with a fixed projected width of 1 cell (matching axis-aligned
+/// doors). Type/State mirror the edge Door. Multiple doors may sit on one segment.
+public sealed class AngledDoor : IDoorConfig
+{
+    public double T { get; set; } = 0.5; // door center along the segment, 0..1
+    public string Type { get; set; } = "standard";
+    public DoorState State { get; set; } = DoorState.Closed;
+}
 
 public enum Side { North, East, South, West }
 
@@ -42,10 +59,18 @@ public readonly record struct EdgeKey(CellKey Cell, Side Side)
 
 public enum DoorState { Open, Closed, Locked }
 
+/// Shared surface for doors on axis-aligned edges (Door) and doors on angled
+/// walls (AngledDoor), so the door config UI serves both.
+public interface IDoorConfig
+{
+    string Type { get; set; }
+    DoorState State { get; set; }
+}
+
 /// A door on an edge. A door implies a wall with a gap: the edge must have a wall.
 /// Type is a free-form string (e.g. "standard", "portcullis", "bricked", "magical")
 /// so custom doors stay modular; the renderer picks color/symbol per type.
-public sealed class Door
+public sealed class Door : IDoorConfig
 {
     public string Type { get; set; } = "standard";
     public DoorState State { get; set; } = DoorState.Closed;
@@ -59,6 +84,10 @@ public sealed class Stair
 {
     public StairDirection Direction { get; set; } = StairDirection.Down;
     public string? TargetMap { get; set; }
+    /// The dominant axis the stairs were dragged: "E","W","N","S". The triangle
+    /// glyph points diagonally: tip = (axis sign, -1 for Up / +1 for Down).
+    /// L-to-R + UP = NE, R-to-L + UP = NW, R-to-L + DOWN = SW. Default "E".
+    public string DragAxis { get; set; } = "E";
 }
 
 /// Text anchored to a cell, rendered centered on that cell.
@@ -66,6 +95,13 @@ public sealed class MapLabel
 {
     public CellKey Cell { get; set; }
     public string Text { get; set; } = "";
+    // Per-label overrides. FontSize 0 = auto (zoom-scaled default). Color -1 =
+    // inherit the settings label color. Labels render centered on their cell;
+    // oversized text may leak into neighboring cells, which is allowed.
+    public int FontSize { get; set; } = 0;
+    public int R { get; set; } = -1;
+    public int G { get; set; } = -1;
+    public int B { get; set; } = -1;
 }
 
 public enum Affiliation { Player, Ally, Enemy, Neutral }
@@ -78,6 +114,8 @@ public sealed class Pawn
 {
     public CellKey Cell { get; set; }
     public string TemplateId { get; set; } = "";
+    // per-instance status override; null inherits the template's status.
+    public string? Status { get; set; }
 }
 
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.
@@ -89,6 +127,8 @@ public sealed class MapDocument
     public Dictionary<CellKey, Stair> Stairs { get; } = new();
     public List<MapLabel> Labels { get; } = new();
     public Dictionary<CellKey, Pawn> Pawns { get; } = new();
+    public List<AngledWall> AngledWalls { get; } = new();
+    public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
 
     /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
     /// occupied cell replaces the existing pawn.
@@ -98,6 +138,28 @@ public sealed class MapDocument
     }
 
     public void RemovePawn(CellKey cell) => Pawns.Remove(cell);
+
+    /// Doors sitting on an angled wall segment (empty list if none).
+    public List<AngledDoor> GetAngledDoors(AngledWall wall)
+        => AngledDoors.TryGetValue(wall, out var l) ? l : new List<AngledDoor>();
+
+    /// Places a door on an angled wall at parameter t (0..1, door center along the
+    /// segment). The door has a fixed projected width of 1 cell, so the segment
+    /// must be at least 1 unit long and t must leave room for the gap
+    /// (t in [0.5, len-0.5]). Returns false when the wall is too short or t
+    /// doesn't fit. Multiple doors may sit on one segment.
+    public bool TryPlaceAngledDoor(AngledWall wall, double t, string defaultType, string defaultState, out AngledDoor door)
+    {
+        door = null!;
+        double len = Math.Sqrt((wall.Bx - wall.Ax) * (wall.Bx - wall.Ax) + (wall.By - wall.Ay) * (wall.By - wall.Ay));
+        if (len < 1.0) return false; // wall too short to host a 1-cell door
+        if (t < 0.5 || t > len - 0.5) return false; // door gap must fit inside the segment
+        var list = AngledDoors.TryGetValue(wall, out var l) ? l : (AngledDoors[wall] = new List<AngledDoor>());
+        door = new AngledDoor { T = t, Type = defaultType };
+        if (Enum.TryParse<DoorState>(defaultState, ignoreCase: true, out var st)) door.State = st;
+        list.Add(door);
+        return true;
+    }
 
     public bool HasWall(EdgeKey edge) => Walls.TryGetValue(EdgeKey.Normalize(edge.Cell, edge.Side), out var w) && w;
 
@@ -161,11 +223,11 @@ public sealed class MapDocument
     /// When strict is true, every outer boundary edge gets a wall regardless of
     /// existing cells, and interior walls are NOT removed - so a sub-room drawn
     /// inside an existing room gets its own visible walls.
-    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false)
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false)
     {
         // existing cells outside the new region, captured before we add new cells
         var existing = new HashSet<CellKey>();
-        if (passageway && !strict)
+        if ((passageway || mergeNearby) && !strict)
             foreach (var c in Cells)
                 if (c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1)
                     existing.Add(c);
@@ -177,7 +239,7 @@ public sealed class MapDocument
         bool Open(int cx, int cy, Side side)
         {
             if (strict) return false; // strict: every outer edge is walled
-            if (!passageway) return false;
+            if (!(passageway || mergeNearby)) return false;
             var (nx, ny) = side switch
             {
                 Side.North => (cx, cy - 1),
@@ -191,13 +253,17 @@ public sealed class MapDocument
         // outer boundary walls
         for (int x = x0; x <= x1; x++)
         {
-            if (!Open(x, y0, Side.North)) SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
-            if (!Open(x, y1, Side.South)) SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
+            if (Open(x, y0, Side.North)) SetWall(new EdgeKey(new CellKey(x, y0), Side.North), false);
+            else SetWall(new EdgeKey(new CellKey(x, y0), Side.North), true);
+            if (Open(x, y1, Side.South)) SetWall(new EdgeKey(new CellKey(x, y1), Side.South), false);
+            else SetWall(new EdgeKey(new CellKey(x, y1), Side.South), true);
         }
         for (int y = y0; y <= y1; y++)
         {
-            if (!Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
-            if (!Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
+            if (Open(x0, y, Side.West)) SetWall(new EdgeKey(new CellKey(x0, y), Side.West), false);
+            else SetWall(new EdgeKey(new CellKey(x0, y), Side.West), true);
+            if (Open(x1, y, Side.East)) SetWall(new EdgeKey(new CellKey(x1, y), Side.East), false);
+            else SetWall(new EdgeKey(new CellKey(x1, y), Side.East), true);
         }
         // interior walls removed so adjacent rooms merge (skipped in strict mode)
         if (!strict)
@@ -208,7 +274,196 @@ public sealed class MapDocument
             for (int y = y0 + 1; y <= y1; y++)
                 for (int x = x0; x <= x1; x++)
                     SetWall(new EdgeKey(new CellKey(x, y), Side.North), false);
+
+            // angled walls that become interior to the merged region are removed
+            // too, so a room grown over a polygon's diagonal merges cleanly.
+            // A diagonal is interior when EVERY cell it passes through is a room
+            // cell (the segment runs through room-cell interiors on both sides).
+            // Doors on removed segments go with the wall (door implies wall).
+            var removed = AngledWalls
+                .Where(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
+                    .All(c => Cells.Contains(c)))
+                .ToList();
+            foreach (var w in removed) AngledDoors.Remove(w);
+            AngledWalls.RemoveAll(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
+                .All(c => Cells.Contains(c)));
         }
+    }
+
+    /// Enumerates the cells whose INTERIOR a lattice segment passes through, via
+    /// a DDA grid walk from (ax,ay) to (bx,by). Axis-aligned segments lie on grid
+    /// lines (cell boundaries) and cross no cell interior, so they return empty
+    /// (their walls are EdgeKey edges, handled separately). Diagonal segments
+    /// return the sequence of cells the line cuts through.
+    public static HashSet<CellKey> CellsCrossed(int ax, int ay, int bx, int by)
+    {
+        var cells = new HashSet<CellKey>();
+        double dx = bx - ax, dy = by - ay;
+        if (dx == 0 || dy == 0) return cells; // axis-aligned: on a grid line
+        int sx = dx > 0 ? 1 : -1, sy = dy > 0 ? 1 : -1;
+        int cx = ax + (sx > 0 ? 0 : -1), cy = ay + (sy > 0 ? 0 : -1);
+        double tMaxX = sx > 0 ? 1.0 / dx : -1.0 / dx;
+        double tMaxY = sy > 0 ? 1.0 / dy : -1.0 / dy;
+        double tDeltaX = Math.Abs(1.0 / dx), tDeltaY = Math.Abs(1.0 / dy);
+        double t = 0;
+        while (t < 1.0)
+        {
+            cells.Add(new CellKey(cx, cy));
+            if (tMaxX < tMaxY) { cx += sx; tMaxX += tDeltaX; t = tMaxX - tDeltaX; }
+            else { cy += sy; tMaxY += tDeltaY; t = tMaxY - tDeltaY; }
+        }
+        return cells;
+    }
+
+    /// Adds a polygon room from a closed loop of LATTICE vertices (integer grid
+    /// points = cell corners). Cells whose CENTER (x+0.5, y+0.5) is inside the
+    /// polygon are filled (cell-center point-in-polygon, preserving the 5x5
+    /// cell/formation model). Each edge is decomposed: axis-aligned edges become
+    /// unit EdgeKey walls on the boundary; diagonal edges become AngledWall
+    /// segments. Behaves like AddRoom: UNION by default (interior walls among the
+    /// filled cells are removed so adjacent rooms merge), passageway opens a
+    /// boundary edge when the cell across it is an existing room, and strict keeps
+    /// every outer wall and interior walls. Diagonal edges are always the polygon
+    /// boundary (never interior).
+    public void AddPolygon(List<(int x, int y)> verts, bool passageway = false, bool strict = false)
+    {
+        if (verts.Count < 3) return;
+        var fill = PolygonFillCells(verts);
+        if (fill.Count == 0) return;
+
+        // existing cells outside the fill, captured before we add new cells
+        var existing = new HashSet<CellKey>();
+        if (passageway && !strict)
+            foreach (var c in Cells)
+                if (!fill.Contains(c)) existing.Add(c);
+
+        foreach (var c in fill) Cells.Add(c);
+
+        // boundary edges: axis-aligned unit segments get walls (left open when
+        // passageway and the cell across the edge is an existing room); diagonal
+        // edges become AngledWall segments.
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (ax == bx) // vertical edge at x=ax
+            {
+                int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+                for (int y = y0; y < y1; y++)
+                {
+                    var left = new CellKey(ax - 1, y);
+                    var right = new CellKey(ax, y);
+                    bool leftIn = fill.Contains(left), rightIn = fill.Contains(right);
+                    if (leftIn && rightIn) continue; // true interior edge, no boundary wall
+                    var exterior = leftIn ? right : left; // side not in fill (or left when both out)
+                    if (!strict && passageway && existing.Contains(exterior)) continue; // open passage
+                    SetWall(new EdgeKey(left, Side.East), true);
+                }
+            }
+            else if (ay == by) // horizontal edge at y=ay
+            {
+                int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+                for (int x = x0; x < x1; x++)
+                {
+                    var top = new CellKey(x, ay - 1);
+                    var bottom = new CellKey(x, ay);
+                    bool topIn = fill.Contains(top), bottomIn = fill.Contains(bottom);
+                    if (topIn && bottomIn) continue; // true interior edge
+                    var exterior = topIn ? bottom : top;
+                    if (!strict && passageway && existing.Contains(exterior)) continue;
+                    SetWall(new EdgeKey(bottom, Side.North), true);
+                }
+            }
+            else
+            {
+                AngledWalls.Add(new AngledWall(ax, ay, bx, by));
+            }
+        }
+
+        // interior walls removed so adjacent rooms merge (skipped in strict mode).
+        // Mirror AddRoom: remove walls between two cells in the MERGED region
+        // (the polygon fill plus any pre-existing room cells the polygon overlaps),
+        // not just fill-to-fill, so a polygon grown out of a room opens the shared wall.
+        if (!strict)
+        {
+            var merged = new HashSet<CellKey>(fill);
+            foreach (var c in Cells) merged.Add(c); // includes pre-existing cells
+            foreach (var c in merged)
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                {
+                    var (nx, ny) = side switch
+                    {
+                        Side.North => (c.X, c.Y - 1),
+                        Side.South => (c.X, c.Y + 1),
+                        Side.East => (c.X + 1, c.Y),
+                        Side.West => (c.X - 1, c.Y),
+                    };
+                    if (merged.Contains(new CellKey(nx, ny)))
+                        SetWall(new EdgeKey(c, side), false);
+                }
+        }
+    }
+
+    /// The cells whose CENTER (x+0.5, y+0.5) lies inside the closed polygon.
+    /// Shared by AddPolygon and the Polygon tool's live fill preview.
+    public HashSet<CellKey> PolygonFillCells(List<(int x, int y)> verts)
+    {
+        var cells = new HashSet<CellKey>();
+        if (verts.Count < 3) return cells;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var (vx, vy) in verts)
+        {
+            if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
+            if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
+        }
+        for (int x = minX; x < maxX; x++)
+            for (int y = minY; y < maxY; y++)
+                if (PointInPolygon(x + 0.5, y + 0.5, verts))
+                    cells.Add(new CellKey(x, y));
+        return cells;
+    }
+
+    /// True when the angled wall segment touches ANY PART of the rectangle
+    /// [x0,y0]-[x1,y1] (world bounds x in [x0, x1+1], y in [y0, y1+1]).
+    /// Liang-Barsky segment-rectangle clipping: the segment intersects the rect
+    /// when the clipped parameter range is non-empty. Used by erase, capture,
+    /// clear, move, copy - matches the user's expectation that a selection grabs
+    /// any edge that overlaps it, not only edges fully inside.
+    public static bool AngledWallIntersectsRect(AngledWall w, int x0, int y0, int x1, int y1)
+    {
+        double rx0 = x0, ry0 = y0, rx1 = x1 + 1, ry1 = y1 + 1;
+        double dx = w.Bx - w.Ax, dy = w.By - w.Ay;
+        double t0 = 0, t1 = 1;
+        double[] p = { -dx, dx, -dy, dy };
+        double[] q = { w.Ax - rx0, rx1 - w.Ax, w.Ay - ry0, ry1 - w.Ay };
+        for (int i = 0; i < 4; i++)
+        {
+            if (p[i] == 0) { if (q[i] < 0) return false; }
+            else
+            {
+                double t = q[i] / p[i];
+                if (p[i] < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+                else { if (t < t0) return false; if (t < t1) t1 = t; }
+            }
+        }
+        return t0 <= t1;
+    }
+
+    /// Ray-casting point-in-polygon. True when (px,py) is inside the closed
+    /// polygon `verts`.
+    private static bool PointInPolygon(double px, double py, List<(int x, int y)> verts)
+    {
+        bool inside = false;
+        int n = verts.Count;
+        for (int i = 0, j = n - 1; i < n; j = i++)
+        {
+            var (xi, yi) = verts[i];
+            var (xj, yj) = verts[j];
+            if (((yi > py) != (yj > py)) &&
+                (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+                inside = !inside;
+        }
+        return inside;
     }
 
     /// Adds a rectangular floor region: fills cells, removes walls strictly inside
@@ -239,7 +494,9 @@ public sealed class MapDocument
 
     /// All stairs connected to the given cell by 4-directional adjacency
     /// (up/down/left/right), including the start cell. Used so configuring one
-    /// stair updates every stair in the same contiguous group.
+    /// stair updates every stair in the same contiguous group. A wall on the
+    /// shared edge blocks propagation: a stair row split by a wall is two
+    /// separate groups. Doors imply walls, so a door on the edge blocks too.
     public List<Stair> ConnectedStairs(CellKey start)
     {
         var result = new List<Stair>();
@@ -251,10 +508,10 @@ public sealed class MapDocument
         {
             var c = queue.Dequeue();
             result.Add(Stairs[c]);
-            foreach (var (dx, dy) in new[] { (1,0), (-1,0), (0,1), (0,-1) })
+            foreach (var (dx, dy, side) in new[] { (1, 0, Side.East), (-1, 0, Side.West), (0, 1, Side.South), (0, -1, Side.North) })
             {
                 var n = new CellKey(c.X + dx, c.Y + dy);
-                if (!seen.Contains(n) && Stairs.ContainsKey(n))
+                if (!seen.Contains(n) && Stairs.ContainsKey(n) && !HasWall(EdgeKey.Normalize(c, side)))
                 {
                     seen.Add(n);
                     queue.Enqueue(n);
@@ -275,8 +532,11 @@ public sealed class MapDocument
         public Dictionary<CellKey, Stair> Stairs = new();
         public List<MapLabel> Labels = new();
         public List<Pawn> Pawns = new();
+        public List<AngledWall> AngledWalls = new();
+        public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
-                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0;
+                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
+                              && AngledWalls.Count == 0 && AngledDoors.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -310,7 +570,14 @@ public sealed class MapDocument
         foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
-        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(p);
+        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status });
+        foreach (var w in AngledWalls)
+            if (AngledWallIntersectsRect(w, x0, y0, x1, y1))
+            {
+                snap.AngledWalls.Add(w);
+                if (AngledDoors.TryGetValue(w, out var doors))
+                    snap.AngledDoors[w] = doors; // doors travel with their wall
+            }
         return snap;
     }
 
@@ -332,12 +599,24 @@ public sealed class MapDocument
             {
                 Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
                 TemplateId = p.TemplateId,
+                Status = p.Status,
             };
         foreach (var (e, d) in snap.Doors)
         {
             var edge = new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side);
             SetWall(edge, true);
             Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State };
+        }
+        foreach (var w in snap.AngledWalls)
+        {
+            var nw = new AngledWall(w.Ax + dx, w.Ay + dy, w.Bx + dx, w.By + dy);
+            AngledWalls.Add(nw);
+            if (snap.AngledDoors.TryGetValue(w, out var doors))
+            {
+                var list = AngledDoors.TryGetValue(nw, out var l) ? l : (AngledDoors[nw] = new List<AngledDoor>());
+                foreach (var d in doors)
+                    list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State });
+            }
         }
     }
 
@@ -357,6 +636,11 @@ public sealed class MapDocument
         foreach (var l in other.Labels) Labels.Add(l);
         Pawns.Clear();
         foreach (var (c, p) in other.Pawns) Pawns[c] = p;
+        AngledWalls.Clear();
+        foreach (var w in other.AngledWalls) AngledWalls.Add(w);
+        AngledDoors.Clear();
+        foreach (var (w, doors) in other.AngledDoors)
+            AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -375,6 +659,9 @@ public sealed class MapDocument
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                     SetWall(new EdgeKey(c, side), false);
             }
+        foreach (var w in AngledWalls)
+            if (AngledWallIntersectsRect(w, x0, y0, x1, y1)) AngledDoors.Remove(w);
+        AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1));
     }
 
     /// Moves a rectangular region: captures it, clears the source, then pastes
@@ -398,6 +685,14 @@ public sealed class MapDocument
             if (c.Y < minY) minY = c.Y;
             if (c.X > maxX) maxX = c.X;
             if (c.Y > maxY) maxY = c.Y;
+            any = true;
+        }
+        foreach (var w in AngledWalls)
+        {
+            if (w.Ax < minX) minX = w.Ax; if (w.Ax > maxX) maxX = w.Ax;
+            if (w.Ay < minY) minY = w.Ay; if (w.Ay > maxY) maxY = w.Ay;
+            if (w.Bx < minX) minX = w.Bx; if (w.Bx > maxX) maxX = w.Bx;
+            if (w.By < minY) minY = w.By; if (w.By > maxY) maxY = w.By;
             any = true;
         }
         if (!any) return null;

@@ -21,6 +21,15 @@ public partial class MainWindow : Window
     private readonly History _history = new();
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly PawnLibrary _pawnLibrary = PawnLibrary.Load();
+    // settings dirty flag: fields mutate live, the json write flushes once at
+    // modal close / tool switch / menu open / autosave tick (avoids hundreds of
+    // writes during color-wheel drags)
+    private bool _settingsDirty;
+    // the file the current map was loaded from / saved to; Ctrl+S saves over it.
+    // null for a brand-new map (picker default maps/, then set after first save).
+    private string? _currentMapPath;
+    private Avalonia.Threading.DispatcherTimer? _autosaveTimer;
+    private DateTime _lastAutosave = DateTime.MinValue;
     // the side panel's Status dropdown, so it can be refreshed when statuses change
     private ComboBox? _statusCombo;
     private PawnTemplate? _statusComboTemplate;
@@ -30,6 +39,9 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         Canvas.Document = _doc;
+        // unique-pawn images live in a pawn_images subfolder next to the exe.
+        Canvas.PawnImagesDir = System.IO.Path.Combine(AppContext.BaseDirectory, "pawn_images");
+        System.IO.Directory.CreateDirectory(Canvas.PawnImagesDir);
         Canvas.Settings = _settings;
         Canvas.Library = _pawnLibrary;
         _history.Initialize(_doc);
@@ -45,6 +57,7 @@ public partial class MainWindow : Window
         LabelTool(ToolLabel, "Label");
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
+        LabelTool(ToolPolygon, "Polygon");
 
         // map list (item 8)
         RefreshMapList();
@@ -68,6 +81,7 @@ public partial class MainWindow : Window
         ToolLabel.Click += (_, _) => SetTool(ToolMode.Label);
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
+        ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
 
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
@@ -75,6 +89,27 @@ public partial class MainWindow : Window
         BtnSave.Click += (_, _) => SaveMap();
         BtnLoad.Click += (_, _) => LoadMap();
         BtnSettings.Click += (_, _) => ShowSettings();
+
+        // settings + door presets modal popups
+        SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
+        DoorPresetsClose.Click += (_, _) => { FlushSettings(); DoorPresetsOverlay.IsVisible = false; };
+
+        // autosave: ticks every minute; writes to maps/autosaves when the
+        // configured interval has elapsed (0 = off). Flushes pending settings.
+        _autosaveTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        _autosaveTimer.Tick += (_, _) =>
+        {
+            FlushSettings();
+            if (_settings.AutosaveMinutes <= 0) return;
+            if ((DateTime.Now - _lastAutosave).TotalMinutes < _settings.AutosaveMinutes) return;
+            _lastAutosave = DateTime.Now;
+            var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
+            System.IO.Directory.CreateDirectory(dir);
+            var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
+            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name));
+            StatusText.Text = $"autosaved {name}";
+        };
+        _autosaveTimer.Start();
 
         // modal pawn-management popup
         ModalClose.Click += (_, _) => ModalOverlay.IsVisible = false;
@@ -89,7 +124,11 @@ public partial class MainWindow : Window
             ShowPawnManagement();
         };
 
-        Canvas.ActionCompleted += () => _history.Commit(_doc);
+        Canvas.ActionCompleted += () =>
+        {
+            _history.Commit(_doc);
+            CleanupUnreferencedImages();
+        };
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
         Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
@@ -97,7 +136,7 @@ public partial class MainWindow : Window
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
-            System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
+            // System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
         };
 
         SetTool(ToolMode.Room);
@@ -114,6 +153,7 @@ public partial class MainWindow : Window
         {
             switch (e.Key)
             {
+                case Key.S: SaveCurrent(); e.Handled = true; return; // Ctrl+S: save over the current map
                 case Key.Z: DoUndo(); e.Handled = true; return;
                 case Key.Y: DoRedo(); e.Handled = true; return;
                 case Key.C: Canvas.CopySelection(); Canvas.Refresh(); e.Handled = true; return;
@@ -125,6 +165,16 @@ public partial class MainWindow : Window
         {
             // delete = erase the current selection with everything selected
             Canvas.DeleteSelection(); Canvas.Refresh(); e.Handled = true; return;
+        }
+        else if (e.Key == Key.Enter && Canvas.Mode == ToolMode.Polygon && !IsTyping())
+        {
+            // Enter closes the polygon by appending the first vertex
+            Canvas.ClosePolygon(); Canvas.Refresh(); e.Handled = true; return;
+        }
+        else if (e.Key == Key.Escape && Canvas.Mode == ToolMode.Polygon && !IsTyping())
+        {
+            // Escape discards the vertices armed so far
+            Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return;
         }
         else if (e.KeyModifiers == KeyModifiers.None)
         {
@@ -184,11 +234,16 @@ public partial class MainWindow : Window
         LabelTool(ToolLabel, "Label");
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
+        LabelTool(ToolPolygon, "Polygon");
     }
 
     private void SetTool(ToolMode mode)
     {
+        FlushSettings(); // switching tools flushes pending settings changes
         Canvas.Mode = mode;
+        // re-selecting a tool resets the armed pawn template: the user expects
+        // clicking the pawn tool again to clear a stale selection.
+        Canvas.ArmedPawn = null;
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
@@ -206,7 +261,7 @@ public partial class MainWindow : Window
         PopulatePanel(mode);
         Canvas.Refresh();
         FocusCanvas(); // restore hotkey focus after the tool button click
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
     }
 
     // Builds the floating panel's options for the active tool.
@@ -231,44 +286,72 @@ public partial class MainWindow : Window
 
             case ToolMode.Move:
                 ToolPanel.Clear("Move options");
-                ToolPanel.AddHint("drag a region to select, then click the destination. the source is removed on move. works across maps: select on one map, switch, click the target.");
-                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
+                ToolPanel.AddHint("click + drag on empty space to select a region, then click the destination point. drag a pawn directly to move just that pawn.");
+                ToolPanel.AddCheck("move pawns only", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
+                ToolPanel.AddCheck("show destination ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 break;
 
             case ToolMode.Room:
                 ToolPanel.Clear("Room settings");
-                ToolPanel.AddHint("normal: drawing over existing rooms merges them (shared walls removed); a room grown out of a room opens a passageway.");
-                ToolPanel.AddCheck("strict walls (draw outer walls over existing rooms, keep interior walls)", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
+                ToolPanel.AddHint("drawing over an existing room merges them. use the options below for fine control.");
+                ToolPanel.AddCheck("strict outer walls", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
+                ToolPanel.AddCheck("merge adjacent walls", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
                 break;
 
             case ToolMode.Door:
-                // global door defaults: shown before placing any door, and every
-                // placed door inherits them (MapCanvas reads Settings at placement).
+                // placement options only (type + state); the category editor lives
+                // in the Manage Door Presets modal. Placed doors inherit these
+                // defaults (MapCanvas reads Settings.DefaultDoorType/State).
                 ToolPanel.Clear("Door settings");
                 ToolPanel.AddHint("defaults apply to every door you place next.");
-                AddDoorDefaultsSection();
+                var names = new List<string>();
+                foreach (var t in _settings.DoorTypes) names.Add(t.Name);
+                ToolPanel.AddChoice("default door type", names.ToArray(), _settings.DefaultDoorType, t =>
+                {
+                    _settings.DefaultDoorType = t;
+                    MarkSetting();
+                });
+                ToolPanel.AddChoice("default door state", new[] { "open", "closed", "locked" },
+                    _settings.DefaultDoorState, s =>
+                    {
+                        _settings.DefaultDoorState = s;
+                        MarkSetting();
+                    });
+                ToolPanel.AddButton("Manage Door Presets", () => ShowDoorPresets());
                 break;
 
             case ToolMode.Pawn:
                 ToolPanel.Clear("Pawn");
                 ToolPanel.AddHint("pick a pawn below, then click a cell to place it. click a placed pawn to edit its template.");
+                // manage pawns FIRST: at small resolutions the pawn display can grow
+                // past the panel, so all controls sit above it.
+                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
                 if (_pawnLibrary.Pawns.Count == 0)
                 {
                     ToolPanel.AddHint("library is empty - add pawns in the pawn menu.");
                 }
                 else
                 {
+                    // sort dropdown for the tool swatch grid: name,
+                    // affiliation, instance count. Re-selecting the tool rebuilds
+                    // the panel with the new order.
+                    ToolPanel.AddChoice("sort", new[] { "insertion", "name", "affiliation", "instances" },
+                        _pawnToolSort, mode =>
+                        {
+                            _pawnToolSort = mode;
+                            SetTool(ToolMode.Pawn);
+                        });
                     // snapshot the templates so the swatch closure reads a stable
                     // list; reading the live library by index can go out of range
                     // if the library changes after the grid is built (add/delete).
-                    var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
-                    var items = new List<(string, string, string, int, int, int, int, int, int)>();
+                    var snapshot = SortedPawns(_pawnToolSort);
+                    var items = new List<(string, string, string, int, int, int, int, int, int, string)>();
                     foreach (var t in snapshot)
                     {
                         var (eo, ei) = t.Effective(_settings);
                         items.Add((t.Id, string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
                                    PawnTemplate.NormalizeAffiliation(t.Affiliation),
-                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b));
+                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b, t.Image));
                     }
                     // live count: recomputed on each hover from the live placed pawns
                     Func<string, int> liveCount = id =>
@@ -278,14 +361,20 @@ public partial class MainWindow : Window
                             if (p.TemplateId == id) n++;
                         return n;
                     };
-                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, i =>
+                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, Canvas.LoadPawnImage, i =>
                     {
                         if (i < 0 || i >= snapshot.Count) return;
                         Canvas.ArmedPawn = snapshot[i];
-                        StatusText.Text = $"armed {(snapshot[i].Name ?? "pawn")} - click a cell to place";
+                        StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(snapshot[i].Name) ? "pawn" : snapshot[i].Name)} - click a cell to place";
                     });
                 }
-                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
+                break;
+
+            case ToolMode.Polygon:
+                ToolPanel.Clear("Polygon");
+                ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polgyon, or hit enter to auto-complete.");
+                ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
+                ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 
             default:
@@ -322,7 +411,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"switched to {_project.ActiveName}";
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
@@ -338,7 +427,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         StatusText.Text = $"added {name}";
-        System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
+        // System.IO.File.WriteAllText("/tmp/scratch/status.txt", StatusText.Text);
         Canvas.Refresh();
         FocusCanvas();
     }
@@ -378,14 +467,36 @@ public partial class MainWindow : Window
 
     private async void SaveMap()
     {
+        // brand-new map: default save location is the maps subfolder in the app's
+        // base directory, name pre-filled Map_{datetime}.json, json typing enforced.
+        var mapsDir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps");
+        System.IO.Directory.CreateDirectory(mapsDir);
+        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(mapsDir + "/"));
         var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
-            SuggestedFileName = "project.json",
+            SuggestedFileName = $"Map_{Stamp()}.json",
             DefaultExtension = "json",
+            SuggestedStartLocation = startFolder,
+            FileTypeChoices = new[]
+            {
+                new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } },
+            },
         });
         if (file is null) return;
-        MapSerializer.SaveProject(_project, file.Path.LocalPath);
-        StatusText.Text = $"saved {file.Path.LocalPath}";
+        var path = file.Path.LocalPath;
+        MapSerializer.SaveProject(_project, path);
+        _currentMapPath = path; // Ctrl+S saves over this file from now on
+        StatusText.Text = $"saved {path}";
+    }
+
+    // Ctrl+S: save over the map the user loaded (the user-selected json, NOT the
+    // backup). A brand-new map with no load/save history opens the picker once,
+    // then Ctrl+S saves over that file.
+    private void SaveCurrent()
+    {
+        if (_currentMapPath is null) { SaveMap(); return; }
+        MapSerializer.SaveProject(_project, _currentMapPath);
+        StatusText.Text = $"saved {_currentMapPath}";
     }
 
     private async void LoadMap()
@@ -398,7 +509,14 @@ public partial class MainWindow : Window
         try
         {
             var path = files[0].Path.LocalPath;
+            // VERY FIRST step, before ANY parsing/rendering/modification: save a
+            // backup copy in maps/backups, preserving the name + datetime stamp.
             string text = System.IO.File.ReadAllText(path);
+            var backupDir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "backups");
+            System.IO.Directory.CreateDirectory(backupDir);
+            var backupName = $"{System.IO.Path.GetFileNameWithoutExtension(path)}_{Stamp()}.json";
+            System.IO.File.WriteAllText(System.IO.Path.Combine(backupDir, backupName), text);
+
             // accept both single-map files and multi-map projects
             if (text.Contains("\"maps\""))
             {
@@ -409,6 +527,7 @@ public partial class MainWindow : Window
                 _project = new MapProject();
                 _project.Maps[0].Doc = MapSerializer.Load(path);
             }
+            _currentMapPath = path; // Ctrl+S saves over the user-selected json
             Canvas.Document = _doc;
             _history.Initialize(_doc);
             Canvas.ClearSelection();
@@ -423,63 +542,35 @@ public partial class MainWindow : Window
         }
     }
 
-    // Builds the global door settings fields: default type, default state, and the
-    // door category editor. Shared by the Settings menu and the Door tool panel so
-    // the door tool shows the same fields before placing, and placed doors inherit
-    // them (MapCanvas reads Settings.DefaultDoorType/State at placement time).
-    private void AddDoorDefaultsSection()
+    // settings dirty flag helpers: fields mutate live, json write flushes once
+    private void MarkSetting() { _settingsDirty = true; }
+    private void FlushSettings()
     {
-        // default door properties (item 3)
-        var names = new List<string>();
-        foreach (var t in _settings.DoorTypes) names.Add(t.Name);
-        ToolPanel.AddChoice("default door type", names.ToArray(), _settings.DefaultDoorType, t =>
-        {
-            _settings.DefaultDoorType = t;
-            _settings.Save();
-        });
-        ToolPanel.AddChoice("default door state", new[] { "open", "closed", "locked" },
-            _settings.DefaultDoorState, s =>
-            {
-                _settings.DefaultDoorState = s;
-                _settings.Save();
-            });
-
-        // door categories editor (item 4)
-        ToolPanel.AddHint("door categories (name + color):");
-        foreach (var t in _settings.DoorTypes)
-        {
-            var captured = t;
-            ToolPanel.AddText(captured.Name, $"#{captured.R:X2}{captured.G:X2}{captured.B:X2}", hex =>
-            {
-                if (hex.Length == 7 && hex[0] == '#')
-                {
-                    captured.R = Convert.ToInt32(hex.Substring(1, 2), 16);
-                    captured.G = Convert.ToInt32(hex.Substring(3, 2), 16);
-                    captured.B = Convert.ToInt32(hex.Substring(5, 2), 16);
-                    Canvas.Refresh();
-                    _settings.Save();
-                }
-            });
-        }
-        ToolPanel.AddButton("+ add door category", () =>
-        {
-            _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
-            _settings.Save();
-            // rebuild for the active tool so the Door tool panel keeps its context
-            PopulatePanel(Canvas.Mode);
-        });
+        if (!_settingsDirty) return;
+        _settingsDirty = false;
+        _settings.Save();
     }
 
+    // datetime stamp for autosave/backup names: valid on linux and windows
+    // (no : / etc). yyyy-MM-dd_HH-mm-ss.
+    private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+
+    // Settings: modal popup centered over the map (like Pawn Management). All
+    // fields apply live (canvas refresh) and mark the settings dirty; the json
+    // write flushes on modal close, tool switch, other menu open, autosave tick.
     private void ShowSettings()
     {
-        ToolPanel.Clear("Settings");
+        FlushSettings(); // opening any menu flushes pending changes
+        ToolPanel.SetTarget(SettingsSections);
+        SettingsSections.Children.Clear();
 
-        // grid draw spacing (item 6)
-        ToolPanel.AddNumber("grid draw spacing (cells between lines)", _settings.GridDrawSpacing, v =>
+        // grid draw spacing (item 6): major line every N cells, minor at every
+        // 5ft cell edge.
+        ToolPanel.AddNumber("grid draw spacing (cells between major lines)", _settings.GridDrawSpacing, v =>
         {
             _settings.GridDrawSpacing = Math.Max(1, v);
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
 
         // gridline colors (item 3): major at spacing boundaries, minor at every
@@ -489,13 +580,13 @@ public partial class MainWindow : Window
         {
             _settings.MajorGridR = c.r; _settings.MajorGridG = c.g; _settings.MajorGridB = c.b;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
         ToolPanel.AddColorField("minor gridline color", _settings.MinorGridR, _settings.MinorGridG, _settings.MinorGridB, gpresets, c =>
         {
             _settings.MinorGridR = c.r; _settings.MinorGridG = c.g; _settings.MinorGridB = c.b;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         });
         // toggle minor gridline visibility, on the same row as the minor color,
         // with padding. Unchecked = minor lines not drawn at all.
@@ -506,38 +597,213 @@ public partial class MainWindow : Window
         {
             _settings.ShowMinorGrid = minorCheck.IsChecked == true;
             Canvas.Refresh();
-            _settings.Save();
+            MarkSetting();
         };
         minorRow.Children.Add(minorCheck);
 
-        AddDoorDefaultsSection();
+        // canvas element colors (item 5): background, cell fill, wall, stairs,
+        // labels. The old static GridLine/FaintGridLine brushes were dead code
+        // (grid uses the major/minor settings colors) and are removed.
+        ToolPanel.AddColorField("background color", _settings.BackgroundR, _settings.BackgroundG, _settings.BackgroundB, gpresets, c =>
+        {
+            _settings.BackgroundR = c.r; _settings.BackgroundG = c.g; _settings.BackgroundB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("cell fill color", _settings.CellFillR, _settings.CellFillG, _settings.CellFillB, gpresets, c =>
+        {
+            _settings.CellFillR = c.r; _settings.CellFillG = c.g; _settings.CellFillB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("wall color", _settings.WallR, _settings.WallG, _settings.WallB, gpresets, c =>
+        {
+            _settings.WallR = c.r; _settings.WallG = c.g; _settings.WallB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("stair up color", _settings.StairUpR, _settings.StairUpG, _settings.StairUpB, gpresets, c =>
+        {
+            _settings.StairUpR = c.r; _settings.StairUpG = c.g; _settings.StairUpB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("stair down color", _settings.StairDownR, _settings.StairDownG, _settings.StairDownB, gpresets, c =>
+        {
+            _settings.StairDownR = c.r; _settings.StairDownG = c.g; _settings.StairDownB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
+        ToolPanel.AddColorField("label color", _settings.LabelR, _settings.LabelG, _settings.LabelB, gpresets, c =>
+        {
+            _settings.LabelR = c.r; _settings.LabelG = c.g; _settings.LabelB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
 
         // default label text (item 1)
         ToolPanel.AddText("default label text", _settings.DefaultLabelText, t =>
         {
             _settings.DefaultLabelText = t;
-            _settings.Save();
+            MarkSetting();
         });
 
-        // tool hotkeys editor (item 7)
+        // autosave interval (minutes, 0 = off)
+        ToolPanel.AddNumber("autosave every N minutes (0 = off)", _settings.AutosaveMinutes, v =>
+        {
+            _settings.AutosaveMinutes = Math.Max(0, v);
+            MarkSetting();
+        });
+
+        // tool hotkeys editor (item 7): grid of small single-letter boxes with a
+        // label above each, like the pawn status styles. Reset restores the
+        // hardcoded defaults.
         ToolPanel.AddHint("tool hotkeys (single letter):");
+        var hotkeyGrid = new WrapPanel { MaxWidth = 420 };
         foreach (var modeName in _settings.ToolHotkeys.Keys)
         {
             var captured = modeName;
-            ToolPanel.AddText(captured, _settings.ToolHotkeys[captured], key =>
+            var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
+            cell.Children.Add(new TextBlock { Text = captured, Foreground = Brushes.White, FontSize = 11 });
+            var tb = new TextBox { Text = _settings.ToolHotkeys[captured], Width = 30, HorizontalAlignment = HorizontalAlignment.Left };
+            tb.TextChanged += (_, _) =>
             {
-                var k = key.Trim().ToUpperInvariant();
+                var k = tb.Text.Trim().ToUpperInvariant();
                 if (k.Length == 1)
                 {
                     _settings.ToolHotkeys[captured] = k;
-                    _settings.Save();
+                    MarkSetting();
                     RefreshToolLabels();
                 }
-            });
+            };
+            cell.Children.Add(tb);
+            hotkeyGrid.Children.Add(cell);
         }
+        ToolPanel.Target.Children.Add(hotkeyGrid);
+        ToolPanel.AddButton("reset hotkeys to default", () =>
+        {
+            _settings.ToolHotkeys = AppSettings.Default().ToolHotkeys;
+            MarkSetting();
+            FlushSettings();
+            ShowSettings(); // rebuild the grid with the restored defaults
+            RefreshToolLabels();
+        });
+
+        SettingsOverlay.IsVisible = true;
+        ToolPanel.SetTarget(null);
     }
 
-    private void ShowDoorConfig(Door door)
+    // Manage Door Presets: modal popup opened from the Door tool. Door categories
+    // (name + color) with add/remove. Standard is the undeletable default.
+    // Removing a category that is in use warns; on confirm, affected doors reset
+    // to Standard in ONE undoable transaction (commit after mutation).
+    private void ShowDoorPresets()
+    {
+        FlushSettings();
+        ToolPanel.SetTarget(DoorPresetsSections);
+        DoorPresetsSections.Children.Clear();
+
+        ToolPanel.AddHint("door categories (name + color):");
+        foreach (var t in _settings.DoorTypes)
+        {
+            var captured = t;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var nameBox = new TextBox { Text = captured.Name, Width = 90 };
+            nameBox.TextChanged += (_, _) =>
+            {
+                captured.Name = nameBox.Text;
+                MarkSetting();
+            };
+            row.Children.Add(nameBox);
+            row.Children.Add(ToolPanel.ColorCell(captured.R, captured.G, captured.B, PresetColors(), c =>
+            {
+                captured.R = c.r; captured.G = c.g; captured.B = c.b;
+                Canvas.Refresh();
+                MarkSetting();
+            }));
+            if (captured.Name != "standard")
+            {
+                var del = new Button { Content = "remove" };
+                del.Click += (_, _) => DeleteDoorTypeWithWarning(captured, del);
+                row.Children.Add(del);
+            }
+            DoorPresetsSections.Children.Add(row);
+        }
+        ToolPanel.AddButton("+ add door category", () =>
+        {
+            _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
+            MarkSetting();
+            ShowDoorPresets(); // rebuild for the new row
+        });
+
+        DoorPresetsOverlay.IsVisible = true;
+        ToolPanel.SetTarget(null);
+    }
+
+    // Count doors (axis-aligned + angled) using a door type name.
+    private int CountDoorsOfType(string name)
+    {
+        int n = 0;
+        foreach (var d in _doc.Doors.Values)
+            if (d.Type == name) n++;
+        foreach (var l in _doc.AngledDoors.Values)
+            foreach (var d in l)
+                if (d.Type == name) n++;
+        return n;
+    }
+
+    // Delete a door category. Standard is undeletable. If doors of that type
+    // exist, a confirmation flyout warns; on confirm they reset to Standard and
+    // the mutation is committed as ONE undoable transaction.
+    private void DeleteDoorTypeWithWarning(DoorType t, Control anchor)
+    {
+        if (t.Name == "standard") return; // undeletable default
+
+        int affected = CountDoorsOfType(t.Name);
+
+        void doDelete()
+        {
+            foreach (var d in _doc.Doors.Values)
+                if (d.Type == t.Name) d.Type = "standard";
+            foreach (var l in _doc.AngledDoors.Values)
+                foreach (var d in l)
+                    if (d.Type == t.Name) d.Type = "standard";
+            if (_settings.DefaultDoorType == t.Name) _settings.DefaultDoorType = "standard";
+            _settings.DoorTypes.Remove(t);
+            MarkSetting();
+            FlushSettings();
+            _history.Commit(_doc); // one transaction: undo restores the doors
+            Canvas.Refresh();
+            ShowDoorPresets();
+        }
+
+        if (affected == 0)
+        {
+            doDelete();
+            return;
+        }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting '{t.Name}' resets {affected} door(s) of that type to Standard. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
+    }
+
+    private void ShowDoorConfig(IDoorConfig door)
     {
         ToolPanel.Clear("Door");
         var names = new List<string>();
@@ -566,15 +832,26 @@ public partial class MainWindow : Window
 
         ToolPanel.Clear("Stair");
         ToolPanel.AddHint("changing direction updates all connected stairs.");
-        ToolPanel.AddChoice("Direction", new[] { "up", "down" },
-            stair.Direction.ToString().ToLowerInvariant(), s =>
-            {
-                var dir = Enum.Parse<StairDirection>(s, ignoreCase: true);
-                foreach (var s2 in _doc.ConnectedStairs(cell))
-                    s2.Direction = dir;
-                _history.Commit(_doc);
-                Canvas.Refresh();
-            });
+        // push-button toggles (user request: no delete-and-redraw to flip stairs).
+        // The clicked stair's value is flipped to a single TARGET, and EVERY
+        // connected stair is set to that target - so a group that drifted out of
+        // sync (some up, some down) re-syncs on one press, not just toggles.
+        ToolPanel.AddButton("Toggle Up/Down", () =>
+        {
+            var target = stair.Direction == StairDirection.Up ? StairDirection.Down : StairDirection.Up;
+            foreach (var s2 in _doc.ConnectedStairs(cell))
+                s2.Direction = target;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddButton("Toggle Left/Right", () =>
+        {
+            var target = stair.DragAxis switch { "E" => "W", "W" => "E", "N" => "S", _ => "N" };
+            foreach (var s2 in _doc.ConnectedStairs(cell))
+                s2.DragAxis = target;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
     }
 
     private void ShowLabelConfig(MapLabel label)
@@ -583,6 +860,28 @@ public partial class MainWindow : Window
         ToolPanel.AddText("Text", label.Text, t =>
         {
             label.Text = t;
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        // per-label size + color: size is a font size in points, 0 =
+        // auto (zoom-scaled); color uses the standardized color picker, -1 = inherit
+        // the settings label color.
+        ToolPanel.AddNumber("Font size (0 = auto)", label.FontSize, v =>
+        {
+            label.FontSize = Math.Max(0, v);
+            _history.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddColorField("Color (inherit = settings label color)",
+            label.R, label.G, label.B, PresetColors(), c =>
+            {
+                label.R = c.r; label.G = c.g; label.B = c.b;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
+        ToolPanel.AddButton("reset to auto size + inherit color", () =>
+        {
+            label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
             _history.Commit(_doc);
             Canvas.Refresh();
         });
@@ -630,7 +929,17 @@ public partial class MainWindow : Window
         ToolPanel.AddHint($"name: {t.Name}");
         ToolPanel.AddHint($"affiliation: {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
         ToolPanel.AddHint($"instances on map: {count}");
-        ToolPanel.AddHint($"status: {t.Status}");
+        // per-instance status: the placed pawn overrides its template's status.
+        // "inherit" clears the override; picking a status sets it. Undoable.
+        var statusNames = new List<string> { "inherit" };
+        foreach (var st in _settings.PawnStatuses) statusNames.Add(st.Name);
+        ToolPanel.AddChoice("status", statusNames.ToArray(),
+            pawn.Status ?? "inherit", s =>
+            {
+                pawn.Status = s == "inherit" ? null : s;
+                _history.Commit(_doc);
+                Canvas.Refresh();
+            });
         ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
         ToolPanel.AddButton("delete pawn", () =>
         {
@@ -663,6 +972,27 @@ public partial class MainWindow : Window
         ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
     }
 
+    /// Deletes image files in pawn_images that no placed pawn references any more.
+    /// A template's image is referenced while at least one placed pawn on the
+    /// active map points at that template. Runs after every committed action.
+    private void CleanupUnreferencedImages()
+    {
+        var referenced = new HashSet<string>();
+        foreach (var p in _doc.Pawns.Values)
+        {
+            var t = _pawnLibrary.Find(p.TemplateId);
+            if (t is not null && !string.IsNullOrEmpty(t.Image)) referenced.Add(t.Image);
+        }
+        foreach (var f in System.IO.Directory.GetFiles(Canvas.PawnImagesDir))
+        {
+            var name = System.IO.Path.GetFileName(f);
+            if (!referenced.Contains(name))
+            {
+                try { System.IO.File.Delete(f); } catch { }
+            }
+        }
+    }
+
     // Template editor: edits a library template (name, affiliation, custom colors,
     // inner/outer, status). Reached from the management menu. Editing a template
     // propagates to every placed pawn that references it (hard reference).
@@ -683,7 +1013,9 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             BuildLibraryGrid();
         });
-        ToolPanel.AddChoice("Affiliation", new[] { "Player", "Ally", "Enemy", "Neutral" },
+        var affNames = new List<string>();
+        foreach (var ac in _settings.AffiliationColors) affNames.Add(ac.Name);
+        ToolPanel.AddChoice("Affiliation", affNames.ToArray(),
             PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
             {
                 t.Affiliation = aff;
@@ -750,6 +1082,44 @@ public partial class MainWindow : Window
         _statusCombo = statusCombo;
         _statusComboTemplate = t;
 
+        // unique pawn image: upload replaces the two-tone circles entirely, drawn
+        // square (center-cropped) to fit the cell. PNG preferred, JPEG accepted.
+        ToolPanel.AddButton("upload image (png/jpg)", async () =>
+        {
+            var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                AllowMultiple = false,
+                FileTypeFilter = new[]
+                {
+                    new FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg" } },
+                },
+            });
+            if (files.Count == 0) return;
+            var src = files[0].Path.LocalPath;
+            var ext = System.IO.Path.GetExtension(src).ToLowerInvariant();
+            var dest = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
+            System.IO.File.Copy(src, dest, overwrite: true);
+            t.Image = System.IO.Path.GetFileName(dest);
+            _pawnLibrary.Save();
+            Canvas.InvalidateImageCache();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+        });
+        if (!string.IsNullOrEmpty(t.Image))
+        {
+            ToolPanel.AddButton("remove image", () =>
+            {
+                var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Image);
+                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+                t.Image = "";
+                _pawnLibrary.Save();
+                Canvas.InvalidateImageCache();
+                Canvas.Refresh();
+                BuildLibraryGrid();
+                CleanupUnreferencedImages();
+            });
+        }
+
         ToolPanel.AddButton("back to library", () => ShowPawnManagement());
 
         // Delete template. If live placed pawns reference it, warn first (they
@@ -790,6 +1160,55 @@ public partial class MainWindow : Window
         popup.Children.Add(new TextBlock
         {
             Text = $"deleting removes {live} live pawn(s) on the map. they will render as X (broken reference) and can be replaced with Change Pawn. delete?",
+            Foreground = Brushes.White,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 240,
+        });
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+        var flyout = new Flyout { Content = popup };
+        var yes = new Button { Content = "delete" };
+        var no = new Button { Content = "cancel" };
+        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
+        no.Click += (_, _) => flyout.Hide();
+        row.Children.Add(yes);
+        row.Children.Add(no);
+        popup.Children.Add(row);
+        flyout.ShowAt(anchor);
+    }
+
+    // Delete an affiliation. Every template in that affiliation is reassigned to
+    // "Neutral". Player/Ally/Enemy/Neutral are hard defaults and
+    // undeletable. Confirmation flyout counts affected templates.
+    private void DeleteAffiliationWithWarning(AffiliationColor ac, Control anchor)
+    {
+        if (ac.Name == "Player" || ac.Name == "Ally" || ac.Name == "Enemy" || ac.Name == "Neutral") return;
+
+        int affected = 0;
+        foreach (var t in _pawnLibrary.Pawns)
+            if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name) affected++;
+
+        void doDelete()
+        {
+            foreach (var t in _pawnLibrary.Pawns)
+                if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name)
+                {
+                    t.Affiliation = "Neutral";
+                    if (!t.ColorOverride) t.ApplyAffiliationDefaults();
+                }
+            _settings.AffiliationColors.Remove(ac);
+            _settings.Save();
+            _pawnLibrary.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        }
+
+        if (affected == 0) { doDelete(); return; }
+
+        var popup = new StackPanel { Spacing = 6 };
+        popup.Children.Add(new TextBlock
+        {
+            Text = $"deleting {ac.Name} reassigns {affected} template(s) to Neutral. delete?",
             Foreground = Brushes.White,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 240,
@@ -873,6 +1292,21 @@ public partial class MainWindow : Window
         ModalOverlay.IsVisible = true;
         var presets = PresetColors();
 
+        // sort dropdown for the library grid: name, affiliation,
+        // instance count, invalid-first.
+        ModalSortRow.Children.Clear();
+        ModalSortRow.Children.Add(new TextBlock { Text = "sort:", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+        var sortCombo = new ComboBox { MinWidth = 150 };
+        foreach (var m in new[] { "insertion", "name", "affiliation", "instances", "invalid" })
+            sortCombo.Items.Add(m);
+        sortCombo.SelectedIndex = Math.Max(0, new[] { "insertion", "name", "affiliation", "instances", "invalid" }.ToList().IndexOf(_pawnSort));
+        sortCombo.SelectionChanged += (_, _) =>
+        {
+            _pawnSort = sortCombo.SelectedItem?.ToString() ?? "insertion";
+            BuildLibraryGrid();
+        };
+        ModalSortRow.Children.Add(sortCombo);
+
         BuildLibraryGrid();
 
         // Global affiliation coloring: templates inherit these unless ColorOverride.
@@ -904,8 +1338,30 @@ public partial class MainWindow : Window
             }));
             row.Children.Add(outerCol);
             row.Children.Add(innerCol);
+            // delete X for non-default affiliations. Player/Ally/Enemy/Neutral are
+            // hard-coded defaults and undeletable.
+            if (captured.Name != "Player" && captured.Name != "Ally"
+                && captured.Name != "Enemy" && captured.Name != "Neutral")
+            {
+                var delAff = new Button { Content = "X", Padding = new Thickness(4, 0, 4, 0) };
+                delAff.Click += (_, _) => DeleteAffiliationWithWarning(captured, delAff);
+                row.Children.Add(delAff);
+            }
             ModalAffiliations.Children.Add(row);
         }
+
+        ToolPanel.AddButton("+ add affiliation", () =>
+        {
+            var n = _settings.AffiliationColors.Count;
+            var name = $"Affiliation {n + 1}";
+            while (_settings.AffiliationColors.Any(a => a.Name == name))
+            { n++; name = $"Affiliation {n + 1}"; }
+            _settings.AffiliationColors.Add(new AffiliationColor(name, (180, 180, 180), (110, 110, 110)));
+            _settings.Save();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            ShowPawnManagement();
+        });
 
         // Status styles: an actual Grid with grid lines. Columns: Name, color cell
         // ([preview][palette]), Thickness, delete X. Each style on its own row.
@@ -1041,12 +1497,63 @@ public partial class MainWindow : Window
 
     // Rebuild the virtualized library grid: chunk templates into rows of 4 swatches.
     // The ItemsControl's VirtualizingStackPanel renders only the rows in view.
+    private string _pawnSort = "insertion";
+    private string _pawnToolSort = "insertion";
+
     private void BuildLibraryGrid()
     {
         LibraryGrid.Items.Clear();
-        var snapshot = new List<PawnTemplate>(_pawnLibrary.Pawns);
+        var snapshot = SortedPawns(_pawnSort);
         for (int i = 0; i < snapshot.Count; i += 4)
             LibraryGrid.Items.Add(BuildSwatchRow(snapshot.GetRange(i, Math.Min(4, snapshot.Count - i))));
+    }
+
+    // Shared sort for the pawn management modal and the pawn tool swatch grid.
+    // Modes: insertion (library order), name, affiliation, instances (live placed
+    // count, desc), invalid (invalid templates first). A template is invalid when
+    // its affiliation is not in the affiliation table (deleted faction) or it is a
+    // duplicate - sharing normalized name + affiliation with another template.
+    private List<PawnTemplate> SortedPawns(string mode)
+    {
+        var list = new List<PawnTemplate>(_pawnLibrary.Pawns);
+        switch (mode)
+        {
+            case "name":
+                list.Sort((a, b) => string.Compare((a.Name ?? "").Trim(), (b.Name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+                break;
+            case "affiliation":
+                list.Sort((a, b) => string.Compare(PawnTemplate.NormalizeAffiliation(a.Affiliation),
+                    PawnTemplate.NormalizeAffiliation(b.Affiliation), StringComparison.OrdinalIgnoreCase));
+                break;
+            case "instances":
+                list.Sort((a, b) => InstanceCount(b).CompareTo(InstanceCount(a)));
+                break;
+            case "invalid":
+                list.Sort((a, b) => (IsInvalid(b) ? 1 : 0).CompareTo(IsInvalid(a) ? 1 : 0));
+                break;
+            default: // insertion order, no sort
+                break;
+        }
+        return list;
+    }
+
+    private int InstanceCount(PawnTemplate t)
+    {
+        int n = 0;
+        foreach (var p in Canvas.Document.Pawns.Values) if (p.TemplateId == t.Id) n++;
+        return n;
+    }
+
+    private bool IsInvalid(PawnTemplate t)
+    {
+        var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
+        if (!_settings.AffiliationColors.Any(a => a.Name == aff)) return true;
+        var nm = (t.Name ?? "").Trim().ToLowerInvariant();
+        int same = 0;
+        foreach (var o in _pawnLibrary.Pawns)
+            if ((o.Name ?? "").Trim().ToLowerInvariant() == nm
+                && PawnTemplate.NormalizeAffiliation(o.Affiliation) == aff) same++;
+        return same > 1;
     }
 
     // One row of clickable pawn swatches (concentric circles + status ring). Clicking
@@ -1061,9 +1568,31 @@ public partial class MainWindow : Window
             var st = _settings.FindPawnStatus(t.Status);
             var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
             var canvas = new Avalonia.Controls.Canvas { Width = 30, Height = 30 };
-            var outer = new Ellipse { Width = 26, Height = 26, Fill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b)) };
+            // unique-image templates render the image in the swatch (center-crop
+            // square, clipped to the outer circle), same as on the map.
+            var bmp = string.IsNullOrEmpty(t.Image) ? null : Canvas.LoadPawnImage(t.Image);
+            // non-image pawns keep the affiliation outer color; the image brush
+            // replaces it only when a bitmap loads.
+            IBrush outerFill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
+            if (bmp is not null)
+            {
+                double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                // center-crop square in source-pixel coords, clipped to the ellipse
+                outerFill = new ImageBrush
+                {
+                    Source = bmp,
+                    Stretch = Stretch.Fill,
+                    TileMode = TileMode.None,
+                    SourceRect = new RelativeRect((bmp.PixelSize.Width - side) / (2.0 * bmp.PixelSize.Width),
+                                                  (bmp.PixelSize.Height - side) / (2.0 * bmp.PixelSize.Height),
+                                                  side / (double)bmp.PixelSize.Width,
+                                                  side / (double)bmp.PixelSize.Height,
+                                                  RelativeUnit.Relative),
+                };
+            }
+            var outer = new Ellipse { Width = 26, Height = 26, Fill = outerFill };
             Avalonia.Controls.Canvas.SetLeft(outer, 2); Avalonia.Controls.Canvas.SetTop(outer, 2);
-            var inner = new Ellipse { Width = 13, Height = 13, Fill = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b)) };
+            var inner = new Ellipse { Width = 13, Height = 13, Fill = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b)), IsVisible = bmp is null };
             Avalonia.Controls.Canvas.SetLeft(inner, 8); Avalonia.Controls.Canvas.SetTop(inner, 8);
             canvas.Children.Add(outer);
             canvas.Children.Add(inner);
@@ -1074,7 +1603,15 @@ public partial class MainWindow : Window
                 canvas.Children.Add(ring);
             }
             var hit = new Rectangle { Width = 30, Height = 30, Fill = Brushes.Transparent };
-            hit.PointerPressed += (_, _) => ShowTemplateEditor(captured);
+            hit.PointerPressed += (_, _) =>
+            {
+                // clicking a library swatch arms it for placement AND opens its
+                // editor. Without arming here, the modal can never change the
+                // armed pawn - the first-armed template keeps getting placed.
+                Canvas.ArmedPawn = captured;
+                StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name)} - click a cell to place";
+                ShowTemplateEditor(captured);
+            };
             canvas.Children.Add(hit);
             var cap = new TextBlock { Text = string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 60, TextWrapping = TextWrapping.Wrap };
             cell.Children.Add(canvas);

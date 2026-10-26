@@ -139,25 +139,52 @@ public sealed class ToolPanel : Border
     /// Hovering shows a tooltip: name, affiliation, and instance count ("Nx").
     /// The count is recomputed live on each hover via liveCount(templateId) so it
     /// reflects pawns placed since the panel was built.
-    public void AddSwatchGrid(string label, IReadOnlyList<(string id, string name, string affiliation, int outerR, int outerG, int outerB, int innerR, int innerG, int innerB)> items, Func<string, int> liveCount, Action<int> onPick)
+    public void AddSwatchGrid(string label, IReadOnlyList<(string id, string name, string affiliation, int outerR, int outerG, int outerB, int innerR, int innerG, int innerB, string image)> items, Func<string, int> liveCount, Func<string, Avalonia.Media.Imaging.Bitmap?> loadImage, Action<int> onPick)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
         var grid = new WrapPanel { MaxWidth = 200 };
         for (int i = 0; i < items.Count; i++)
         {
-            var (id, name, affiliation, oR, oG, oB, iR, iG, iB) = items[i];
+            var (id, name, affiliation, oR, oG, oB, iR, iG, iB, image) = items[i];
+            // per-iteration capture: a for-loop variable is ONE variable shared by
+            // every lambda, so a handler capturing i directly sees the final value
+            // (items.Count) after the loop - every swatch click lands out of range
+            // in the caller's guard and does nothing. Copy it per iteration.
+            int idx = i;
             var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
             var canvas = new Avalonia.Controls.Canvas { Width = 26, Height = 26 };
             var center = new Point(13, 13);
-            var outer = new Ellipse { Width = 24, Height = 24, Fill = new SolidColorBrush(Color.FromRgb((byte)oR, (byte)oG, (byte)oB)) };
+            // unique-image templates render the image in the swatch (center-crop
+            // square, clipped to the outer circle), same as on the map.
+            var bmp = string.IsNullOrEmpty(image) ? null : loadImage(image);
+            // non-image pawns keep the affiliation outer color; the image brush
+            // replaces it only when a bitmap loads.
+            IBrush outerFill = new SolidColorBrush(Color.FromRgb((byte)oR, (byte)oG, (byte)oB));
+            if (bmp is not null)
+            {
+                double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
+                // center-crop square in source-pixel coords, clipped to the ellipse
+                outerFill = new ImageBrush
+                {
+                    Source = bmp,
+                    Stretch = Stretch.Fill,
+                    TileMode = TileMode.None,
+                    SourceRect = new RelativeRect((bmp.PixelSize.Width - side) / (2.0 * bmp.PixelSize.Width),
+                                                  (bmp.PixelSize.Height - side) / (2.0 * bmp.PixelSize.Height),
+                                                  side / (double)bmp.PixelSize.Width,
+                                                  side / (double)bmp.PixelSize.Height,
+                                                  RelativeUnit.Relative),
+                };
+            }
+            var outer = new Ellipse { Width = 24, Height = 24, Fill = outerFill };
             Avalonia.Controls.Canvas.SetLeft(outer, 1); Avalonia.Controls.Canvas.SetTop(outer, 1);
-            var inner = new Ellipse { Width = 12, Height = 12, Fill = new SolidColorBrush(Color.FromRgb((byte)iR, (byte)iG, (byte)iB)) };
+            var inner = new Ellipse { Width = 12, Height = 12, Fill = new SolidColorBrush(Color.FromRgb((byte)iR, (byte)iG, (byte)iB)), IsVisible = bmp is null };
             Avalonia.Controls.Canvas.SetLeft(inner, 7); Avalonia.Controls.Canvas.SetTop(inner, 7);
             canvas.Children.Add(outer);
             canvas.Children.Add(inner);
             var hit = new Rectangle { Width = 26, Height = 26, Fill = Brushes.Transparent };
-            hit.PointerPressed += (_, _) => onPick(i);
+            hit.PointerPressed += (_, _) => onPick(idx);
             canvas.Children.Add(hit);
             var cap = new TextBlock { Text = name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 30, TextWrapping = TextWrapping.Wrap };
             cell.Children.Add(canvas);
