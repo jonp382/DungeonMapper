@@ -277,6 +277,7 @@ public partial class MainWindow : Window
                 ToolPanel.AddCheck("stairs", Canvas.EraseFilter.Stairs, v => Canvas.EraseFilter.Stairs = v);
                 ToolPanel.AddCheck("labels", Canvas.EraseFilter.Labels, v => Canvas.EraseFilter.Labels = v);
                 ToolPanel.AddCheck("pawns", Canvas.EraseFilter.Pawns, v => Canvas.EraseFilter.Pawns = v);
+                ToolPanel.AddCheck("adjust walls (re-seal rooms: the new outer edge gets walls after erasing)", Canvas.EraseAdjustWalls, v => { Canvas.EraseAdjustWalls = v; FocusCanvas(); });
                 break;
 
             case ToolMode.Select:

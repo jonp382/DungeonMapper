@@ -105,6 +105,7 @@ public sealed class MapCanvas : Control
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
+    public bool EraseAdjustWalls { get; set; } = false; // Erase tool: after erasing, rebuild room boundary walls so the new outer edge gets walls
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
     public bool RoomMergeNearby { get; set; } = false; // Room tool: a room drawn adjacent to (touching, not overlapping) an existing room connects to it - shared boundary walls stay open
     public bool PolygonStrict { get; set; } = false; // Polygon tool: same as RoomStrict - outer walls always, interior walls kept
@@ -284,6 +285,7 @@ public sealed class MapCanvas : Control
                 Document.AngledDoors.Remove(w);
             Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
         }
+        if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls();
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -1324,6 +1326,10 @@ public sealed class MapCanvas : Control
                         Document.AngledDoors.Remove(w);
                     Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
                 }
+                // "adjust walls": the erase may have removed outer walls (or the
+                // room cells they sat on) - rebuild the room boundary so the new
+                // outer edge gets fresh walls.
+                if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls();
                 Commit();
                 break;
             }

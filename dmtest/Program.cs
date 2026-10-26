@@ -881,6 +881,30 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(sy.Stairs[new CellKey(1, 0)].Direction == StairDirection.Down, "toggle sync: down stair stays down (not toggled back up)");
     Check(sy.Stairs[new CellKey(2, 0)].Direction == StairDirection.Down, "toggle sync: up stair re-synced to down");
     Check(sy.Stairs[new CellKey(3, 0)].Direction == StairDirection.Down, "toggle sync: whole group synced to target");
+
+    // ===== eraser adjust walls: RebuildRoomBoundaryWalls =====
+    // strip every wall from a room, rebuild re-seals the outer boundary and
+    // leaves interior edges open.
+    var aw1 = new MapDocument();
+    aw1.AddRoom(0, 0, 2, 2);
+    foreach (var e in aw1.Walls.Keys.ToList()) aw1.SetWall(e, false);
+    Check(!aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "adjust walls: wall stripped before rebuild");
+    aw1.RebuildRoomBoundaryWalls();
+    Check(aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "adjust walls: top edge rebuilt");
+    Check(aw1.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "adjust walls: bottom edge rebuilt");
+    Check(aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.West)), "adjust walls: west edge rebuilt");
+    Check(aw1.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)), "adjust walls: east edge rebuilt");
+    Check(!aw1.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "adjust walls: interior edge stays open");
+    // shrink a room by erasing its right column: the NEW outer edge (x=1 east)
+    // gets walls, the room stays sealed.
+    var aw2 = new MapDocument();
+    aw2.AddRoom(0, 0, 2, 2);
+    for (int y = 0; y <= 2; y++) aw2.Cells.Remove(new CellKey(2, y));
+    aw2.RebuildRoomBoundaryWalls();
+    Check(aw2.HasWall(new EdgeKey(new CellKey(1, 0), Side.East)), "adjust walls: new outer edge after shrinking gets walls (row 0)");
+    Check(aw2.HasWall(new EdgeKey(new CellKey(1, 2), Side.East)), "adjust walls: new outer edge after shrinking gets walls (row 2)");
+    Check(aw2.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "adjust walls: cell (1,0) north faces empty space, outer edge gets wall");
+    Check(!aw2.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "adjust walls: interior edge in shrunk room stays open");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

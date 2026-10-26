@@ -172,6 +172,27 @@ public sealed class MapDocument
         if (!exists && Doors.ContainsKey(key)) Doors.Remove(key);
     }
 
+    /// Rebuilds the room boundary walls: for every room cell, any edge facing a
+    /// NON-room cell (empty space) gets a wall. Used by the Erase tool's
+    /// "adjust walls" mode - when outer walls (or the cells they sat on) are
+    /// erased, the room's new outer edge gets fresh walls so the room stays
+    /// sealed. Edges between two room cells stay open.
+    public void RebuildRoomBoundaryWalls()
+    {
+        foreach (var c in Cells)
+            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+            {
+                var (nx, ny) = side switch
+                {
+                    Side.North => (c.X, c.Y - 1),
+                    Side.South => (c.X, c.Y + 1),
+                    Side.East => (c.X + 1, c.Y),
+                    Side.West => (c.X - 1, c.Y),
+                };
+                SetWall(new EdgeKey(c, side), !Cells.Contains(new CellKey(nx, ny)));
+            }
+    }
+
     public Door? GetDoor(EdgeKey edge)
     {
         var key = EdgeKey.Normalize(edge.Cell, edge.Side);
