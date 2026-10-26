@@ -176,7 +176,8 @@ public sealed class MapDocument
     /// NON-room cell (empty space) gets a wall. Used by the Erase tool's
     /// "adjust walls" mode - when outer walls (or the cells they sat on) are
     /// erased, the room's new outer edge gets fresh walls so the room stays
-    /// sealed. Edges between two room cells stay open.
+    /// sealed. Only ADDS walls: interior walls (e.g. a bisection wall between
+    /// two room cells) are never touched.
     public void RebuildRoomBoundaryWalls()
     {
         foreach (var c in Cells)
@@ -189,7 +190,10 @@ public sealed class MapDocument
                     Side.East => (c.X + 1, c.Y),
                     Side.West => (c.X - 1, c.Y),
                 };
-                SetWall(new EdgeKey(c, side), !Cells.Contains(new CellKey(nx, ny)));
+                // add a wall only on edges facing empty space; interior edges
+                // (between two room cells) are left exactly as they are.
+                if (!Cells.Contains(new CellKey(nx, ny)))
+                    SetWall(new EdgeKey(c, side), true);
             }
     }
 

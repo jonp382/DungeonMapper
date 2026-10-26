@@ -905,6 +905,25 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(aw2.HasWall(new EdgeKey(new CellKey(1, 2), Side.East)), "adjust walls: new outer edge after shrinking gets walls (row 2)");
     Check(aw2.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "adjust walls: cell (1,0) north faces empty space, outer edge gets wall");
     Check(!aw2.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "adjust walls: interior edge in shrunk room stays open");
+
+    // user scenario: 3 rows x 2 columns bisected by a vertical wall, erase the
+    // top row -> 2x2 room bisected down the middle. The bisection wall must
+    // survive; only the walls on the erased row's level are removed.
+    var aw3 = new MapDocument();
+    aw3.AddRoom(0, 0, 1, 2); // x 0..1, y 0..2 = 2 columns x 3 rows
+    for (int y = 0; y <= 2; y++) aw3.SetWall(new EdgeKey(new CellKey(0, y), Side.East), true); // bisection
+    Check(aw3.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "adjust walls: bisection wall present before erase");
+    // erase the top row (y=0): cells (0,0),(1,0) and walls on that level.
+    for (int x = 0; x <= 1; x++) aw3.Cells.Remove(new CellKey(x, 0));
+    foreach (var e in aw3.Walls.Keys.ToList())
+        if (e.Cell.Y == 0) aw3.SetWall(e, false);
+    aw3.RebuildRoomBoundaryWalls();
+    Check(aw3.Cells.Count == 4, "adjust walls: top row cells deleted, 2x2 remains");
+    Check(aw3.HasWall(new EdgeKey(new CellKey(0, 1), Side.North)), "adjust walls: new wall on the new top edge (left cell)");
+    Check(aw3.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "adjust walls: new wall on the new top edge (right cell)");
+    Check(aw3.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "adjust walls: bisection wall survives at row 1");
+    Check(aw3.HasWall(new EdgeKey(new CellKey(0, 2), Side.East)), "adjust walls: bisection wall survives at row 2");
+    Check(!aw3.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "adjust walls: bisection wall on the erased row is gone");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");
