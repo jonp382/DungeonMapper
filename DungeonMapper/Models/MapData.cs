@@ -270,7 +270,12 @@ public sealed class MapDocument
             // existing room connects at the top (where the drag began), not
             // along the whole shared boundary, so the existing room's internal
             // walls (e.g. a bisection wall) survive.
-            if (dragStart is not null && (cx, cy) != (dragStart.Value.X, dragStart.Value.Y)) return false;
+            // the drag-start restriction applies ONLY to merge mode: a merged
+            // room connects at the press point alone, so the existing room's
+            // internal walls survive. Plain passageway (sub-room inside a room,
+            // merge off) keeps opening every shared edge - the sub-room stays
+            // invisible, walls only where it faces empty space.
+            if (mergeNearby && dragStart is not null && (cx, cy) != (dragStart.Value.X, dragStart.Value.Y)) return false;
             var (nx, ny) = side switch
             {
                 Side.North => (cx, cy - 1),

@@ -883,6 +883,17 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(rm.HasWall(new EdgeKey(new CellKey(8, 6), Side.North)), "room merge broken: new bottom wall");
     Check(!rm.HasWall(new EdgeKey(new CellKey(8, 3), Side.North)), "room merge broken: old protrusion bottom wall removed");
 
+    // sub-room inside an existing room with merge OFF (plain passageway): every
+    // shared edge opens, including the drag-start cell - the sub-room stays
+    // invisible, no strict-wall behavior on the clicked cell.
+    var sr = new MapDocument();
+    sr.AddRoom(0, 0, 3, 3);
+    sr.AddRoom(1, 1, 2, 2, true, false, false, new CellKey(1, 1));
+    Check(!sr.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "sub-room merge off: drag-start cell keeps its shared edges open");
+    Check(!sr.HasWall(new EdgeKey(new CellKey(1, 1), Side.West)), "sub-room merge off: west edge open");
+    Check(!sr.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "sub-room merge off: far edges open too");
+    Check(!sr.HasWall(new EdgeKey(new CellKey(2, 1), Side.East)), "sub-room merge off: east edge open");
+
     // ===== stair drag axis round-trip =====
     var sa = new MapDocument();
     sa.Stairs[new CellKey(0, 0)] = new Stair { Direction = StairDirection.Up, DragAxis = "W", TargetMap = "b.json" };
