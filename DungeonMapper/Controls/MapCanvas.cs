@@ -110,7 +110,7 @@ public sealed class MapCanvas : Control
     private bool _moveArmed;
     private int _rotTurns;
     private (int x0, int y0, int x1, int y1)? _moveSourceRect; // source region to clear on first placement
-    private bool _moveSourceCleared; // repeated placements paste again without re-clearing
+    private bool _moveSourceCleared; // source cleared on the first placement; a placement disarms, so it never re-clears
     private bool _movePlaced; // a placement happened; hotkeys restored
     public bool MoveArmed => _moveArmed;
     // rotation is available when a snapshot is armed in Move mode, or a clipboard
@@ -234,7 +234,10 @@ public sealed class MapCanvas : Control
             ? $"placed {what} ({_rotTurns * 90}° ccw)"
             : $"moved {what}");
         Commit();
-        // keep _moveArmed true: the destination ghost persists for rotation + re-place
+        // one placement per arm: a successful placement disarms, so the ghost, the
+        // rotation, and the hotkey lock all end with the move. The original contract
+        // was one placement too - the cleared source left nothing to place again.
+        CancelMove();
     }
 
     /// Places the pawns in a snapshot at the target, swapping with any occupant

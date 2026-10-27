@@ -1096,11 +1096,12 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
         "canvas move: pasted content lands at destination");
     Check(h.Doc.Cells.Count == 4, "canvas move: exactly the moved cells remain, no source left behind");
 
-    // a second placement pastes again without re-clearing the already-cleared source
+    // one placement per arm: the placement disarms, so a second click places nothing
+    Check(!h.Canvas.MoveArmed, "canvas move: placement disarms the move");
     h.Click(9, 9);
-    Check(h.Doc.Cells.Count == 8 && h.Doc.Cells.Contains(new CellKey(9, 9))
+    Check(h.Doc.Cells.Count == 4 && !h.Doc.Cells.Contains(new CellKey(9, 9))
           && !h.Doc.Cells.Contains(new CellKey(0, 0)),
-        "canvas move: re-place pastes again, source stays cleared");
+        "canvas move: second click after placement places nothing");
 
     // rotation: the armed snapshot rotates (R / shift+R / shift+scroll) before placement
     var h2 = new CanvasHarness();
