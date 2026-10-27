@@ -139,6 +139,11 @@ public partial class MainWindow : Window
             // System.IO.File.WriteAllText("/tmp/scratch/status.txt", msg);
         };
 
+        // a panel button click counts as a cancel of an armed move: the ghost is
+        // disarmed, rotation resets, and hotkeys are restored. the hook fires
+        // before the button's own action (see ToolPanel.AddButton).
+        ToolPanel.ButtonHook = () => { Canvas.CancelMove(); Canvas.Refresh(); FocusCanvas(); };
+
         SetTool(ToolMode.Room);
         Canvas.Refresh();
     }
@@ -163,6 +168,8 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Delete)
         {
+            // hotkeys are disabled while a move is armed and not yet placed
+            if (Canvas.HotkeysDisabled) { e.Handled = true; return; }
             // delete = erase the current selection with everything selected
             Canvas.DeleteSelection(); Canvas.Refresh(); e.Handled = true; return;
         }
@@ -171,26 +178,39 @@ public partial class MainWindow : Window
             // Enter closes the polygon by appending the first vertex
             Canvas.ClosePolygon(); Canvas.Refresh(); e.Handled = true; return;
         }
-        else if (e.Key == Key.Escape && Canvas.Mode == ToolMode.Polygon && !IsTyping())
+        else if (e.Key == Key.Escape)
         {
-            // Escape discards the vertices armed so far
-            Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return;
+            // Escape cancels an armed move (disarm ghost, reset rotation, restore
+            // hotkeys) and discards polygon vertices.
+            if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
+            if (Canvas.Mode == ToolMode.Polygon && !IsTyping())
+            { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
+        }
+        else if (e.Key == Key.R && Canvas.CanRotate && !IsTyping())
+        {
+            // R rotates the armed snapshot clockwise, Shift+R counterclockwise.
+            // Only fires when a snapshot is armed in Move/Select mode; otherwise
+            // R falls through to the Room tool hotkey.
+            Canvas.RotateRegion(e.KeyModifiers == KeyModifiers.Shift ? 1 : -1);
+            Canvas.Refresh(); e.Handled = true; return;
         }
         else if (e.KeyModifiers == KeyModifiers.None)
         {
-            // tool hotkeys from the configurable table (item 7)
-            foreach (var (modeName, keyName) in _settings.ToolHotkeys)
-            {
-                if (Enum.TryParse<Key>(keyName, out var k) && k == e.Key)
+            // tool hotkeys from the configurable table (item 7). disabled while a
+            // move is armed and not yet placed.
+            if (!Canvas.HotkeysDisabled)
+                foreach (var (modeName, keyName) in _settings.ToolHotkeys)
                 {
-                    if (Enum.TryParse<ToolMode>(modeName, out var mode))
+                    if (Enum.TryParse<Key>(keyName, out var k) && k == e.Key)
                     {
-                        SetTool(mode);
-                        e.Handled = true;
-                        return;
+                        if (Enum.TryParse<ToolMode>(modeName, out var mode))
+                        {
+                            SetTool(mode);
+                            e.Handled = true;
+                            return;
+                        }
                     }
                 }
-            }
         }
         base.OnKeyDown(e);
     }
@@ -240,14 +260,17 @@ public partial class MainWindow : Window
     private void SetTool(ToolMode mode)
     {
         FlushSettings(); // switching tools flushes pending settings changes
+        // switching tools counts as a cancel of an armed move: the ghost is
+        // disarmed, rotation resets, and hotkeys are restored.
+        Canvas.CancelMove();
         Canvas.Mode = mode;
         // re-selecting a tool resets the armed pawn template: the user expects
         // clicking the pawn tool again to clear a stale selection.
         Canvas.ArmedPawn = null;
         StatusText.Text = mode switch
         {
-            ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste",
-            ToolMode.Move => "move: drag a region to select, then click the destination to move it",
+            ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
+            ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: click-drag a rectangle. fills cells, clears interior walls/doors/stairs/labels, draws no walls",
             ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",

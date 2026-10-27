@@ -126,9 +126,19 @@ public sealed class ToolPanel : Border
     public void AddButton(string label, Action onClick)
     {
         var b = new Button { Content = label };
-        b.Click += (_, _) => onClick();
+        b.Click += (_, _) =>
+        {
+            // a panel button click counts as a cancel of an armed move (restores
+            // hotkeys); the hook fires before the button's own action.
+            ButtonHook?.Invoke();
+            onClick();
+        };
         Target.Children.Add(b);
     }
+
+    /// Fires on every panel button click. MainWindow wires this to cancel an
+    /// armed move (a button click counts as a cancel, restoring hotkeys).
+    public Action? ButtonHook { get; set; }
 
     // Append a pre-built control (e.g. a button with its own flyout).
     public void AddButtonRaw(Control c) => Target.Children.Add(c);

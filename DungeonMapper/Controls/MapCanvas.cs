@@ -104,6 +104,20 @@ public sealed class MapCanvas : Control
     private Point? _pasteCursor; // world cursor for paste ghost
     private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
+    // armed move + rotation: after a move region is dragged, the snapshot stays
+    // armed so the destination ghost persists (and can be re-placed). _rotTurns
+    // is the counterclockwise quarter-turns applied to the armed snapshot.
+    private bool _moveArmed;
+    private int _rotTurns;
+    private (int x0, int y0, int x1, int y1)? _moveSourceRect; // source region to clear on first placement
+    private bool _moveSourceCleared; // repeated placements paste again without re-clearing
+    private bool _movePlaced; // a placement happened; hotkeys restored
+    public bool MoveArmed => _moveArmed;
+    // rotation is available when a snapshot is armed in Move mode, or a clipboard
+    // exists in Select mode (copy/cut paste). In Move mode a stale clipboard from
+    // an earlier copy must NOT be rotatable - only the armed snapshot is.
+    public bool CanRotate => _clipboard is not null && !_clipboard.Empty
+        && (Mode == ToolMode.Select || (Mode == ToolMode.Move && _moveArmed));
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool EraseAdjustWalls { get; set; } = false; // Erase tool: after erasing, rebuild room boundary walls so the new outer edge gets walls
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
@@ -171,69 +185,104 @@ public sealed class MapCanvas : Control
         Commit();
     }
 
-    /// Move: capture the armed selection from the map it was selected on,
-    /// paste it at the target cell of the CURRENT map, and delete the source
-    /// region. Works cross-map: select on map1, switch to map2, click target.
+    /// Places the armed (possibly rotated) snapshot at the target cell. The
+    /// source region is cleared on the FIRST placement only (Excel-style shift,
+    /// so a move that overlaps its own source survives); later placements paste
+    /// again without re-clearing, so the ghost can be re-placed after rotation.
+    /// The armed state persists after placement so the destination ghost keeps
+    /// showing for rotation and repeat placement.
     public void MoveAt(CellKey target)
     {
-        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
-        var src = _moveSourceDoc ?? Document;
+        if (!_moveArmed || _clipboard is null || _clipboard.Empty)
+        { StatusMessage?.Invoke("nothing armed to move"); return; }
 
+        // first placement clears the source on the map it was selected on.
+        // move-pawns-only keeps the old contract: only the pawns leave the source,
+        // cells/walls/stairs/labels stay put.
+        if (!_moveSourceCleared)
+        {
+            var src = _moveSourceDoc ?? Document;
+            var (sx0, sy0, sx1, sy1) = _moveSourceRect!.Value;
+            // braces matter here: without them the else binds to the inner if inside
+            // the foreach, so the normal (non pawns-only) path never clears the source.
+            if (MovePawnsOnly)
+            {
+                foreach (var c in src.Pawns.Keys.ToList())
+                    if (c.X >= sx0 && c.X <= sx1 && c.Y >= sy0 && c.Y <= sy1) src.Pawns.Remove(c);
+            }
+            else
+            {
+                src.ClearRegion(sx0, sy0, sx1, sy1);
+            }
+            _moveSourceCleared = true;
+        }
+
+        int count; string what;
         if (MovePawnsOnly)
         {
-            // special move: capture ONLY pawns in the region. other elements stay
-            // at the source; at the destination, incompatible elements (walls,
-            // cells, stairs, labels) are removed so the pawn lands clean.
-            var pawns = new List<Pawn>();
-            foreach (var (c, p) in src.Pawns)
-                if (c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1) pawns.Add(p);
-            if (pawns.Count == 0) { StatusMessage?.Invoke("no pawns in the selection"); return; }
-            int dx = target.X - x0, dy = target.Y - y0;
-            // landing on a pawn outside the moving set SWAPS positions (unique to
-            // pawns). capture occupants before removing movers so swaps pair the
-            // occupant with the mover's source cell.
-            var swaps = new List<(CellKey dest, Pawn occupant)>();
-            foreach (var p in pawns)
-            {
-                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
-                if (Document.Pawns.TryGetValue(nc, out var occ) && !pawns.Contains(occ))
-                    swaps.Add((nc, occ));
-            }
-            foreach (var p in pawns) src.Pawns.Remove(p.Cell);
-            foreach (var p in pawns)
-            {
-                var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
-                ClearCellObstacles(Document, nc);
-                Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
-            }
-            foreach (var (dest, occ) in swaps)
-            {
-                // the mover's source cell is where the swapped occupant lands
-                var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
-                Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status };
-            }
-            StatusMessage?.Invoke(swaps.Count > 0
-                ? $"moved {pawns.Count} pawns, swapped {swaps.Count}"
-                : $"moved {pawns.Count} pawns");
-            Commit();
-            return;
+            count = PlacePawns(_clipboard, target);
+            what = $"{count} pawns";
         }
-
-        var snap = src.CaptureRegion(x0, y0, x1, y1);
-        if (snap.Empty) { StatusMessage?.Invoke("nothing to move - select a region first"); return; }
-        _clipboard = snap; // armed region shows as the paste ghost at the cursor
-        // clear the source BEFORE pasting so a move overlapping its own source
-        // survives (Excel-style shift); the snapshot is a deep clone.
-        if (ReferenceEquals(src, Document))
-            Document.MoveRegion(x0, y0, x1, y1, target.X, target.Y);
         else
         {
-            Document.PasteRegion(snap, target.X, target.Y);
-            src.ClearRegion(x0, y0, x1, y1);
+            Document.PasteRegion(_clipboard, target.X, target.Y);
+            count = _clipboard.Cells.Count;
+            what = $"{count} cells";
         }
-        StatusMessage?.Invoke($"moved {snap.Cells.Count} cells");
+        _movePlaced = true; // successful placement restores hotkeys
+        StatusMessage?.Invoke(_rotTurns != 0
+            ? $"placed {what} ({_rotTurns * 90}° ccw)"
+            : $"moved {what}");
         Commit();
+        // keep _moveArmed true: the destination ghost persists for rotation + re-place
     }
+
+    /// Places the pawns in a snapshot at the target, swapping with any occupant
+    /// pawn at a landing cell (unique to pawns). Returns the pawn count.
+    private int PlacePawns(MapDocument.RegionSnapshot snap, CellKey target)
+    {
+        int dx = target.X - snap.OriginX, dy = target.Y - snap.OriginY;
+        var swaps = new List<(CellKey dest, Pawn occupant)>();
+        foreach (var p in snap.Pawns)
+        {
+            var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+            bool moverLandsHere = snap.Pawns.Any(q => q.Cell.X + dx == nc.X && q.Cell.Y + dy == nc.Y);
+            if (!moverLandsHere && Document.Pawns.TryGetValue(nc, out var occ))
+                swaps.Add((nc, occ));
+        }
+        foreach (var p in snap.Pawns)
+        {
+            var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+            ClearCellObstacles(Document, nc);
+            Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
+        }
+        foreach (var (dest, occ) in swaps)
+        {
+            var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
+            Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status };
+        }
+        return snap.Pawns.Count;
+    }
+
+    /// Cancels an armed move: disarms the ghost, resets rotation, restores
+    /// hotkeys. Fires on Escape, tool switch, and panel button click. Map switch
+    /// deliberately KEEPS the armed move so cross-map placement works.
+    public void CancelMove()
+    {
+        if (!_moveArmed) return;
+        _moveArmed = false;
+        _movePlaced = false;
+        _rotTurns = 0;
+        _moveSourceRect = null;
+        _moveSourceCleared = false;
+        ClearSelection();
+        InvalidateVisual();
+    }
+
+    /// Hotkeys (tool-switch letters, Delete) are disabled while a move is armed
+    /// and not yet placed. A successful placement, a cancel, a tool switch, or a
+    /// panel button click restores them.
+    public bool HotkeysDisabled => _moveArmed && !_movePlaced;
 
     /// Removes everything incompatible with a pawn landing on a cell: stairs,
     /// labels, and straight walls on the cell's edges - straight walls are
@@ -299,6 +348,24 @@ public sealed class MapCanvas : Control
         _cutSource = null;
         _pasteCursor = null;
         _ghostVisible = false;
+        _moveArmed = false;
+        _rotTurns = 0;
+        _moveSourceRect = null;
+        _moveSourceCleared = false;
+    }
+
+    /// Rotates the armed snapshot by turns counterclockwise quarter-turns (R =
+    /// clockwise = -1, Shift+R / shift+scroll up = counterclockwise = +1). The
+    /// rotation is applied to the stored snapshot so the destination ghost and
+    /// the placement both reflect it. In Move mode the source region is untouched
+    /// until the first placement, so re-rotating before placing is free.
+    public void RotateRegion(int turns)
+    {
+        if (_clipboard is null || _clipboard.Empty) { StatusMessage?.Invoke("nothing armed to rotate"); return; }
+        _rotTurns = (((_rotTurns + turns) % 4) + 4) % 4;
+        _clipboard = MapDocument.Rotate(_clipboard, turns);
+        StatusMessage?.Invoke($"rotated {(_rotTurns * 90)}° ccw");
+        InvalidateVisual();
     }
 
     /// Polygon tool: close the polygon by appending the first vertex (Enter key).
@@ -726,10 +793,12 @@ public sealed class MapCanvas : Control
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
-        // shows all the time (follows the cursor); in Move mode only when a
-        // region is armed (not mid-drag), so the user sees where the move lands.
+        // shows all the time (follows the cursor); in Move mode it shows while a
+        // move is ARMED (the armed snapshot persists after a placement, so the
+        // destination ghost keeps showing for rotation and repeat placement -
+        // the old HasSelection check killed the ghost after the first move).
         bool ghostMode = Mode == ToolMode.Select
-            || (Mode == ToolMode.Move && HasSelection && !_dragging);
+            || (Mode == ToolMode.Move && _moveArmed && !_dragging);
         if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && GhostEnabled)
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
@@ -912,9 +981,10 @@ public sealed class MapCanvas : Control
             case ToolMode.Move:
                 if (Mode == ToolMode.Move && HasSelection)
                 {
-                    // a region is already armed; this click is the move target
+                    // a region is already armed; this click is the move target.
+                    // the armed snapshot persists after placement so the ghost
+                    // keeps showing for rotation and repeat placement.
                     MoveAt(cell);
-                    ClearSelection();
                     break;
                 }
                 // Select tool: clicking a cell that has a pawn shows its read-only
@@ -1219,9 +1289,18 @@ public sealed class MapCanvas : Control
                 // it at the cursor until the destination click. remember the map
                 // it was selected on so the move works after a map switch.
                 var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
-                _clipboard = Document.CaptureRegion(x0, y0, x1, y1);
-                _moveSourceDoc = Document;
-                _cutSource = null;
+                var snap = Document.CaptureRegion(x0, y0, x1, y1);
+                if (!snap.Empty)
+                {
+                    _clipboard = snap;
+                    _moveSourceDoc = Document;
+                    _cutSource = null;
+                    _moveArmed = true;
+                    _moveSourceRect = (x0, y0, x1, y1);
+                    _moveSourceCleared = false;
+                    _movePlaced = false;
+                    _rotTurns = 0;
+                }
             }
             if (_selectStart == _selectEnd)
             {
@@ -1341,6 +1420,15 @@ public sealed class MapCanvas : Control
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
     {
+        // shift + scroll rotates the armed snapshot instead of zooming: scroll up
+        // = counterclockwise, scroll down = clockwise. Only when a snapshot is
+        // armed in Move/Select mode; otherwise shift+scroll falls through to zoom.
+        if (e.KeyModifiers == KeyModifiers.Shift && CanRotate)
+        {
+            RotateRegion(e.Delta.Y > 0 ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
         var cursor = e.GetPosition(this);
         var worldCursor = ScreenToWorld(cursor);
         double factor = e.Delta.Y > 0 ? 1.15 : 1 / 1.15;

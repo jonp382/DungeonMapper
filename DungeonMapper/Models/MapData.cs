@@ -703,6 +703,93 @@ public sealed class MapDocument
         AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1));
     }
 
+    /// Rotates a snapshot counterclockwise by turns*90 degrees around its origin
+    /// and returns a NEW snapshot with the same origin. In y-down screen coords a
+    /// lattice vertex rotates CCW as (dx,dy) -> (dy,-dx); cell keys are top-left
+    /// corners, so rotating the cell REGION CCW shifts the key one extra step and
+    /// cells use (dx,dy) -> (dy,-dx-1). Wall sides rotate CCW (North->West->South->
+    /// East), stair directions rotate CCW (Up->Left->Down->Right), angled wall
+    /// endpoints rotate around the origin, and angled door T (distance along the
+    /// segment) is preserved. Used by the move/copy rotation (R / Shift+R /
+    /// shift+scroll).
+    public static RegionSnapshot Rotate(RegionSnapshot snap, int turns)
+    {
+        turns = ((turns % 4) + 4) % 4;
+        if (turns == 0) return snap;
+        int x0 = snap.OriginX, y0 = snap.OriginY;
+        (int, int) RotPoint(int x, int y)
+        {
+            int dx = x - x0, dy = y - y0;
+            for (int i = 0; i < turns; i++) (dx, dy) = (dy, -dx);
+            return (x0 + dx, y0 + dy);
+        }
+        (int, int) RotCell(int x, int y)
+        {
+            int dx = x - x0, dy = y - y0;
+            for (int i = 0; i < turns; i++) (dx, dy) = (dy, -dx - 1);
+            return (x0 + dx, y0 + dy);
+        }
+        Side RotSide(Side s)
+        {
+            for (int i = 0; i < turns; i++)
+                s = s switch { Side.North => Side.West, Side.West => Side.South,
+                               Side.South => Side.East, _ => Side.North };
+            return s;
+        }
+        StairDirection RotDir(StairDirection d)
+        {
+            for (int i = 0; i < turns; i++)
+                d = d switch { StairDirection.Up => StairDirection.Left,
+                               StairDirection.Left => StairDirection.Down,
+                               StairDirection.Down => StairDirection.Right,
+                               _ => StairDirection.Up };
+            return d;
+        }
+
+        var s = new RegionSnapshot { OriginX = x0, OriginY = y0 };
+        foreach (var c in snap.Cells)
+        {
+            var (rx, ry) = RotCell(c.X, c.Y);
+            s.Cells.Add(new CellKey(rx, ry));
+        }
+        foreach (var (e, w) in snap.Walls)
+        {
+            var (rx, ry) = RotCell(e.Cell.X, e.Cell.Y);
+            s.Walls[EdgeKey.Normalize(new CellKey(rx, ry), RotSide(e.Side))] = w;
+        }
+        foreach (var (e, d) in snap.Doors)
+        {
+            var (rx, ry) = RotCell(e.Cell.X, e.Cell.Y);
+            var edge = EdgeKey.Normalize(new CellKey(rx, ry), RotSide(e.Side));
+            s.Doors[edge] = new Door { Type = d.Type, State = d.State };
+        }
+        foreach (var (c, st) in snap.Stairs)
+        {
+            var (rx, ry) = RotCell(c.X, c.Y);
+            s.Stairs[new CellKey(rx, ry)] = new Stair { Direction = RotDir(st.Direction), TargetMap = st.TargetMap };
+        }
+        foreach (var l in snap.Labels)
+        {
+            var (rx, ry) = RotCell(l.Cell.X, l.Cell.Y);
+            s.Labels.Add(new MapLabel { Cell = new CellKey(rx, ry), Text = l.Text });
+        }
+        foreach (var p in snap.Pawns)
+        {
+            var (rx, ry) = RotCell(p.Cell.X, p.Cell.Y);
+            s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Status = p.Status });
+        }
+        foreach (var w in snap.AngledWalls)
+        {
+            var (ax, ay) = RotPoint(w.Ax, w.Ay);
+            var (bx, by) = RotPoint(w.Bx, w.By);
+            var nw = new AngledWall(ax, ay, bx, by);
+            s.AngledWalls.Add(nw);
+            if (snap.AngledDoors.TryGetValue(w, out var doors))
+                s.AngledDoors[nw] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+        }
+        return s;
+    }
+
     /// Moves a rectangular region: captures it, clears the source, then pastes
     /// at the target origin. Clearing BEFORE pasting means a move that overlaps
     /// its own source survives (Excel-style shift) - the snapshot is a deep clone.

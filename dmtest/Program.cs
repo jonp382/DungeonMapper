@@ -993,5 +993,131 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(!aw3.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "adjust walls: bisection wall on the erased row is gone");
 }
 
+// --- rotation (move/copy R / Shift+R / shift+scroll): CCW quarter-turns around origin ---
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 1, 1); // cells (0,0),(1,0),(0,1),(1,1) + perimeter walls
+    d.SetWall(new EdgeKey(new CellKey(0, 0), Side.East), true); // interior wall
+    d.Stairs[new CellKey(1, 1)] = new Stair { Direction = StairDirection.Up };
+    d.Labels.Add(new MapLabel { Cell = new CellKey(0, 0), Text = "x" });
+    d.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "t", Status = "none" };
+    d.Doors[EdgeKey.Normalize(new CellKey(1, 0), Side.North)] = new Door { Type = "standard", State = DoorState.Locked };
+    var snap = d.CaptureRegion(0, 0, 1, 1);
+
+    var r1 = MapDocument.Rotate(snap, 1); // one CCW quarter-turn
+    Check(r1.OriginX == 0 && r1.OriginY == 0, "rotate: origin anchor preserved");
+    Check(r1.Cells.Count == 4 && r1.Cells.Contains(new CellKey(0, -1)) && r1.Cells.Contains(new CellKey(0, -2))
+        && r1.Cells.Contains(new CellKey(1, -1)) && r1.Cells.Contains(new CellKey(1, -2)),
+        "rotate ccw: 2x2 block maps to x[0,2] y[-2,0] (cell (1,0) -> (0,-2))");
+    Check(r1.Stairs[new CellKey(1, -2)].Direction == StairDirection.Left, "rotate ccw: stair Up -> Left at rotated cell");
+    Check(r1.Labels.Any(l => l.Cell == new CellKey(0, -1) && l.Text == "x"), "rotate ccw: label cell rotates");
+    Check(r1.Pawns.Any(p => p.Cell == new CellKey(0, -2) && p.TemplateId == "t"), "rotate ccw: pawn cell rotates");
+    Check(r1.Walls[EdgeKey.Normalize(new CellKey(0, -1), Side.North)], "rotate ccw: interior wall East -> North at rotated cell");
+    Check(r1.Walls[EdgeKey.Normalize(new CellKey(0, -2), Side.West)], "rotate ccw: outer wall North -> West at rotated cell");
+    var door = r1.Doors[EdgeKey.Normalize(new CellKey(0, -2), Side.West)];
+    Check(door is not null && door.Type == "standard" && door.State == DoorState.Locked, "rotate ccw: door travels with its wall, type/state kept");
+
+    var r4 = MapDocument.Rotate(MapDocument.Rotate(MapDocument.Rotate(MapDocument.Rotate(snap, 1), 1), 1), 1);
+    Check(r4.Cells.SetEquals(snap.Cells) && r4.Walls.Count == snap.Walls.Count, "rotate: 4 ccw quarter-turns = identity");
+
+    var cw = MapDocument.Rotate(snap, -1); // clockwise = 3 ccw
+    Check(cw.Cells.Contains(new CellKey(-2, 0)) && !cw.Cells.Contains(new CellKey(0, -1)),
+        "rotate cw: cell (0,1) maps to (-2,0), ccw layout not reused");
+    Check(cw.Stairs[new CellKey(-2, 1)].Direction == StairDirection.Right, "rotate cw: stair Up -> Right");
+
+    // stair direction chain over 4 ccw turns: Up -> Left -> Down -> Right -> Up.
+    // the snapshot origin is the top-left corner (0,0); the stair cell (1,0)
+    // orbits that corner: (1,0) -> (0,-2) -> (-2,-1) -> (-1,1) -> (1,0).
+    var st = new MapDocument();
+    st.Stairs[new CellKey(1, 0)] = new Stair { Direction = StairDirection.Up };
+    var ss = st.CaptureRegion(0, 0, 1, 0);
+    var a = MapDocument.Rotate(ss, 1);
+    var b = MapDocument.Rotate(a, 1);
+    var c = MapDocument.Rotate(b, 1);
+    var e = MapDocument.Rotate(c, 1);
+    Check(a.Stairs[new CellKey(0, -2)].Direction == StairDirection.Left
+        && b.Stairs[new CellKey(-2, -1)].Direction == StairDirection.Down
+        && c.Stairs[new CellKey(-1, 1)].Direction == StairDirection.Right
+        && e.Stairs[new CellKey(1, 0)].Direction == StairDirection.Up,
+        "rotate: stair chain Up->Left->Down->Right->Up, cell orbits the origin corner");
+
+    // angled wall + door T preserved
+    var aw = new MapDocument();
+    var wall = new AngledWall(0, 0, 1, 1);
+    aw.AngledWalls.Add(wall);
+    aw.AngledDoors[wall] = new List<AngledDoor> { new AngledDoor { T = 0.5, Type = "standard", State = DoorState.Closed } };
+    var asnap = aw.CaptureRegion(0, 0, 1, 1);
+    var ar = MapDocument.Rotate(asnap, 1);
+    Check(ar.AngledWalls.Count == 1 && ar.AngledWalls[0].Ax == 0 && ar.AngledWalls[0].Ay == 0
+        && ar.AngledWalls[0].Bx == 1 && ar.AngledWalls[0].By == -1, "rotate ccw: angled wall endpoints (1,1) -> (1,-1)");
+    Check(ar.AngledDoors[ar.AngledWalls[0]][0].T == 0.5, "rotate ccw: angled door T preserved");
+
+    // paste the rotated snapshot: content lands offset from the target origin
+    var d2 = new MapDocument();
+    d2.PasteRegion(r1, 10, 10);
+    Check(d2.Cells.Contains(new CellKey(10, 8)) && d2.Cells.Contains(new CellKey(11, 9)),
+        "rotate paste: rotated cells land at target (10,10)");
+    Check(d2.HasWall(EdgeKey.Normalize(new CellKey(10, 8), Side.West)), "rotate paste: rotated wall lands at target");
+}
+
+{
+// appended to Program.cs content via scratch: simulate MoveAt's model sequence
+var d = new MapDocument();
+d.AddRoom(0, 0, 1, 1);
+var snap = d.CaptureRegion(0, 0, 1, 1);
+d.ClearRegion(0, 0, 1, 1);
+d.PasteRegion(snap, 5, 5);
+Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)),
+    "move sim: source cleared, paste lands at target");
+
+}
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 1, 1);
+    var snap = d.CaptureRegion(0, 0, 1, 1);
+    d.ClearRegion(0, 0, 1, 1);
+    d.PasteRegion(snap, 0, 0); // destination == source origin (rotate-in-place)
+    Check(d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(1, 1)),
+        "overlap sim: paste at source origin re-creates source content (looks like 'not cleared')");
+}
+
+// --- move tool driven through the REAL canvas pointer handlers (headless) ---
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 1, 1);
+    h.Canvas.Mode = ToolMode.Move;
+    h.Drag(0, 0, 1, 1);
+    Check(h.Canvas.MoveArmed, "canvas move: drag-select arms the move");
+
+    h.Click(5, 5);
+    Check(!h.Doc.Cells.Contains(new CellKey(0, 0)) && !h.Doc.Cells.Contains(new CellKey(1, 1)),
+        "canvas move: source region cleared after destination click");
+    Check(h.Doc.Cells.Contains(new CellKey(5, 5)) && h.Doc.Cells.Contains(new CellKey(6, 6)),
+        "canvas move: pasted content lands at destination");
+    Check(h.Doc.Cells.Count == 4, "canvas move: exactly the moved cells remain, no source left behind");
+
+    // a second placement pastes again without re-clearing the already-cleared source
+    h.Click(9, 9);
+    Check(h.Doc.Cells.Count == 8 && h.Doc.Cells.Contains(new CellKey(9, 9))
+          && !h.Doc.Cells.Contains(new CellKey(0, 0)),
+        "canvas move: re-place pastes again, source stays cleared");
+
+    // rotation: the armed snapshot rotates (R / shift+R / shift+scroll) before placement
+    var h2 = new CanvasHarness();
+    h2.Doc.AddRoom(0, 0, 2, 0); // horizontal 3-cell bar
+    h2.Canvas.Mode = ToolMode.Move;
+    h2.Drag(0, 0, 2, 0);
+    Check(h2.Canvas.MoveArmed, "canvas move: rotation run arms the move");
+    h2.Canvas.RotateRegion(1); // 90 deg ccw: bar turns vertical
+    h2.Click(5, 5);
+    Check(!h2.Doc.Cells.Contains(new CellKey(0, 0)) && !h2.Doc.Cells.Contains(new CellKey(2, 0)),
+        "canvas move: rotated placement clears the source");
+    Check(h2.Doc.Cells.Count == 3 && h2.Doc.Cells.Contains(new CellKey(5, 2))
+          && h2.Doc.Cells.Contains(new CellKey(5, 3)) && h2.Doc.Cells.Contains(new CellKey(5, 4)),
+        "canvas move: rotated content lands vertical at destination");
+    h.Dispose();
+    h2.Dispose();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

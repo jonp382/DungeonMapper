@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DungeonMapper\DungeonMapper.csproj" />
+    <PackageReference Include="Avalonia.Headless" Version="12.1.1" />
   </ItemGroup>
 
   <PropertyGroup>
