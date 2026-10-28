@@ -22,6 +22,14 @@ public sealed class MapFileDto
     [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
     [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
     [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
+    [JsonPropertyName("polygons")] public List<PolygonDto> Polygons { get; set; } = new();
+}
+
+public sealed class PolygonDto
+{
+    // closed vertex loop of LATTICE points "x,y" (cell corners); the exact
+    // polygon floor shape. v1 files have no polygons field.
+    [JsonPropertyName("verts")] public List<string> Verts { get; set; } = new();
 }
 
 public sealed class AngledDoorDto
@@ -89,7 +97,8 @@ public static class MapSerializer
     // Increment ONLY when the wire format changes in a way old maps cannot load
     // as-is; app-only additive changes with backwards-compatible defaults do NOT
     // increment (the map porter app ports old files to the latest spec).
-    public const int MapSpecVersion = 1;
+    // v2 adds the "polygons" field (polygon rooms stored as vertex loops).
+    public const int MapSpecVersion = 2;
     public const int ProjectSpecVersion = 2;
 
     private static readonly JsonSerializerOptions Opts = new()
@@ -132,6 +141,20 @@ public static class MapSerializer
             var door = new AngledDoor { T = d.T, Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
             if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
             list.Add(door);
+        }
+    }
+
+    // shared loader for polygon rooms. v1 files have no polygons field (the
+    // list stays empty), so an old file loads with no polygons; the map porter
+    // app ports v1 files to the v2 shape.
+    private static void AddPolygons(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var d in dto.Polygons)
+        {
+            var loop = new List<(int x, int y)>();
+            foreach (var s in d.Verts)
+                if (TryParseCell(s, out var c)) loop.Add((c.X, c.Y));
+            if (loop.Count >= 3) doc.Polygons.Add(new PolygonRoom { Verts = loop });
         }
     }
 
@@ -187,6 +210,12 @@ public static class MapSerializer
             foreach (var d in doc.GetAngledDoors(w))
                 dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         }
+        foreach (var p in doc.Polygons)
+        {
+            var pd = new PolygonDto();
+            foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
+            dto.Polygons.Add(pd);
+        }
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -240,6 +269,7 @@ public static class MapSerializer
         }
         AddPawns(dto, doc);
         AddAngled(dto, doc);
+        AddPolygons(dto, doc);
         return doc;
     }
 
@@ -292,6 +322,12 @@ public static class MapSerializer
             foreach (var d in doc.GetAngledDoors(w))
                 dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         }
+        foreach (var p in doc.Polygons)
+        {
+            var pd = new PolygonDto();
+            foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
+            dto.Polygons.Add(pd);
+        }
         return dto;
     }
 
@@ -327,6 +363,7 @@ public static class MapSerializer
         }
         AddPawns(dto, doc);
         AddAngled(dto, doc);
+        AddPolygons(dto, doc);
         return doc;
     }
 }

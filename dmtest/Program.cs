@@ -1120,5 +1120,97 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     h2.Dispose();
 }
 
+// --- polygon rooms: first-class object, exact floor geometry, erase, move, rotate, json ---
+{
+    var d = new MapDocument();
+    d.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 3), (0, 3) });
+    Check(d.Polygons.Count == 1, "polygon: vertex loop stored as first-class object");
+    Check(d.Polygons[0].Verts.Count == 4 && d.Polygons[0].Verts[0] == (0, 0),
+        "polygon: verts stored verbatim");
+    Check(d.Cells.Count == 9, "polygon: fill cells derived from the loop");
+}
+{
+    // the sliver test: triangle (0,0)-(4,0)-(0,4). Cell (3,0) has its center
+    // (3.5,0.5) OUTSIDE the hypotenuse x+y=4, so the old center test drew no
+    // floor there, yet the triangle clips a sliver of the cell. Sample real
+    // pixels off a headless software render: the sliver pixel must be floored
+    // (exact geometry), the outside pixel must not. Screen = (world + 1) * 40.
+    var h = new CanvasHarness();
+    h.Doc.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) });
+    var bmp = h.Render();
+    var floor = h.PixelAt(bmp, 60, 60);    // cell (0,0) center, fully inside
+    var sliver = h.PixelAt(bmp, 184, 52);  // inside the clipped sliver of cell (3,0)
+    var outside = h.PixelAt(bmp, 196, 76); // past the hypotenuse
+    Check(floor.a > 0 && floor.r + floor.g + floor.b > 0,
+        "polygon render: fully-inside cell is floored");
+    Check(sliver.r == floor.r && sliver.g == floor.g && sliver.b == floor.b && sliver.a > 0,
+        "polygon render: clipped sliver gets floor (exact geometry, not center test)");
+    Check(!(outside.r == floor.r && outside.g == floor.g && outside.b == floor.b),
+        "polygon render: area outside the polygon stays unfloored");
+    h.Dispose();
+}
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 2, 2);
+    d.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (3, 3) }, strict: true);
+    Check(MapDocument.PolygonTouchesRect(d.Polygons[0], 3, 0, 5, 2),
+        "polygon: touches the erase rect (hypotenuse crosses it)");
+    d.ClearRegion(3, 0, 5, 2);
+    Check(d.Polygons.Count == 0, "erase: polygon object removed whole");
+    Check(!d.Cells.Contains(new CellKey(4, 0)) && !d.Cells.Contains(new CellKey(3, 2)),
+        "erase: polygon fill cells removed");
+    Check(d.AngledWalls.Count == 0, "erase: polygon angled walls removed");
+    Check(d.Cells.Contains(new CellKey(2, 0)) && d.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
+        "erase: room boundary re-derived, shared wall restored");
+}
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 2, 2);
+    h.Doc.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (3, 3) }, strict: true);
+    h.Canvas.Mode = ToolMode.Erase;
+    h.Canvas.EraseAdjustWalls = true; // the live app turns this on via the tool panel
+    h.Drag(3, 0, 5, 2);
+    Check(h.Doc.Polygons.Count == 0, "canvas erase tool: polygon removed whole");
+    Check(h.Doc.AngledWalls.Count == 0, "canvas erase tool: angled walls removed with the polygon");
+    Check(h.Doc.Cells.Contains(new CellKey(2, 0)) && h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
+        "canvas erase tool: room east wall re-derived");
+    h.Dispose();
+}
+{
+    var d = new MapDocument();
+    d.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) });
+    var snap = d.CaptureRegion(0, 0, 1, 1); // selection clips the polygon corner
+    Check(snap.Polygons.Count == 1, "move: whole polygon captured when the selection touches it");
+    d.ClearRegion(0, 0, 1, 1);
+    d.PasteRegion(snap, 10, 10);
+    Check(d.Polygons.Count == 1 && d.Polygons[0].Verts[0] == (10, 10) && d.Polygons[0].Verts[1] == (14, 10),
+        "move: whole polygon translated to the destination");
+    Check(d.Cells.Contains(new CellKey(12, 10)) && d.Cells.Contains(new CellKey(10, 12)),
+        "move: fill cells outside the selection re-derived at the destination");
+    Check(!d.Cells.Contains(new CellKey(0, 0)), "move: source cleared");
+}
+{
+    var d = new MapDocument();
+    d.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (2, 1) });
+    var snap = d.CaptureRegion(0, 0, 2, 1);
+    var r = MapDocument.Rotate(snap, 1);
+    Check(r.Polygons.Count == 1 && r.Polygons[0].Verts[1] == (0, -2) && r.Polygons[0].Verts[2] == (1, -2),
+        "rotate: polygon verts rotate with the snapshot");
+}
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 1, 1);
+    d.AddPolygon(new List<(int, int)> { (2, 0), (5, 0), (2, 3) });
+    string mapJson = MapSerializer.ToJson(d);
+    Check(mapJson.Contains("polygons") && mapJson.Contains("\"version\": 2"),
+        "json: polygons saved with version 2");
+    var back = MapSerializer.FromJson(mapJson);
+    Check(back.Polygons.Count == 1 && back.Polygons[0].Verts.Count == 3 && back.Polygons[0].Verts[1] == (5, 0),
+        "json: polygons round-trip");
+    string v1 = mapJson.Replace("\"polygons\"", "\"polygons_x\"");
+    var old = MapSerializer.FromJson(v1);
+    Check(old.Polygons.Count == 0, "json: v1 file (no polygons field) loads with no polygons");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

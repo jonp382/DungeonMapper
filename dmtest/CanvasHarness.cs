@@ -2,7 +2,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.Themes.Fluent;
+using System.Runtime.InteropServices;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
@@ -24,6 +27,7 @@ public sealed class CanvasHarness : IDisposable
 
     public MapCanvas Canvas { get; }
     public MapDocument Doc { get; }
+    public Window Window => _window;
     public List<string> Statuses { get; } = new();
 
     public CanvasHarness()
@@ -31,18 +35,20 @@ public sealed class CanvasHarness : IDisposable
         if (!_appStarted)
         {
             AppBuilder.Configure<HeadlessTestApp>()
-                .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = true })
+                .UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false })
+                .UseSkia()
                 .SetupWithoutStarting();
             _appStarted = true;
         }
         Doc = new MapDocument();
-        Canvas = new MapCanvas { Document = Doc };
+        Canvas = new MapCanvas();
+        Canvas.Document = Doc;
         Canvas.StatusMessage += s => Statuses.Add(s);
         _window = new Window { Content = Canvas };
         _window.Show();
         _window.ApplyTemplate();
-        Canvas.Measure(new Size(1000, 700));
-        Canvas.Arrange(new Rect(0, 0, 1000, 700));
+        _window.Measure(new Size(1000, 700));
+        _window.Arrange(new Rect(0, 0, 1000, 700));
     }
 
     /// Window point at the center of cell (cx, cy) under the startup transform.
@@ -68,6 +74,32 @@ public sealed class CanvasHarness : IDisposable
     }
 
     public string LastStatus => Statuses.Count > 0 ? Statuses[^1] : "(none)";
+
+    /// Render the window to a bitmap. With UseHeadlessDrawing = false the
+    /// headless platform runs the software renderer, so RenderTargetBitmap
+    /// produces real pixels.
+    public RenderTargetBitmap Render(int w = 1000, int h = 700)
+    {
+        var bmp = new RenderTargetBitmap(new PixelSize(w, h), new Vector(96, 96));
+        bmp.Render(_window);
+        return bmp;
+    }
+
+    /// Read one pixel: CopyPixels a 1x1 region into an opaque Bgra8888 target
+    /// and read the framebuffer. Transparent source pixels flatten to black.
+    public (byte r, byte g, byte b, byte a) PixelAt(RenderTargetBitmap bmp, int x, int y)
+    {
+        var target = new WriteableBitmap(new PixelSize(1, 1), new Vector(96, 96),
+            Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+        using var lockInfo = target.Lock();
+        bmp.CopyPixels(new PixelRect(x, y, 1, 1), lockInfo.Address, 4, 4);
+        IntPtr addr = lockInfo.Address;
+        byte b = Marshal.ReadByte(addr, 0);
+        byte g = Marshal.ReadByte(addr, 1);
+        byte r = Marshal.ReadByte(addr, 2);
+        byte a = Marshal.ReadByte(addr, 3);
+        return (r, g, b, a);
+    }
 
     public void Dispose() => _window.Close();
 }

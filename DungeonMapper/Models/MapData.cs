@@ -13,6 +13,16 @@ public readonly record struct CellKey(int X, int Y);
 /// are stored as EdgeKey walls, so this type only holds diagonal segments.
 public readonly record struct AngledWall(int Ax, int Ay, int Bx, int By);
 
+/// A polygon room: the closed vertex loop of LATTICE points (integer grid
+/// intersections = cell corners). The loop is the exact floor shape - the floor
+/// renders as this geometry, not as cell squares. Fill cells are derived from
+/// the loop (PolygonFillCells), so geometry and cells cannot drift.
+public sealed class PolygonRoom
+{
+    public List<(int x, int y)> Verts { get; set; } = new();
+    public PolygonRoom Clone() => new PolygonRoom { Verts = new List<(int x, int y)>(Verts) };
+}
+
 /// A door on an angled wall. The door sits at parameter T (0..1) along its wall
 /// segment, centered, with a fixed projected width of 1 cell (matching axis-aligned
 /// doors). Type/State mirror the edge Door. Multiple doors may sit on one segment.
@@ -143,6 +153,7 @@ public sealed class MapDocument
     public Dictionary<CellKey, Pawn> Pawns { get; } = new();
     public List<AngledWall> AngledWalls { get; } = new();
     public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
+    public List<PolygonRoom> Polygons { get; } = new();
 
     /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
     /// occupied cell replaces the existing pawn.
@@ -378,46 +389,10 @@ public sealed class MapDocument
 
         foreach (var c in fill) Cells.Add(c);
 
-        // boundary edges: axis-aligned unit segments get walls (left open when
-        // passageway and the cell across the edge is an existing room); diagonal
-        // edges become AngledWall segments.
-        for (int i = 0; i < verts.Count; i++)
-        {
-            var (ax, ay) = verts[i];
-            var (bx, by) = verts[(i + 1) % verts.Count];
-            if (ax == bx) // vertical edge at x=ax
-            {
-                int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
-                for (int y = y0; y < y1; y++)
-                {
-                    var left = new CellKey(ax - 1, y);
-                    var right = new CellKey(ax, y);
-                    bool leftIn = fill.Contains(left), rightIn = fill.Contains(right);
-                    if (leftIn && rightIn) continue; // true interior edge, no boundary wall
-                    var exterior = leftIn ? right : left; // side not in fill (or left when both out)
-                    if (!strict && passageway && existing.Contains(exterior)) continue; // open passage
-                    SetWall(new EdgeKey(left, Side.East), true);
-                }
-            }
-            else if (ay == by) // horizontal edge at y=ay
-            {
-                int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
-                for (int x = x0; x < x1; x++)
-                {
-                    var top = new CellKey(x, ay - 1);
-                    var bottom = new CellKey(x, ay);
-                    bool topIn = fill.Contains(top), bottomIn = fill.Contains(bottom);
-                    if (topIn && bottomIn) continue; // true interior edge
-                    var exterior = topIn ? bottom : top;
-                    if (!strict && passageway && existing.Contains(exterior)) continue;
-                    SetWall(new EdgeKey(bottom, Side.North), true);
-                }
-            }
-            else
-            {
-                AngledWalls.Add(new AngledWall(ax, ay, bx, by));
-            }
-        }
+        // the loop is stored as a first-class object: the exact floor shape.
+        Polygons.Add(new PolygonRoom { Verts = new List<(int x, int y)>(verts) });
+
+        ApplyPolygonBoundary(verts, fill, existing, passageway, strict);
 
         // interior walls removed so adjacent rooms merge (skipped in strict mode).
         // Mirror AddRoom: remove walls between two cells in the MERGED region
@@ -460,6 +435,118 @@ public sealed class MapDocument
                 if (PointInPolygon(x + 0.5, y + 0.5, verts))
                     cells.Add(new CellKey(x, y));
         return cells;
+    }
+
+    /// Decomposes a polygon loop's edges: axis-aligned unit segments get walls
+    /// (left open when passageway and the cell across the edge is an existing
+    /// room); diagonal edges become AngledWall segments. Shared by AddPolygon
+    /// and paste.
+    private void ApplyPolygonBoundary(List<(int x, int y)> verts, HashSet<CellKey> fill,
+        HashSet<CellKey> existing, bool passageway, bool strict)
+    {
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (ax == bx) // vertical edge at x=ax
+            {
+                int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+                for (int y = y0; y < y1; y++)
+                {
+                    var left = new CellKey(ax - 1, y);
+                    var right = new CellKey(ax, y);
+                    bool leftIn = fill.Contains(left), rightIn = fill.Contains(right);
+                    if (leftIn && rightIn) continue; // true interior edge, no boundary wall
+                    var exterior = leftIn ? right : left; // side not in fill (or left when both out)
+                    if (!strict && passageway && existing.Contains(exterior)) continue; // open passage
+                    SetWall(new EdgeKey(left, Side.East), true);
+                }
+            }
+            else if (ay == by) // horizontal edge at y=ay
+            {
+                int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+                for (int x = x0; x < x1; x++)
+                {
+                    var top = new CellKey(x, ay - 1);
+                    var bottom = new CellKey(x, ay);
+                    bool topIn = fill.Contains(top), bottomIn = fill.Contains(bottom);
+                    if (topIn && bottomIn) continue; // true interior edge
+                    var exterior = topIn ? bottom : top;
+                    if (!strict && passageway && existing.Contains(exterior)) continue;
+                    SetWall(new EdgeKey(bottom, Side.North), true);
+                }
+            }
+            else
+            {
+                AngledWalls.Add(new AngledWall(ax, ay, bx, by));
+            }
+        }
+    }
+
+    /// True when ANY PART of the polygon touches the rectangle [x0,y0]-[x1,y1]
+    /// (world bounds x in [x0, x1+1], y in [y0, y1+1]): any polygon edge crosses
+    /// the rect (Liang-Barsky, the same test as angled walls), or a rect corner
+    /// sits inside the polygon (the rect fully covered). "Any overlap counts",
+    /// the same rule as angled walls: a polygon clipped by the region edge
+    /// counts as touched, so erase/capture/move take the WHOLE polygon object.
+    public static bool PolygonTouchesRect(PolygonRoom p, int x0, int y0, int x1, int y1)
+    {
+        var verts = p.Verts;
+        if (verts.Count < 3) return false;
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (AngledWallIntersectsRect(new AngledWall(ax, ay, bx, by), x0, y0, x1, y1)) return true;
+        }
+        for (int x = x0; x <= x1 + 1; x++)
+            for (int y = y0; y <= y1 + 1; y++)
+                if (PointInPolygon(x, y, verts)) return true;
+        return false;
+    }
+
+    /// Removes a polygon as a whole object: the loop, its fill cells, its
+    /// axis-aligned boundary walls (doors auto-removed by SetWall), and its
+    /// angled walls with their doors. Surviving rooms' boundaries are NOT
+    /// rebuilt here - callers run RebuildRoomBoundaryWalls after all removals
+    /// so the new outer edges get fresh walls (the erase tool's rebuild path
+    /// already does exactly this).
+    public void RemovePolygon(PolygonRoom p)
+    {
+        if (!Polygons.Remove(p)) return;
+        foreach (var c in PolygonFillCells(p.Verts))
+        {
+            Cells.Remove(c);
+            Stairs.Remove(c);
+            Pawns.Remove(c);
+            Labels.RemoveAll(l => l.Cell == c);
+        }
+        for (int i = 0; i < p.Verts.Count; i++)
+        {
+            var (ax, ay) = p.Verts[i];
+            var (bx, by) = p.Verts[(i + 1) % p.Verts.Count];
+            if (ax == bx)
+            {
+                int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+                for (int y = y0; y < y1; y++) SetWall(new EdgeKey(new CellKey(ax - 1, y), Side.East), false);
+            }
+            else if (ay == by)
+            {
+                int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+                for (int x = x0; x < x1; x++) SetWall(new EdgeKey(new CellKey(x, ay), Side.North), false);
+            }
+            else
+            {
+                var w = AngledWalls.FirstOrDefault(x =>
+                    (x.Ax == ax && x.Ay == ay && x.Bx == bx && x.By == by) ||
+                    (x.Ax == bx && x.Ay == by && x.Bx == ax && x.By == ay));
+                if (w != default)
+                {
+                    AngledDoors.Remove(w);
+                    AngledWalls.Remove(w);
+                }
+            }
+        }
     }
 
     /// True when the angled wall segment touches ANY PART of the rectangle
@@ -573,9 +660,11 @@ public sealed class MapDocument
         public List<Pawn> Pawns = new();
         public List<AngledWall> AngledWalls = new();
         public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
+        public List<PolygonRoom> Polygons = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
                               && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
-                              && AngledWalls.Count == 0 && AngledDoors.Count == 0;
+                              && AngledWalls.Count == 0 && AngledDoors.Count == 0
+                              && Polygons.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -611,12 +700,16 @@ public sealed class MapDocument
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
         foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status });
         foreach (var w in AngledWalls)
-            if (AngledWallIntersectsRect(w, x0, y0, x1, y1))
-            {
-                snap.AngledWalls.Add(w);
-                if (AngledDoors.TryGetValue(w, out var doors))
-                    snap.AngledDoors[w] = doors; // doors travel with their wall
-            }
+        {
+            if (!AngledWallIntersectsRect(w, x0, y0, x1, y1)) continue;
+            snap.AngledWalls.Add(w);
+            if (AngledDoors.TryGetValue(w, out var doors))
+                snap.AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+        }
+        // polygons touching the region travel as whole objects (the move/copy
+        // contract: the WHOLE polygon moves, even the parts outside the rect)
+        foreach (var p in Polygons)
+            if (PolygonTouchesRect(p, x0, y0, x1, y1)) snap.Polygons.Add(p.Clone());
         return snap;
     }
 
@@ -657,6 +750,18 @@ public sealed class MapDocument
                     list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State });
             }
         }
+        foreach (var p in snap.Polygons)
+        {
+            var loop = new List<(int x, int y)>();
+            foreach (var (vx, vy) in p.Verts) loop.Add((vx + dx, vy + dy));
+            Polygons.Add(new PolygonRoom { Verts = loop });
+            // the polygon's fill cells and boundary walls can reach outside the
+            // pasted rect, so they are re-derived from the translated loop
+            // (strict: every boundary edge walled, no passageway merging).
+            var fill = PolygonFillCells(loop);
+            foreach (var c in fill) Cells.Add(c);
+            ApplyPolygonBoundary(loop, fill, new HashSet<CellKey>(), false, true);
+        }
     }
 
     /// Replaces all content of this document with the content of another.
@@ -680,6 +785,8 @@ public sealed class MapDocument
         AngledDoors.Clear();
         foreach (var (w, doors) in other.AngledDoors)
             AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+        Polygons.Clear();
+        foreach (var p in other.Polygons) Polygons.Add(p.Clone());
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -701,6 +808,14 @@ public sealed class MapDocument
         foreach (var w in AngledWalls)
             if (AngledWallIntersectsRect(w, x0, y0, x1, y1)) AngledDoors.Remove(w);
         AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1));
+
+        // polygons touching the rect are removed as whole objects (loop, fill
+        // cells, boundary walls, angled walls, doors). Their fill cells can
+        // reach outside the rect, so the rebuild restores the surviving rooms'
+        // boundaries after the removal.
+        var doomed = Polygons.Where(p => PolygonTouchesRect(p, x0, y0, x1, y1)).ToList();
+        foreach (var p in doomed) RemovePolygon(p);
+        if (doomed.Count > 0) RebuildRoomBoundaryWalls();
     }
 
     /// Rotates a snapshot counterclockwise by turns*90 degrees around its origin
@@ -787,6 +902,12 @@ public sealed class MapDocument
             if (snap.AngledDoors.TryGetValue(w, out var doors))
                 s.AngledDoors[nw] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
         }
+        foreach (var p in snap.Polygons)
+        {
+            var loop = new List<(int x, int y)>();
+            foreach (var (vx, vy) in p.Verts) loop.Add(RotPoint(vx, vy));
+            s.Polygons.Add(new PolygonRoom { Verts = loop });
+        }
         return s;
     }
 
@@ -821,6 +942,15 @@ public sealed class MapDocument
             if (w.By < minY) minY = w.By; if (w.By > maxY) maxY = w.By;
             any = true;
         }
+        foreach (var p in Polygons)
+            foreach (var (vx, vy) in p.Verts)
+            {
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vy < minY) minY = vy;
+                if (vy > maxY) maxY = vy;
+                any = true;
+            }
         if (!any) return null;
         return (minX, minY, maxX, maxY);
     }

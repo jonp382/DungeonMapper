@@ -538,6 +538,30 @@ public sealed class MapCanvas : Control
             ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
 
+        // polygon floors: the exact polygon shape, not the cell squares. The
+        // loop is filled as geometry, then stroked with the same brush: half the
+        // stroke width expands the fill outward, closing the anti-aliasing seam
+        // where a polygon edge meets a neighboring room rectangle (the same
+        // trick as the 0.6px rect overlap above). Grid lines draw on top.
+        foreach (var p in Document.Polygons)
+        {
+            if (p.Verts.Count < 3) continue;
+            int pminX = p.Verts.Min(v => v.x), pmaxX = p.Verts.Max(v => v.x);
+            int pminY = p.Verts.Min(v => v.y), pmaxY = p.Verts.Max(v => v.y);
+            if (pmaxX < topLeft.X || pminX > bottomRight.X + 1 || pmaxY < topLeft.Y || pminY > bottomRight.Y + 1) continue;
+            var geo = new StreamGeometry();
+            using (var g = geo.Open())
+            {
+                g.BeginFigure(WorldToScreen(p.Verts[0].x, p.Verts[0].y), true);
+                for (int i = 1; i < p.Verts.Count; i++)
+                    g.LineTo(WorldToScreen(p.Verts[i].x, p.Verts[i].y), true);
+            }
+            // fill + stroke in one call: the 1.2px stroke centered on the path
+            // expands the fill 0.6px outward, closing the anti-aliasing seam
+            // where a polygon edge meets a neighboring room rectangle.
+            ctx.DrawGeometry(CellFill, new Pen(CellFill, 1.2), geo);
+        }
+
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
         // so the grid is visible everywhere. Drawn after cell fills so lines show
         // on top of flooring. Major at spacing boundaries, minor at every 5ft cell
@@ -764,13 +788,18 @@ public sealed class MapCanvas : Control
                 previewVerts.Add(((int)Math.Round(_polyCursor.X), (int)Math.Round(_polyCursor.Y)));
             if (previewVerts.Count >= 3)
             {
-                var fillCells = Document.PolygonFillCells(previewVerts);
+                // the preview shows the EXACT polygon shape, same as the
+                // committed floor render: fill the loop as geometry and stroke
+                // with the same brush to expand the fill outward.
                 var fill = new SolidColorBrush(Color.FromArgb(70, 60, 75, 105));
-                foreach (var c in fillCells)
+                var previewGeo = new StreamGeometry();
+                using (var g = previewGeo.Open())
                 {
-                    var p0 = WorldToScreen(c.X, c.Y);
-                    ctx.FillRectangle(fill, new Rect(p0.X, p0.Y, _scale, _scale));
+                    g.BeginFigure(WorldToScreen(previewVerts[0].x, previewVerts[0].y), true);
+                    for (int i = 1; i < previewVerts.Count; i++)
+                        g.LineTo(WorldToScreen(previewVerts[i].x, previewVerts[i].y), true);
                 }
+                ctx.DrawGeometry(fill, new Pen(fill, 1.2), previewGeo);
             }
             // outline
             for (int i = 0; i < _polyVerts.Count - 1; i++)
@@ -1410,6 +1439,16 @@ public sealed class MapCanvas : Control
                         Document.AngledDoors.Remove(w);
                     Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
                 }
+                // polygons touching the erase rect are removed as whole objects
+                // (loop, fill cells, boundary walls, angled walls, doors). The
+                // Cells filter gates them: a polygon's floor is cell geometry,
+                // and its walls go with the object - the rebuild below re-derives
+                // the surviving rooms' boundaries, so no wall lines are left
+                // floating over empty space.
+                if (f.Cells)
+                    foreach (var p in Document.Polygons
+                                 .Where(p => MapDocument.PolygonTouchesRect(p, x0, y0, x1, y1)).ToList())
+                        Document.RemovePolygon(p);
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
                 // outer edge gets fresh walls.
