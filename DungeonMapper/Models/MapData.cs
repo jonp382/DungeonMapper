@@ -327,17 +327,68 @@ public sealed class MapDocument
 
             // angled walls that become interior to the merged region are removed
             // too, so a room grown over a polygon's diagonal merges cleanly.
-            // A diagonal is interior when EVERY cell it passes through is a room
-            // cell (the segment runs through room-cell interiors on both sides).
+            // Two scopes, both required:
+            //  1. the wall must touch the NEW room rect. A room drawn far away
+            //     must not delete diagonals of polygons it never touched - the
+            //     old test scanned EVERY angled wall in the document, so any
+            //     room anywhere wiped every fully-room-crossed diagonal.
+            //  2. the wall is interior when the cells on BOTH sides of the
+            //     segment are room cells (sampled at the midpoint offset along
+            //     the normal). "Every crossed cell is a room cell" is NOT the
+            //     test: a polygon's outer diagonal runs through room cells on
+            //     its inside and empty space on its outside, so it is a
+            //     boundary wall and must survive.
             // Doors on removed segments go with the wall (door implies wall).
+            // Polygon edges are owned by their polygon object - the room tool
+            // never removes them, so the walls of a drawn polygon (the shared
+            // edges between adjacent triangles of a trapezoid included)
+            // survive every room, far away or connected.
             var removed = AngledWalls
-                .Where(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
-                    .All(c => Cells.Contains(c)))
+                .Where(w => AngledWallIntersectsRect(w, x0, y0, x1, y1)
+                    && DiagonalInterior(w)
+                    && !IsPolygonEdge(w))
                 .ToList();
             foreach (var w in removed) AngledDoors.Remove(w);
-            AngledWalls.RemoveAll(w => CellsCrossed(w.Ax, w.Ay, w.Bx, w.By)
-                .All(c => Cells.Contains(c)));
+            AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1)
+                && DiagonalInterior(w)
+                && !IsPolygonEdge(w));
         }
+    }
+
+    /// True when the angled wall is an edge of any polygon object (either
+    /// direction). Polygon-owned walls are never removed by room merges.
+    public bool IsPolygonEdge(AngledWall w)
+    {
+        foreach (var p in Polygons)
+        {
+            var v = p.Verts;
+            for (int i = 0; i < v.Count; i++)
+            {
+                var (ax, ay) = v[i];
+                var (bx, by) = v[(i + 1) % v.Count];
+                if ((ax == w.Ax && ay == w.Ay && bx == w.Bx && by == w.By) ||
+                    (ax == w.Bx && ay == w.By && bx == w.Ax && by == w.Ay))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    /// True when the diagonal segment is interior to the filled region: the
+    /// cells on BOTH sides of the segment (sampled at the midpoint offset along
+    /// the normal) are room cells. A polygon's outer diagonal has empty space
+    /// on one side, so it is a boundary wall and must survive.
+    public bool DiagonalInterior(AngledWall w)
+    {
+        double dx = w.Bx - w.Ax, dy = w.By - w.Ay;
+        double len = Math.Sqrt(dx * dx + dy * dy);
+        if (len < 1e-9) return false;
+        double mx = (w.Ax + w.Bx) / 2.0, my = (w.Ay + w.By) / 2.0;
+        double nx = -dy / len, ny = dx / len;
+        double off = 0.25;
+        var c1 = new CellKey((int)Math.Floor(mx + nx * off), (int)Math.Floor(my + ny * off));
+        var c2 = new CellKey((int)Math.Floor(mx - nx * off), (int)Math.Floor(my - ny * off));
+        return Cells.Contains(c1) && Cells.Contains(c2);
     }
 
     /// Enumerates the cells whose INTERIOR a lattice segment passes through, via

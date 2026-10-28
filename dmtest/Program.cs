@@ -708,13 +708,14 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     s.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, true); // strict
     Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: interior wall x=1 kept in strict mode");
 
-    // room grown over a polygon removes the polygon's interior diagonal (union
-    // handles angled walls, not just EdgeKey walls)
+    // polygon edges are owned by the polygon object: a room grown over a
+    // polygon does NOT remove the polygon's diagonal, so the trapezoid walls
+    // survive every room, far away or connected.
     var rp = new MapDocument();
     rp.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // triangle, diagonal (2,0)->(0,2)
     Check(rp.AngledWalls.Count == 1, "room over polygon: diagonal present before union");
     rp.AddRoom(0, 0, 2, 2); // 3x3 room covering the triangle fully
-    Check(rp.AngledWalls.Count == 0, "room over polygon: interior diagonal removed by union");
+    Check(rp.AngledWalls.Count == 1, "room over polygon: polygon diagonal survives the room union");
 
     // room grown over a polygon keeps a diagonal that is NOT fully interior
     var rp2 = new MapDocument();
@@ -812,15 +813,16 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(ad7.AngledWalls.Count == 0 && ad7.AngledDoors.Count == 0,
           "angled door: door removed with wall by clear region");
 
-    // room union over a polygon removes interior diagonal AND its door
+    // polygon edges are owned by the polygon: a room union over a polygon
+    // keeps the diagonal, and its door stays with the wall.
     var ad8 = new MapDocument();
     ad8.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // diagonal (2,0)->(0,2)
     ad8.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 2), 1.4, "standard", "closed", out _);
     Check(ad8.GetAngledDoors(new AngledWall(2, 0, 0, 2)).Count == 1,
           "angled door: placed on polygon diagonal");
     ad8.AddRoom(0, 0, 2, 2);
-    Check(ad8.AngledWalls.Count == 0 && ad8.AngledDoors.Count == 0,
-          "angled door: door removed when union removes interior diagonal");
+    Check(ad8.AngledWalls.Count == 1 && ad8.AngledDoors.Count == 1,
+          "angled door: polygon diagonal and its door survive the room union");
 
     // ApplyFrom copies doors
     var ad9 = new MapDocument();
@@ -1165,6 +1167,23 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(!(outside.r == inside.r && outside.g == inside.g && outside.b == inside.b),
         "triangle base corner: center-inside cell is NOT fully painted, only the polygon part");
     h.Dispose();
+}
+{
+    // three triangles forming a trapezoid: the diagonals must survive drawing a
+    // room far away. The old AddRoom removed every angled wall whose crossed
+    // cells were all room cells, regardless of where the new room was drawn.
+    var d = new MapDocument();
+    d.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (1, 2) }, strict: true);
+    d.AddPolygon(new List<(int, int)> { (2, 0), (4, 0), (3, 2) }, strict: true);
+    d.AddPolygon(new List<(int, int)> { (1, 2), (3, 2), (2, 0) }, strict: true);
+    int before = d.AngledWalls.Count;
+    Check(before >= 3, "trapezoid: angled walls created");
+    d.AddRoom(10, 10, 12, 12);
+    Check(d.AngledWalls.Count == before,
+        "trapezoid: angled walls survive a room drawn far away");
+    d.AddRoom(0, 2, 4, 4);
+    Check(d.AngledWalls.Count == before,
+        "trapezoid: angled walls survive a room drawn adjacent");
 }
 {
     var d = new MapDocument();
