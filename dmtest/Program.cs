@@ -1150,6 +1150,23 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     h.Dispose();
 }
 {
+    // the base-corner test: isosceles triangle (0,0)-(4,0)-(2,3). Cell (0,0)
+    // has its center inside the triangle, so the fill-cell rect used to paint
+    // the WHOLE square; the left edge y=1.5x cuts the cell, so the upper-left
+    // of the cell is outside the polygon. Sample pixels: inside the edge gets
+    // floor, outside the edge must not. Screen = (world + 1) * 40.
+    var h = new CanvasHarness();
+    h.Doc.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (2, 3) });
+    var bmp = h.Render();
+    var inside = h.PixelAt(bmp, 60, 48);   // world (0.5,0.2), below the left edge
+    var outside = h.PixelAt(bmp, 48, 56);  // world (0.2,0.4), above the left edge
+    Check(inside.a > 0 && inside.r + inside.g + inside.b > 0,
+        "triangle base corner: inside the edge gets floor");
+    Check(!(outside.r == inside.r && outside.g == inside.g && outside.b == inside.b),
+        "triangle base corner: center-inside cell is NOT fully painted, only the polygon part");
+    h.Dispose();
+}
+{
     var d = new MapDocument();
     d.AddRoom(0, 0, 2, 2);
     d.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (3, 3) }, strict: true);

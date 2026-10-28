@@ -512,7 +512,19 @@ public sealed class MapCanvas : Control
         //    lets the background bleed through as a faint line. Same-color
         //    overlap is invisible; overlap only happens where the neighbor is
         //    filled, so rooms never overhang their boundary.
+        // polygon-covered cells get their floor from the polygon geometry path
+        // below, NOT from cell rectangles. A cell whose center is inside the
+        // polygon is a fill cell, and drawing it as a full-cell rect would
+        // paint the whole square even where a polygon edge cuts the cell (the
+        // base-corner cells of a triangle). Remove fill cells from the
+        // merged-rect pass, and keep the half-pixel pad from bleeding room
+        // floor into a polygon cell across the polygon edge.
+        var polyCells = new HashSet<CellKey>();
+        foreach (var p in Document.Polygons)
+            polyCells.UnionWith(Document.PolygonFillCells(p.Verts));
+
         var remaining = new HashSet<CellKey>(Document.Cells);
+        remaining.ExceptWith(polyCells);
         foreach (var c in Document.Cells.OrderBy(c => c.Y).ThenBy(c => c.X))
         {
             if (!remaining.Contains(c)) continue;
@@ -532,8 +544,8 @@ public sealed class MapCanvas : Control
                     remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
             if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
             double pad = 0.6;
-            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
-            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
+            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) && !polyCells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
+            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) && !polyCells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
             ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
