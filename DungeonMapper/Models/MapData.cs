@@ -378,16 +378,26 @@ public sealed class MapDocument
     /// cells on BOTH sides of the segment (sampled at the midpoint offset along
     /// the normal) are room cells. A polygon's outer diagonal has empty space
     /// on one side, so it is a boundary wall and must survive.
-    public bool DiagonalInterior(AngledWall w)
+    /// The two cells on either side of a diagonal segment: sample the midpoint
+    /// offset +/- 0.25 along the segment normal. Shared by DiagonalInterior and
+    /// the polygon merge (which runs the same test against the merged region).
+    public static (CellKey, CellKey) DiagonalSideCells(AngledWall w)
     {
         double dx = w.Bx - w.Ax, dy = w.By - w.Ay;
         double len = Math.Sqrt(dx * dx + dy * dy);
-        if (len < 1e-9) return false;
         double mx = (w.Ax + w.Bx) / 2.0, my = (w.Ay + w.By) / 2.0;
         double nx = -dy / len, ny = dx / len;
         double off = 0.25;
         var c1 = new CellKey((int)Math.Floor(mx + nx * off), (int)Math.Floor(my + ny * off));
         var c2 = new CellKey((int)Math.Floor(mx - nx * off), (int)Math.Floor(my - ny * off));
+        return (c1, c2);
+    }
+
+    public bool DiagonalInterior(AngledWall w)
+    {
+        double dx = w.Bx - w.Ax, dy = w.By - w.Ay;
+        if (Math.Sqrt(dx * dx + dy * dy) < 1e-9) return false;
+        var (c1, c2) = DiagonalSideCells(w);
         return Cells.Contains(c1) && Cells.Contains(c2);
     }
 
@@ -423,10 +433,11 @@ public sealed class MapDocument
     /// unit EdgeKey walls on the boundary; diagonal edges become AngledWall
     /// segments. Behaves like AddRoom: UNION by default (interior walls among the
     /// filled cells are removed so adjacent rooms merge), passageway opens a
-    /// boundary edge when the cell across it is an existing room, and strict keeps
-    /// every outer wall and interior walls. Diagonal edges are always the polygon
-    /// boundary (never interior).
-    public void AddPolygon(List<(int x, int y)> verts, bool passageway = false, bool strict = false)
+    /// boundary edge when the cell across it is an existing room, strict keeps
+    /// every outer wall and interior walls, and mergeNearby opens shared walls
+    /// between the polygon and existing rooms. Default draws walls as-is.
+    /// Diagonal edges are always the polygon boundary (never interior).
+    public void AddPolygon(List<(int x, int y)> verts, bool passageway = false, bool strict = false, bool mergeNearby = false)
     {
         if (verts.Count < 3) return;
         var fill = PolygonFillCells(verts);
@@ -445,11 +456,12 @@ public sealed class MapDocument
 
         ApplyPolygonBoundary(verts, fill, existing, passageway, strict);
 
-        // interior walls removed so adjacent rooms merge (skipped in strict mode).
-        // Mirror AddRoom: remove walls between two cells in the MERGED region
-        // (the polygon fill plus any pre-existing room cells the polygon overlaps),
-        // not just fill-to-fill, so a polygon grown out of a room opens the shared wall.
-        if (!strict)
+        // interior walls removed so adjacent rooms merge, ONLY when the merge
+        // checkbox is on (skipped in strict mode). Mirror AddRoom: remove walls
+        // between two cells in the MERGED region (the polygon fill plus any
+        // pre-existing room cells the polygon overlaps), not just fill-to-fill,
+        // so a polygon grown out of a room opens the shared wall.
+        if (mergeNearby && !strict)
         {
             var merged = new HashSet<CellKey>(fill);
             foreach (var c in Cells) merged.Add(c); // includes pre-existing cells
@@ -466,6 +478,22 @@ public sealed class MapDocument
                     if (merged.Contains(new CellKey(nx, ny)))
                         SetWall(new EdgeKey(c, side), false);
                 }
+            // angled walls: a polygon edge whose two side cells are both in the
+            // merged region is a shared boundary - open it. Same side-cell test
+            // as DiagonalInterior, run against merged.
+            for (int i = 0; i < verts.Count; i++)
+            {
+                var (ax, ay) = verts[i];
+                var (bx, by) = verts[(i + 1) % verts.Count];
+                if (ax == bx || ay == by) continue; // axis-aligned handled above
+                var w = new AngledWall(ax, ay, bx, by);
+                var sides = DiagonalSideCells(w);
+                if (merged.Contains(sides.Item1) && merged.Contains(sides.Item2))
+                {
+                    AngledDoors.Remove(w);
+                    AngledWalls.RemoveAll(x => x.Ax == ax && x.Ay == ay && x.Bx == bx && x.By == by);
+                }
+            }
         }
     }
 

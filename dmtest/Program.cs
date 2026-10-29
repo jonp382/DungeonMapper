@@ -686,7 +686,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: shared wall exists before polygon union");
     Check(u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: shared wall exists before union (row 1)");
     // polygon spanning [0,0]-[3,2] = 3x2 cells, union over both rooms
-    u.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) });
+    u.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, false, true);
     Check(u.Cells.Count == 6, "union: polygon spanning fills 6 cells");
     Check(!u.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "union: interior wall x=1 removed (row 0)");
     Check(!u.HasWall(new EdgeKey(new CellKey(0, 1), Side.East)), "union: interior wall x=1 removed (row 1)");
@@ -1246,6 +1246,19 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     string v1 = mapJson.Replace("\"polygons\"", "\"polygons_x\"");
     var old = MapSerializer.FromJson(v1);
     Check(old.Polygons.Count == 0, "json: v1 file (no polygons field) loads with no polygons");
+
+    // angled-wall merge: a polygon whose diagonal edge is shared with a room
+    // opens that boundary when merge is on, keeps it when merge is off.
+    var am = new MapDocument();
+    am.AddRoom(0, 0, 2, 2);
+    am.AddPolygon(new List<(int, int)> { (0, 0), (2, 2), (0, 2) }, false, false, true);
+    Check(am.AngledWalls.Count == 0, "angled merge: shared diagonal wall removed");
+    Check(am.Cells.Count >= 4, "angled merge: polygon fill cells present");
+
+    var am2 = new MapDocument();
+    am2.AddRoom(0, 0, 2, 2);
+    am2.AddPolygon(new List<(int, int)> { (0, 0), (2, 2), (0, 2) }, false, false, false);
+    Check(am2.AngledWalls.Count == 1, "angled default: shared diagonal wall kept");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

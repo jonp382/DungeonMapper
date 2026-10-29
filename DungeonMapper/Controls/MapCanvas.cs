@@ -123,6 +123,7 @@ public sealed class MapCanvas : Control
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
     public bool RoomMergeNearby { get; set; } = false; // Room tool: a room drawn adjacent to (touching, not overlapping) an existing room connects to it - shared boundary walls stay open
     public bool PolygonStrict { get; set; } = false; // Polygon tool: same as RoomStrict - outer walls always, interior walls kept
+    public bool PolygonMergeNearby { get; set; } = false; // Polygon tool: a polygon drawn adjacent to (touching, not overlapping) an existing room connects to it - shared boundary walls stay open
 
     public bool HasClipboard => _clipboard is not null && !_clipboard.Empty;
     public bool HasSelection => _selectDragging || _selectStart != _selectEnd;
@@ -382,7 +383,7 @@ public sealed class MapCanvas : Control
         // shared boundary stays open so the polygon connects as a passageway.
         bool strict = PolygonStrict;
         bool passageway = !strict && Document.Cells.Contains(new CellKey(first.x, first.y));
-        Document.AddPolygon(_polyVerts, passageway, strict);
+        Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby);
         _polyVerts.Clear();
         Commit();
     }
@@ -483,6 +484,34 @@ public sealed class MapCanvas : Control
     private Point ScreenToWorld(Point p)
         => new(p.X / _scale + _offset.X, p.Y / _scale + _offset.Y);
 
+    /// True when polygon edge i is shared with an existing room (merged): the
+    /// cells on both sides of the edge are room cells. The outline stroke skips
+    /// merged edges so the boundary disappears where the polygon meets a room.
+    private bool IsPolygonEdgeMerged(List<(int x, int y)> verts, int i)
+    {
+        var (ax, ay) = verts[i];
+        var (bx, by) = verts[(i + 1) % verts.Count];
+        if (ax == bx)
+        {
+            int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+            for (int y = y0; y < y1; y++)
+                if (Document.Cells.Contains(new CellKey(ax - 1, y)) && Document.Cells.Contains(new CellKey(ax, y)))
+                    return true;
+            return false;
+        }
+        if (ay == by)
+        {
+            int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+            for (int x = x0; x < x1; x++)
+                if (Document.Cells.Contains(new CellKey(x, ay - 1)) && Document.Cells.Contains(new CellKey(x, ay)))
+                    return true;
+            return false;
+        }
+        var w = new AngledWall(ax, ay, bx, by);
+        var (c1, c2) = MapDocument.DiagonalSideCells(w);
+        return Document.Cells.Contains(c1) && Document.Cells.Contains(c2);
+    }
+
     public override void Render(DrawingContext ctx)
     {
         ctx.FillRectangle(Background, new Rect(Bounds.Size));
@@ -544,8 +573,8 @@ public sealed class MapCanvas : Control
                     remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
             if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
             double pad = 0.6;
-            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) && !polyCells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
-            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) && !polyCells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
+            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) && (!polyCells.Contains(new CellKey(c.X + w, c.Y)) || !Document.HasWall(new EdgeKey(new CellKey(c.X + w - 1, c.Y), Side.East))) ? pad : 0);
+            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) && (!polyCells.Contains(new CellKey(c.X, c.Y + h)) || !Document.HasWall(new EdgeKey(new CellKey(c.X, c.Y + h - 1), Side.South))) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
             ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
@@ -568,10 +597,18 @@ public sealed class MapCanvas : Control
                 for (int i = 1; i < p.Verts.Count; i++)
                     g.LineTo(WorldToScreen(p.Verts[i].x, p.Verts[i].y), true);
             }
-            // fill + stroke in one call: the 1.2px stroke centered on the path
-            // expands the fill 0.6px outward, closing the anti-aliasing seam
-            // where a polygon edge meets a neighboring room rectangle.
-            ctx.DrawGeometry(CellFill, new Pen(CellFill, 1.2), geo);
+            // fill the full geometry: the floor stays continuous even where an
+            // edge is merged. The outline is stroked edge-by-edge below, skipping
+            // merged edges (shared with a room) so the boundary disappears.
+            ctx.DrawGeometry(CellFill, null, geo);
+            var strokePen = new Pen(CellFill, 1.2);
+            for (int i = 0; i < p.Verts.Count; i++)
+            {
+                var (ax, ay) = p.Verts[i];
+                var (bx, by) = p.Verts[(i + 1) % p.Verts.Count];
+                if (IsPolygonEdgeMerged(p.Verts, i)) continue; // shared with a room
+                ctx.DrawLine(strokePen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
+            }
         }
 
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
@@ -1172,7 +1209,7 @@ public sealed class MapCanvas : Control
                     if (_polyVerts[^1] != (vx, vy)) _polyVerts.Add((vx, vy));
                     bool strict = PolygonStrict;
                     bool passageway = !strict && Document.Cells.Contains(new CellKey(vx, vy));
-                    Document.AddPolygon(_polyVerts, passageway, strict);
+                    Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby);
                     _polyVerts.Clear();
                     Commit();
                     StatusMessage?.Invoke("polygon closed");

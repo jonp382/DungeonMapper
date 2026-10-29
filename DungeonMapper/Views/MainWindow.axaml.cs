@@ -398,6 +398,7 @@ public partial class MainWindow : Window
                 ToolPanel.Clear("Polygon");
                 ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polgyon, or hit enter to auto-complete.");
                 ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
+                ToolPanel.AddCheck("merge adjacent walls", Canvas.PolygonMergeNearby, v => { Canvas.PolygonMergeNearby = v; FocusCanvas(); });
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 
