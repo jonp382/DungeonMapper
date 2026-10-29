@@ -698,6 +698,20 @@ public sealed class MapCanvas : Control
             DrawAngledWall(ctx, w, a, b, doors);
         }
 
+        // Vertex doors: centered on the lattice vertex, fixed 5ft (one cell)
+        // width, straddling the two collinear walls. Punch a full-cell gap along
+        // the orientation, then draw the glyph rotated to it.
+        foreach (var (k, d) in Document.VertexDoors)
+        {
+            var v = WorldToScreen(k.X, k.Y);
+            double gap = _scale; // 5ft door = one cell of wall width
+            var gapRect = k.Horizontal
+                ? new Rect(v.X - gap / 2, v.Y - 1.5, gap, 3)
+                : new Rect(v.X - 1.5, v.Y - gap / 2, 3, gap);
+            ctx.FillRectangle(Background, gapRect);
+            DrawDoorGlyph(ctx, v, k.Horizontal ? 0 : Math.PI / 2, DoorBrush(d.Type), d.State);
+        }
+
         // Labels centered on their cell
         foreach (var l in Document.Labels)
         {
@@ -732,6 +746,7 @@ public sealed class MapCanvas : Control
     private CellKey _dragStart, _dragEnd;
     private EdgeKey? _previewEdge;
     private (AngledWall wall, double t)? _previewAngled; // door ghost on hovered angled segment (t in cell units)
+    private (int x, int y, bool horizontal)? _previewVertex; // door ghost snapped to a lattice vertex
     private EdgeKey? _wallDragStart;
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
     private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
@@ -784,7 +799,7 @@ public sealed class MapCanvas : Control
             // door tool ghost: the wall-line preview is invisible over an existing
             // wall, so show the door square icon at the edge midpoint instead
             // Ghost uses the armed default type/state, semi-transparent.
-            if (Mode == ToolMode.Door && Document.GetDoor(pe) is null)
+            if (Mode == ToolMode.Door && Document.GetDoor(pe) is null && _previewVertex is null)
             {
                 var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
                 var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
@@ -812,6 +827,20 @@ public sealed class MapCanvas : Control
                     DrawDoorGlyph(ctx, mid, Math.Atan2(uy, ux),
                         GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
                 }
+            }
+        }
+        // vertex door ghost: door square centered on the lattice vertex, rotated
+        // to its orientation; suppressed when a door already sits at the vertex
+        if (Mode == ToolMode.Door && _previewVertex is not null)
+        {
+            var (vx, vy, hor) = _previewVertex.Value;
+            if (Document.GetVertexDoor(new VertexDoorKey(vx, vy, hor)) is null)
+            {
+                var v = WorldToScreen(vx, vy);
+                var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                    ? s : DoorState.Closed;
+                DrawDoorGlyph(ctx, v, hor ? 0 : Math.PI / 2,
+                    GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
             }
         }
 
@@ -995,6 +1024,50 @@ public sealed class MapCanvas : Control
         return best;
     }
 
+    /// Nearest lattice vertex (grid intersection) to a world point, within the
+    /// same tolerance as HitEdge; null if none.
+    private (int x, int y, double dist)? HitVertex(Point world)
+    {
+        int vx = (int)Math.Round(world.X), vy = (int)Math.Round(world.Y);
+        double dx = world.X - vx, dy = world.Y - vy;
+        double d = Math.Sqrt(dx * dx + dy * dy);
+        return d <= 0.3 ? (vx, vy, d) : null;
+    }
+
+    /// Distance from a world point to the midpoint of an edge (where the edge
+    /// door ghost sits), used for the vertex-vs-edge-midpoint snap comparison.
+    private static double MidDist(Point p, EdgeKey e)
+    {
+        var (a, b) = EdgeSegment(e);
+        double mx = (a.X + b.X) / 2, my = (a.Y + b.Y) / 2;
+        return Math.Sqrt((p.X - mx) * (p.X - mx) + (p.Y - my) * (p.Y - my));
+    }
+
+    /// Orientation for a vertex door at lattice vertex (vx,vy): the orientation
+    /// whose perpendicular pair is empty (no wall bisecting the door). If both
+    /// orientations are valid, align to the nearest of the four edges touching
+    /// the vertex. Null = crossroads/corner: no valid orientation exists.
+    private bool? VertexDoorOrientation(Point world, int vx, int vy)
+    {
+        bool h = Document.VertexDoorValid(vx, vy, true);
+        bool v = Document.VertexDoorValid(vx, vy, false);
+        if (!h && !v) return null;
+        if (h && v)
+        {
+            var edges = new[]
+            {
+                new EdgeKey(new CellKey(vx - 1, vy), Side.North),
+                new EdgeKey(new CellKey(vx, vy), Side.North),
+                new EdgeKey(new CellKey(vx - 1, vy - 1), Side.East),
+                new EdgeKey(new CellKey(vx - 1, vy), Side.East),
+            };
+            EdgeKey best = edges[0]; double bestD = double.MaxValue;
+            foreach (var e in edges) { double d = MidDist(world, e); if (d < bestD) { bestD = d; best = e; } }
+            return best.Side == Side.North;
+        }
+        return h;
+    }
+
     private static double DistPointSeg(Point p, Point a, Point b)
     {
         double abx = b.X - a.X, aby = b.Y - a.Y;
@@ -1150,6 +1223,35 @@ public sealed class MapCanvas : Control
                     break;
                 }
                 var de = HitEdge(world);
+                // vertex doors: the ghost snaps to the nearest of edge midpoint /
+                // grid vertex, vertex wins ties. A vertex door is centered on the
+                // lattice point, straddling two collinear walls; crossroads and
+                // corners are rejected (a wall at the vertex bisects the door).
+                var vt = HitVertex(world);
+                if (vt is not null && (de is null || MidDist(world, de.Value) >= vt.Value.dist - 1e-9))
+                {
+                    var (vdxx, vdy, _) = vt.Value;
+                    var orient = VertexDoorOrientation(world, vdxx, vdy);
+                    if (orient is null)
+                    {
+                        StatusMessage?.Invoke("can't place a door here: a wall at the vertex would bisect the door");
+                        break;
+                    }
+                    var vkey = new VertexDoorKey(vdxx, vdy, orient.Value);
+                    var existingVd = Document.GetVertexDoor(vkey);
+                    if (existingVd is not null)
+                    {
+                        DoorConfigRequested?.Invoke(existingVd);
+                    }
+                    else
+                    {
+                        // door implies wall: TryPlaceVertexDoor auto-creates both straddled walls
+                        Document.TryPlaceVertexDoor(vdxx, vdy, orient.Value, Settings.DefaultDoorType, Settings.DefaultDoorState, out var vdoor);
+                        Commit();
+                        DoorConfigRequested?.Invoke(vdoor);
+                    }
+                    break;
+                }
                 if (de is null) break;
                 var doorEdge = de.Value;
                 var existing = Document.GetDoor(doorEdge);
@@ -1305,6 +1407,15 @@ public sealed class MapCanvas : Control
                 var aw = HitAngledWall(world);
                 if (aw?.wall != _previewAngled?.wall || aw?.t != _previewAngled?.t)
                 { _previewAngled = aw; InvalidateVisual(); }
+                // vertex ghost: vertex wins ties over the edge midpoint
+                var vt = HitVertex(world);
+                (int x, int y, bool horizontal)? pv = null;
+                if (vt is not null && (edge is null || MidDist(world, edge.Value) >= vt.Value.dist - 1e-9))
+                {
+                    var o = VertexDoorOrientation(world, vt.Value.x, vt.Value.y);
+                    if (o is not null) pv = (vt.Value.x, vt.Value.y, o.Value);
+                }
+                if (pv != _previewVertex) { _previewVertex = pv; InvalidateVisual(); }
             }
         }
     }
@@ -1387,8 +1498,14 @@ public sealed class MapCanvas : Control
             {
                 // single cell: manage the element under the cursor
                 var edge = HitEdge(world);
+                var vt = HitVertex(world);
+                VertexDoor? vd = null;
+                if (vt is not null && (edge is null || MidDist(world, edge.Value) >= vt.Value.dist - 1e-9))
+                    vd = Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, true))
+                      ?? Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, false));
                 var door = edge is not null ? Document.GetDoor(edge.Value) : null;
-                if (door is not null) DoorConfigRequested?.Invoke(door);
+                if (vd is not null) DoorConfigRequested?.Invoke(vd);
+                else if (door is not null) DoorConfigRequested?.Invoke(door);
                 else if (Document.Stairs.TryGetValue(cell, out var s)) StairConfigRequested?.Invoke(s);
                 else
                 {

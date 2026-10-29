@@ -1275,5 +1275,230 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(t.HasWall(new EdgeKey(new CellKey(4, 0), Side.North)), "base merge: room outer walls kept");
 }
 
+
+    // ---- vertex doors ----
+    {
+        // placement on empty doc: horizontal auto-creates both straddled walls
+        var vd = new MapDocument();
+        Check(vd.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out var door1),
+              "vertex door: placement on empty doc succeeds");
+        Check(vd.HasWall(new EdgeKey(new CellKey(1, 3), Side.North)) &&
+              vd.HasWall(new EdgeKey(new CellKey(2, 3), Side.North)),
+              "vertex door: horizontal auto-creates both straddled walls");
+        Check(vd.GetVertexDoor(new VertexDoorKey(2, 3, true)) is not null,
+              "vertex door: door stored at vertex key");
+
+        var vd2 = new MapDocument();
+        vd2.TryPlaceVertexDoor(2, 3, false, "arch", "open", out var door2);
+        Check(vd2.HasWall(new EdgeKey(new CellKey(1, 2), Side.East)) &&
+              vd2.HasWall(new EdgeKey(new CellKey(1, 3), Side.East)),
+              "vertex door: vertical auto-creates both straddled walls");
+        Check(door2.Type == "arch" && door2.State == DoorState.Open,
+              "vertex door: default type/state applied");
+
+        // crossroads: all four edges walled -> both orientations rejected
+        var cr = new MapDocument();
+        cr.SetWall(new EdgeKey(new CellKey(1, 3), Side.North), true);
+        cr.SetWall(new EdgeKey(new CellKey(2, 3), Side.North), true);
+        cr.SetWall(new EdgeKey(new CellKey(1, 2), Side.East), true);
+        cr.SetWall(new EdgeKey(new CellKey(1, 3), Side.East), true);
+        Check(!cr.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _),
+              "vertex door: crossroads rejects horizontal");
+        Check(!cr.TryPlaceVertexDoor(2, 3, false, "standard", "closed", out _),
+              "vertex door: crossroads rejects vertical");
+
+        // L-corner: horizontal pair walled + top wall -> horizontal bisected by
+        // the top wall, vertical bisected by the horizontal pair -> both rejected
+        var lc = new MapDocument();
+        lc.SetWall(new EdgeKey(new CellKey(1, 3), Side.North), true);
+        lc.SetWall(new EdgeKey(new CellKey(2, 3), Side.North), true);
+        lc.SetWall(new EdgeKey(new CellKey(1, 2), Side.East), true);
+        Check(!lc.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _),
+              "vertex door: corner rejects horizontal (top wall bisects)");
+        Check(!lc.TryPlaceVertexDoor(2, 3, false, "standard", "closed", out _),
+              "vertex door: corner rejects vertical (left+right walls bisect)");
+
+        // partial straight wall: only left wall -> horizontal valid, auto-creates right
+        var pw = new MapDocument();
+        pw.SetWall(new EdgeKey(new CellKey(1, 3), Side.North), true);
+        Check(pw.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _),
+              "vertex door: partial straight wall places, auto-creates missing wall");
+        Check(pw.HasWall(new EdgeKey(new CellKey(2, 3), Side.North)),
+              "vertex door: missing straddled wall auto-created");
+
+        // erase hook: removing either straddled wall removes the door
+        var er = new MapDocument();
+        er.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _);
+        er.SetWall(new EdgeKey(new CellKey(1, 3), Side.North), false);
+        Check(er.GetVertexDoor(new VertexDoorKey(2, 3, true)) is null,
+              "vertex door: erasing first straddled wall removes door");
+        var er2 = new MapDocument();
+        er2.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _);
+        er2.SetWall(new EdgeKey(new CellKey(2, 3), Side.North), false);
+        Check(er2.GetVertexDoor(new VertexDoorKey(2, 3, true)) is null,
+              "vertex door: erasing second straddled wall removes door");
+
+        // ClearRegion covering a straddled wall removes the door
+        var cl = new MapDocument();
+        cl.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _);
+        cl.ClearRegion(1, 3, 1, 3);
+        Check(cl.GetVertexDoor(new VertexDoorKey(2, 3, true)) is null,
+              "vertex door: ClearRegion over a straddled wall removes door");
+
+        // serializer round-trip
+        var sr = new MapDocument();
+        sr.TryPlaceVertexDoor(4, 5, false, "arch", "locked", out _);
+        var vjson = MapSerializer.ToJson(sr);
+        var back = MapSerializer.FromJson(vjson);
+        Check(back.GetVertexDoor(new VertexDoorKey(4, 5, false)) is { } vdb &&
+              vdb.Type == "arch" && vdb.State == DoorState.Locked,
+              "vertex door: serializer round-trip preserves type/state");
+        Check(back.HasWall(new EdgeKey(new CellKey(3, 4), Side.East)) &&
+              back.HasWall(new EdgeKey(new CellKey(3, 5), Side.East)),
+              "vertex door: straddled walls round-trip");
+
+        // old file without vertex_doors loads fine
+        var oldJson = "{\"version\":1,\"cells\":[\"0,0\"],\"walls\":[\"0,0,north\"],\"doors\":[],\"stairs\":[],\"labels\":[],\"pawns\":[]}";
+        var oldDoc = MapSerializer.FromJson(oldJson);
+        Check(oldDoc.VertexDoors.Count == 0, "vertex door: old file loads with none");
+
+        // vertex door dropped on load when a straddled wall is missing
+        var badDoc = MapSerializer.FromJson(vjson);
+        badDoc.SetWall(new EdgeKey(new CellKey(3, 4), Side.East), false);
+        var re = MapSerializer.FromJson(MapSerializer.ToJson(badDoc));
+        Check(re.GetVertexDoor(new VertexDoorKey(4, 5, false)) is null,
+              "vertex door: dropped on load when a straddled wall is missing");
+
+        // capture/paste: vertex door travels; PasteRegion maps the snapshot origin
+        // to the target, so capture origin (1,3) pasted to (6,3) shifts +5 in x
+        var cap = new MapDocument();
+        cap.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _);
+        var snap = cap.CaptureRegion(1, 3, 2, 4);
+        Check(snap.VertexDoors.Count == 1, "vertex door: capture includes vertex door");
+        var cp = new MapDocument();
+        cp.PasteRegion(snap, 6, 3);
+        Check(cp.GetVertexDoor(new VertexDoorKey(7, 3, true)) is not null,
+              "vertex door: paste offsets vertex");
+        Check(cp.HasWall(new EdgeKey(new CellKey(6, 3), Side.North)) &&
+              cp.HasWall(new EdgeKey(new CellKey(7, 3), Side.North)),
+              "vertex door: paste ensures straddled walls at target");
+
+        // rotation: Rotate turns points around the snapshot origin, so a vertex
+        // at the origin stays put; orientation flips per quarter-turn
+        var rot = new MapDocument();
+        rot.TryPlaceVertexDoor(2, 3, true, "standard", "closed", out _);
+        var rsnap = rot.CaptureRegion(2, 3, 2, 3);
+        var r1 = MapDocument.Rotate(rsnap, 1);
+        Check(r1.VertexDoors.Keys.Any(k => k.X == 2 && k.Y == 3 && !k.Horizontal),
+              "vertex door: quarter-turn at origin flips orientation to vertical");
+        var r2 = MapDocument.Rotate(rsnap, 2);
+        Check(r2.VertexDoors.Keys.Any(k => k.X == 2 && k.Y == 3 && k.Horizontal),
+              "vertex door: half-turn at origin restores horizontal");
+        var rsnap2 = rot.CaptureRegion(1, 3, 3, 4);
+        var r3 = MapDocument.Rotate(rsnap2, 1);
+        Check(r3.VertexDoors.Keys.Any(k => k.X == 1 && k.Y == 2 && !k.Horizontal),
+              "vertex door: quarter-turn off origin moves vertex (2,3)->(1,2), flips");
+
+        // canvas: door tool click at a vertex places a vertex door
+        var h = new CanvasHarness();
+        h.Canvas.Mode = ToolMode.Door;
+        h.ClickW(2, 3);
+        Check(h.Doc.GetVertexDoor(new VertexDoorKey(2, 3, true)) is not null,
+              "canvas: door tool click at vertex places vertex door");
+        Check(h.Doc.HasWall(new EdgeKey(new CellKey(1, 3), Side.North)) &&
+              h.Doc.HasWall(new EdgeKey(new CellKey(2, 3), Side.North)),
+              "canvas: vertex click auto-creates straddled walls");
+
+        // click at an edge midpoint (vertex > 0.3 away) places an edge door
+        var h2 = new CanvasHarness();
+        h2.Canvas.Mode = ToolMode.Door;
+        h2.ClickW(1.5, 2);
+        Check(h2.Doc.Doors.Count == 1 && h2.Doc.VertexDoors.Count == 0,
+              "canvas: edge-midpoint click places edge door, vertex loses");
+
+        // vertex wins equidistant tie: world (1.75,3) is 0.25 from vertex (2,3)
+        // and 0.25 from midpoint of North(1,3)
+        var h3 = new CanvasHarness();
+        h3.Canvas.Mode = ToolMode.Door;
+        h3.ClickW(1.75, 3);
+        Check(h3.Doc.VertexDoors.Count == 1, "canvas: vertex wins equidistant tie");
+
+        // crossroads click: rejected with status, nothing placed
+        var h4 = new CanvasHarness();
+        h4.Canvas.Mode = ToolMode.Door;
+        h4.Doc.SetWall(new EdgeKey(new CellKey(1, 3), Side.North), true);
+        h4.Doc.SetWall(new EdgeKey(new CellKey(2, 3), Side.North), true);
+        h4.Doc.SetWall(new EdgeKey(new CellKey(1, 2), Side.East), true);
+        h4.Doc.SetWall(new EdgeKey(new CellKey(1, 3), Side.East), true);
+        h4.ClickW(2, 3);
+        Check(h4.Doc.VertexDoors.Count == 0, "canvas: crossroads vertex click places nothing");
+        Check(h4.LastStatus.Contains("bisect"), "canvas: crossroads click shows status message");
+
+        // second click on an existing vertex door opens its config
+        var h5 = new CanvasHarness();
+        h5.Canvas.Mode = ToolMode.Door;
+        var cfgs = new List<IDoorConfig>();
+        h5.Canvas.DoorConfigRequested += d => cfgs.Add(d);
+        h5.ClickW(2, 3);
+        h5.ClickW(2, 3);
+        Check(cfgs.Count == 2 && cfgs[1] is VertexDoor,
+              "canvas: second vertex click opens config");
+
+        // select mode: single click on a vertex door opens its config
+        var h6 = new CanvasHarness();
+        h6.Canvas.Mode = ToolMode.Door;
+        h6.ClickW(2, 3);
+        h6.Canvas.Mode = ToolMode.Select;
+        var cfgs6 = new List<IDoorConfig>();
+        h6.Canvas.DoorConfigRequested += d => cfgs6.Add(d);
+        h6.ClickW(2, 3);
+        Check(cfgs6.Count == 1 && cfgs6[0] is VertexDoor,
+              "canvas: select-mode vertex click opens config");
+
+        // erase tool drag over a straddled wall removes the vertex door
+        var h7 = new CanvasHarness();
+        h7.Canvas.Mode = ToolMode.Door;
+        h7.ClickW(2, 3);
+        h7.Canvas.Mode = ToolMode.Erase;
+        h7.Drag(1, 3, 1, 3);
+        Check(h7.Doc.GetVertexDoor(new VertexDoorKey(2, 3, true)) is null,
+              "canvas: erase drag over straddled wall removes vertex door");
+
+        // render: glyph sits centered on the lattice vertex, full-cell gap
+        // punches the straddled walls along the door orientation
+        var h8 = new CanvasHarness();
+        h8.Canvas.Mode = ToolMode.Door;
+        h8.ClickW(2, 3);
+        var bmp8 = h8.Render();
+        var center = h8.PixelAt(bmp8, 120, 160); // vertex (2,3) -> screen (120,160)
+        Check(center.r == 245 && center.g == 220 && center.b == 60,
+              "render: vertex door glyph centered on lattice vertex");
+        var wallSide = h8.PixelAt(bmp8, 90, 160); // wall left of the gap
+        Check(wallSide.r == 235 && wallSide.g == 235 && wallSide.b == 240,
+              "render: straddled wall drawn up to the door gap");
+        var gap = h8.PixelAt(bmp8, 105, 160); // inside the gap, outside the glyph
+        Check(gap.r == 20 && gap.g == 20 && gap.b == 25,
+              "render: full-cell gap punched along the door orientation");
+
+        // vertical orientation: walls on the vertical pair place a vertical door
+        var h9 = new CanvasHarness();
+        h9.Canvas.Mode = ToolMode.Door;
+        h9.Doc.SetWall(new EdgeKey(new CellKey(1, 2), Side.East), true);
+        h9.Doc.SetWall(new EdgeKey(new CellKey(1, 3), Side.East), true);
+        h9.ClickW(2, 3);
+        Check(h9.Doc.GetVertexDoor(new VertexDoorKey(2, 3, false)) is not null,
+              "canvas: vertical-pair walls place vertical vertex door");
+        var bmp9 = h9.Render();
+        var vcenter = h9.PixelAt(bmp9, 120, 160);
+        Check(vcenter.r == 245 && vcenter.g == 220 && vcenter.b == 60,
+              "render: vertical vertex door glyph on the vertex");
+        var vwall = h9.PixelAt(bmp9, 120, 130); // wall above the gap
+        Check(vwall.r == 235 && vwall.g == 235 && vwall.b == 240,
+              "render: vertical straddled wall drawn up to the gap");
+        var vgap = h9.PixelAt(bmp9, 120, 145); // inside the vertical gap
+        Check(vgap.r == 20 && vgap.g == 20 && vgap.b == 25,
+              "render: vertical gap punched along the door");
+    }
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

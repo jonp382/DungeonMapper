@@ -73,6 +73,14 @@ public sealed class CanvasHarness : IDisposable
         Release(cx, cy);
     }
 
+    /// Window point for a raw world coordinate under the startup transform
+    /// (scale 40, offset (-1,-1)): screen = (world + 1) * 40.
+    public Point ScreenWorld(double wx, double wy) => new((wx + 1) * 40, (wy + 1) * 40);
+
+    public void PressW(double wx, double wy) => _window.MouseDown(ScreenWorld(wx, wy), MouseButton.Left, RawInputModifiers.None);
+    public void ReleaseW(double wx, double wy) => _window.MouseUp(ScreenWorld(wx, wy), MouseButton.Left, RawInputModifiers.None);
+    public void ClickW(double wx, double wy) { PressW(wx, wy); ReleaseW(wx, wy); }
+
     public string LastStatus => Statuses.Count > 0 ? Statuses[^1] : "(none)";
 
     /// Render the window to a bitmap. With UseHeadlessDrawing = false the

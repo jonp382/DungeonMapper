@@ -33,6 +33,24 @@ public sealed class AngledDoor : IDoorConfig
     public DoorState State { get; set; } = DoorState.Closed;
 }
 
+/// A grid vertex (lattice point = cell corner) plus the door orientation. A
+/// vertex door is fixed size (5ft = one cell wall width), centered on the
+/// vertex, straddling the two collinear unit edges meeting at that vertex
+/// (2.5ft on each side). Horizontal doors sit on the left+right edges,
+/// vertical doors on the top+bottom edges.
+public readonly record struct VertexDoorKey(int X, int Y, bool Horizontal);
+
+/// A door centered on a grid vertex. Implements IDoorConfig so the existing
+/// door config dialog serves it. Valid only on straight walls: the two
+/// straddled edges are collinear unit edges; the perpendicular pair must be
+/// empty, so no remaining wall bisects the door (crossroads and corners are
+/// rejected at placement).
+public sealed class VertexDoor : IDoorConfig
+{
+    public string Type { get; set; } = "standard";
+    public DoorState State { get; set; } = DoorState.Closed;
+}
+
 public enum Side { North, East, South, West }
 
 /// A cell edge, keyed by cell + side. Normalized so shared edges have one key:
@@ -154,6 +172,69 @@ public sealed class MapDocument
     public List<AngledWall> AngledWalls { get; } = new();
     public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
     public List<PolygonRoom> Polygons { get; } = new();
+    public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
+
+    /// The two collinear unit edges a vertex door straddles (2.5ft of the door
+    /// on each). Keys are normalized (North/East). Horizontal: left+right edges
+    /// meeting at the vertex; vertical: top+bottom edges.
+    public static List<EdgeKey> VertexStraddles(VertexDoorKey v) => v.Horizontal
+        ? new List<EdgeKey> { new EdgeKey(new CellKey(v.X - 1, v.Y), Side.North),
+                              new EdgeKey(new CellKey(v.X, v.Y), Side.North) }
+        : new List<EdgeKey> { new EdgeKey(new CellKey(v.X - 1, v.Y - 1), Side.East),
+                              new EdgeKey(new CellKey(v.X - 1, v.Y), Side.East) };
+
+    /// The perpendicular edge pair at a vertex: for a horizontal door, the
+    /// top+bottom edges; for a vertical door, the left+right edges. A wall on
+    /// any of these bisects the door, so placement is rejected when one exists.
+    public static List<EdgeKey> VertexPerpendiculars(VertexDoorKey v) => v.Horizontal
+        ? new List<EdgeKey> { new EdgeKey(new CellKey(v.X - 1, v.Y - 1), Side.East),
+                              new EdgeKey(new CellKey(v.X - 1, v.Y), Side.East) }
+        : new List<EdgeKey> { new EdgeKey(new CellKey(v.X - 1, v.Y), Side.North),
+                              new EdgeKey(new CellKey(v.X, v.Y), Side.North) };
+
+    /// The vertex-door keys whose straddled pair contains this normalized edge.
+    /// Removing the wall removes those doors (door implies wall).
+    private static List<VertexDoorKey> VertexDoorsOnEdge(EdgeKey e) => e.Side switch
+    {
+        Side.North => new List<VertexDoorKey> { new VertexDoorKey(e.Cell.X, e.Cell.Y, true),
+                                                new VertexDoorKey(e.Cell.X + 1, e.Cell.Y, true) },
+        Side.East => new List<VertexDoorKey> { new VertexDoorKey(e.Cell.X + 1, e.Cell.Y, false),
+                                               new VertexDoorKey(e.Cell.X + 1, e.Cell.Y + 1, false) },
+        _ => new List<VertexDoorKey>(),
+    };
+
+    public VertexDoor? GetVertexDoor(VertexDoorKey key)
+        => VertexDoors.TryGetValue(key, out var d) ? d : null;
+
+    /// True when a vertex door of this orientation can sit at (x,y): the
+    /// perpendicular pair must be empty (no wall bisecting the door). The
+    /// straddled walls are auto-created at placement, so they don't gate it.
+    public bool VertexDoorValid(int x, int y, bool horizontal)
+    {
+        foreach (var e in VertexPerpendiculars(new VertexDoorKey(x, y, horizontal)))
+            if (HasWall(e)) return false;
+        return true;
+    }
+
+    /// Places a vertex door at lattice point (x,y) with the given orientation.
+    /// Rejects crossroads/corners: a wall on the perpendicular pair bisects the
+    /// door. Auto-creates the two straddled walls (door implies wall). Applies
+    /// default type/state to a newly created door.
+    public bool TryPlaceVertexDoor(int x, int y, bool horizontal, string defaultType, string defaultState, out VertexDoor door)
+    {
+        var key = new VertexDoorKey(x, y, horizontal);
+        if (!VertexDoorValid(x, y, horizontal)) { door = null!; return false; }
+        bool isNew = !VertexDoors.ContainsKey(key);
+        door = isNew ? new VertexDoor() : VertexDoors[key];
+        if (isNew)
+        {
+            door.Type = defaultType;
+            if (Enum.TryParse<DoorState>(defaultState, ignoreCase: true, out var st)) door.State = st;
+            VertexDoors[key] = door;
+        }
+        foreach (var e in VertexStraddles(key)) SetWall(e, true);
+        return true;
+    }
 
     /// Places a pawn on a cell. One pawn per cell (no stacking): placing on an
     /// occupied cell replaces the existing pawn.
@@ -195,6 +276,12 @@ public sealed class MapDocument
         else Walls.Remove(key);
         // Removing a wall removes any door on it (door implies wall).
         if (!exists && Doors.ContainsKey(key)) Doors.Remove(key);
+        // A vertex door straddles two walls; removing either one removes the
+        // door. This hook covers erase, wall-drag-delete, ClearRegion, and
+        // room-merge interior removal in one place.
+        if (!exists)
+            foreach (var vk in VertexDoorsOnEdge(key))
+                if (VertexDoors.ContainsKey(vk)) VertexDoors.Remove(vk);
     }
 
     /// Rebuilds the room boundary walls: for every room cell, any edge facing a
@@ -768,10 +855,11 @@ public sealed class MapDocument
         public List<AngledWall> AngledWalls = new();
         public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
         public List<PolygonRoom> Polygons = new();
+        public Dictionary<VertexDoorKey, VertexDoor> VertexDoors = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
                               && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
                               && AngledWalls.Count == 0 && AngledDoors.Count == 0
-                              && Polygons.Count == 0;
+                              && Polygons.Count == 0 && VertexDoors.Count == 0;
     }
 
     /// Captures all content within the rectangle [x0,y0]-[x1,y1] into a snapshot.
@@ -813,6 +901,11 @@ public sealed class MapDocument
             if (AngledDoors.TryGetValue(w, out var doors))
                 snap.AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
         }
+        // vertex doors travel when their vertex sits inside the region's world
+        // bounds (x in [x0, x1+1], y in [y0, y1+1]).
+        foreach (var (k, d) in VertexDoors)
+            if (k.X >= x0 && k.X <= x1 + 1 && k.Y >= y0 && k.Y <= y1 + 1)
+                snap.VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
         // polygons touching the region travel as whole objects (the move/copy
         // contract: the WHOLE polygon moves, even the parts outside the rect)
         foreach (var p in Polygons)
@@ -857,6 +950,14 @@ public sealed class MapDocument
                     list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State });
             }
         }
+        // vertex doors: the door implies walls, so pasting ensures both straddled
+        // walls exist at the translated vertex.
+        foreach (var (k, d) in snap.VertexDoors)
+        {
+            var nk = new VertexDoorKey(k.X + dx, k.Y + dy, k.Horizontal);
+            VertexDoors[nk] = new VertexDoor { Type = d.Type, State = d.State };
+            foreach (var e in VertexStraddles(nk)) SetWall(e, true);
+        }
         foreach (var p in snap.Polygons)
         {
             var loop = new List<(int x, int y)>();
@@ -894,6 +995,8 @@ public sealed class MapDocument
             AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
         Polygons.Clear();
         foreach (var p in other.Polygons) Polygons.Add(p.Clone());
+        VertexDoors.Clear();
+        foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -1008,6 +1111,13 @@ public sealed class MapDocument
             s.AngledWalls.Add(nw);
             if (snap.AngledDoors.TryGetValue(w, out var doors))
                 s.AngledDoors[nw] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+        }
+        foreach (var (k, d) in snap.VertexDoors)
+        {
+            var (rx, ry) = RotPoint(k.X, k.Y);
+            bool h = k.Horizontal;
+            for (int i = 0; i < turns; i++) h = !h; // quarter-turn flips horizontal<->vertical
+            s.VertexDoors[new VertexDoorKey(rx, ry, h)] = new VertexDoor { Type = d.Type, State = d.State };
         }
         foreach (var p in snap.Polygons)
         {

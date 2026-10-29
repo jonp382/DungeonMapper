@@ -23,6 +23,7 @@ public sealed class MapFileDto
     [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
     [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
     [JsonPropertyName("polygons")] public List<PolygonDto> Polygons { get; set; } = new();
+    [JsonPropertyName("vertex_doors")] public List<VertexDoorDto> VertexDoors { get; set; } = new();
 }
 
 public sealed class PolygonDto
@@ -36,6 +37,16 @@ public sealed class AngledDoorDto
 {
     [JsonPropertyName("wall")] public string Wall { get; set; } = "";
     [JsonPropertyName("t")] public double T { get; set; } = 0.5;
+    [JsonPropertyName("type")] public string Type { get; set; } = "standard";
+    [JsonPropertyName("state")] public string State { get; set; } = "closed";
+}
+
+public sealed class VertexDoorDto
+{
+    // lattice vertex "x,y" (cell corner) + orientation; the door is centered on
+    // the vertex, straddling the two collinear unit edges (2.5ft each side).
+    [JsonPropertyName("vertex")] public string Vertex { get; set; } = "";
+    [JsonPropertyName("orientation")] public string Orientation { get; set; } = "horizontal";
     [JsonPropertyName("type")] public string Type { get; set; } = "standard";
     [JsonPropertyName("state")] public string State { get; set; } = "closed";
 }
@@ -158,6 +169,24 @@ public static class MapSerializer
         }
     }
 
+    // shared loader for vertex doors. Door implies walls: a vertex door whose
+    // straddled walls are missing is dropped, same rule as edge doors. Old
+    // files have no vertex_doors field, so they load with none.
+    private static void AddVertexDoors(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var d in dto.VertexDoors)
+        {
+            if (!TryParseCell(d.Vertex, out var c)) continue;
+            bool horizontal = !string.Equals(d.Orientation, "vertical", StringComparison.OrdinalIgnoreCase);
+            var key = new VertexDoorKey(c.X, c.Y, horizontal);
+            var straddles = MapDocument.VertexStraddles(key);
+            if (!doc.HasWall(straddles[0]) || !doc.HasWall(straddles[1])) continue; // door implies walls
+            var door = new VertexDoor { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
+            doc.VertexDoors[key] = door;
+        }
+    }
+
     private static bool TryParseCell(string s, out CellKey cell)
     {
         cell = default;
@@ -216,6 +245,8 @@ public static class MapSerializer
             foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
             dto.Polygons.Add(pd);
         }
+        foreach (var (k, d) in doc.VertexDoors)
+            dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -270,6 +301,7 @@ public static class MapSerializer
         AddPawns(dto, doc);
         AddAngled(dto, doc);
         AddPolygons(dto, doc);
+        AddVertexDoors(dto, doc);
         return doc;
     }
 
@@ -328,6 +360,8 @@ public static class MapSerializer
             foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
             dto.Polygons.Add(pd);
         }
+        foreach (var (k, d) in doc.VertexDoors)
+            dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         return dto;
     }
 
@@ -364,6 +398,7 @@ public static class MapSerializer
         AddPawns(dto, doc);
         AddAngled(dto, doc);
         AddPolygons(dto, doc);
+        AddVertexDoors(dto, doc);
         return doc;
     }
 }
