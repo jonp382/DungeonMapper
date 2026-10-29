@@ -404,7 +404,7 @@ public sealed class MapCanvas : Control
     private Point _offset = new(-1, -1); // world coord at screen origin
     private double _scale = 40;          // pixels per cell
 
-    private const double MinScale = 8, MaxScale = 200;
+    private const double MinScale = 2, MaxScale = 200;
 
     // High-contrast palette (dark bg, bright fills)
     // Canvas element colors come from Settings (settings menu). The old static
