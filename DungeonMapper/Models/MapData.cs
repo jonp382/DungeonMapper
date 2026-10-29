@@ -290,22 +290,57 @@ public sealed class MapDocument
     /// erased, the room's new outer edge gets fresh walls so the room stays
     /// sealed. Only ADDS walls: interior walls (e.g. a bisection wall between
     /// two room cells) are never touched.
-    public void RebuildRoomBoundaryWalls()
+    /// Re-derives boundary walls for the region [x0,y0]-[x1,y1] expanded by one
+    /// cell (the cells whose edges can touch the changed area). Scoped on purpose:
+    /// a global pass repaints distant features. Polygon fill cells are polygon-owned:
+    /// their edge facing empty space gets a wall ONLY when that edge lies on the
+    /// polygon's axis-aligned boundary loop. Edges that cut across a diagonal
+    /// boundary stay open - the diagonal AngledWall owns that boundary, and adding
+    /// cell-edge walls there paints a staircase approximation of the diagonal.
+    public void RebuildRoomBoundaryWalls(int x0, int y0, int x1, int y1)
     {
-        foreach (var c in Cells)
-            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+        int ex0 = x0 - 1, ey0 = y0 - 1, ex1 = x1 + 1, ey1 = y1 + 1;
+        var polyCells = new HashSet<CellKey>();
+        var polyBoundary = new HashSet<EdgeKey>();
+        foreach (var p in Polygons)
+        {
+            var verts = p.Verts;
+            for (int i = 0; i < verts.Count; i++)
             {
-                var (nx, ny) = side switch
+                var (ax, ay) = verts[i];
+                var (bx, by) = verts[(i + 1) % verts.Count];
+                if (ax == bx)
+                    for (int y = Math.Min(ay, by); y < Math.Max(ay, by); y++)
+                        polyBoundary.Add(EdgeKey.Normalize(new CellKey(ax - 1, y), Side.East));
+                else if (ay == by)
+                    for (int x = Math.Min(ax, bx); x < Math.Max(ax, bx); x++)
+                        polyBoundary.Add(EdgeKey.Normalize(new CellKey(x, ay), Side.North));
+            }
+            foreach (var c in PolygonFillCells(verts, ex0, ex1, ey0, ey1))
+                polyCells.Add(c);
+        }
+        for (int x = ex0; x <= ex1; x++)
+            for (int y = ey0; y <= ey1; y++)
+            {
+                var c = new CellKey(x, y);
+                if (!Cells.Contains(c)) continue;
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                 {
-                    Side.North => (c.X, c.Y - 1),
-                    Side.South => (c.X, c.Y + 1),
-                    Side.East => (c.X + 1, c.Y),
-                    Side.West => (c.X - 1, c.Y),
-                };
-                // add a wall only on edges facing empty space; interior edges
-                // (between two room cells) are left exactly as they are.
-                if (!Cells.Contains(new CellKey(nx, ny)))
-                    SetWall(new EdgeKey(c, side), true);
+                    var (nx, ny) = side switch
+                    {
+                        Side.North => (x, y - 1),
+                        Side.South => (x, y + 1),
+                        Side.East => (x + 1, y),
+                        Side.West => (x - 1, y),
+                    };
+                    // interior edges (between two filled cells) are left as they are
+                    if (Cells.Contains(new CellKey(nx, ny))) continue;
+                    var key = EdgeKey.Normalize(c, side);
+                    // polygon-owned boundary: only the polygon's own axis-aligned
+                    // edges get walls; edges across a diagonal stay open
+                    if (polyCells.Contains(c) && !polyBoundary.Contains(key)) continue;
+                    SetWall(key, true);
+                }
             }
     }
 
@@ -1034,7 +1069,21 @@ public sealed class MapDocument
         // boundaries after the removal.
         var doomed = Polygons.Where(p => PolygonTouchesRect(p, x0, y0, x1, y1)).ToList();
         foreach (var p in doomed) RemovePolygon(p);
-        if (doomed.Count > 0) RebuildRoomBoundaryWalls();
+        if (doomed.Count > 0)
+        {
+            // the doomed polygons' fill cells reach outside the rect, so the
+            // rebuild region is the rect unioned with their vertex bounds
+            int rx0 = x0, ry0 = y0, rx1 = x1, ry1 = y1;
+            foreach (var p in doomed)
+                foreach (var (vx, vy) in p.Verts)
+                {
+                    if (vx < rx0) rx0 = vx;
+                    if (vx > rx1) rx1 = vx;
+                    if (vy < ry0) ry0 = vy;
+                    if (vy > ry1) ry1 = vy;
+                }
+            RebuildRoomBoundaryWalls(rx0, ry0, rx1, ry1);
+        }
     }
 
     /// Rotates a snapshot counterclockwise by turns*90 degrees around its origin

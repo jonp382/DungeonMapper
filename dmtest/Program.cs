@@ -961,7 +961,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     aw1.AddRoom(0, 0, 2, 2);
     foreach (var e in aw1.Walls.Keys.ToList()) aw1.SetWall(e, false);
     Check(!aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "adjust walls: wall stripped before rebuild");
-    aw1.RebuildRoomBoundaryWalls();
+    aw1.RebuildRoomBoundaryWalls(0, 0, 2, 2);
     Check(aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "adjust walls: top edge rebuilt");
     Check(aw1.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "adjust walls: bottom edge rebuilt");
     Check(aw1.HasWall(new EdgeKey(new CellKey(0, 0), Side.West)), "adjust walls: west edge rebuilt");
@@ -972,7 +972,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     var aw2 = new MapDocument();
     aw2.AddRoom(0, 0, 2, 2);
     for (int y = 0; y <= 2; y++) aw2.Cells.Remove(new CellKey(2, y));
-    aw2.RebuildRoomBoundaryWalls();
+    aw2.RebuildRoomBoundaryWalls(2, 0, 2, 2); // the erased column: new outer edge at x=1
     Check(aw2.HasWall(new EdgeKey(new CellKey(1, 0), Side.East)), "adjust walls: new outer edge after shrinking gets walls (row 0)");
     Check(aw2.HasWall(new EdgeKey(new CellKey(1, 2), Side.East)), "adjust walls: new outer edge after shrinking gets walls (row 2)");
     Check(aw2.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "adjust walls: cell (1,0) north faces empty space, outer edge gets wall");
@@ -989,7 +989,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     for (int x = 0; x <= 1; x++) aw3.Cells.Remove(new CellKey(x, 0));
     foreach (var e in aw3.Walls.Keys.ToList())
         if (e.Cell.Y == 0) aw3.SetWall(e, false);
-    aw3.RebuildRoomBoundaryWalls();
+    aw3.RebuildRoomBoundaryWalls(0, 0, 1, 0); // the erased top row
     Check(aw3.Cells.Count == 4, "adjust walls: top row cells deleted, 2x2 remains");
     Check(aw3.HasWall(new EdgeKey(new CellKey(0, 1), Side.North)), "adjust walls: new wall on the new top edge (left cell)");
     Check(aw3.HasWall(new EdgeKey(new CellKey(1, 1), Side.North)), "adjust walls: new wall on the new top edge (right cell)");
@@ -1213,6 +1213,43 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(h.Doc.AngledWalls.Count == 0, "canvas erase tool: angled walls removed with the polygon");
     Check(h.Doc.Cells.Contains(new CellKey(2, 0)) && h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
         "canvas erase tool: room east wall re-derived");
+    h.Dispose();
+}
+{
+    // reported bug: erase far away with Adjust Walls turns a polygon's diagonal
+    // boundary into a staircase of horizontal + vertical walls. The rebuild was
+    // global (scanned every cell in the document) and added axis-aligned walls
+    // on every polygon fill cell edge facing empty space, approximating the
+    // diagonal. Erasing at (20,20)-(21,21) must not touch the polygon at (0,0).
+    var h = new CanvasHarness();
+    h.Doc.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 3) }, strict: true);
+    h.Doc.AddRoom(10, 10, 13, 13);
+    int angled = h.Doc.AngledWalls.Count;
+    Check(angled == 1, "setup: polygon diagonal edge is one angled wall");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
+        "setup: no axis-aligned wall on the diagonal side before erase");
+    h.Canvas.Mode = ToolMode.Erase;
+    h.Canvas.EraseAdjustWalls = true;
+    h.Drag(11, 11, 12, 12); // hole punched far away inside the room (window-safe coords)
+    Check(h.Doc.AngledWalls.Count == angled, "far erase: polygon diagonal wall intact");
+    // the six polygon-cell edges facing empty space across the diagonal side:
+    // none of them is on the polygon's axis-aligned boundary, so none gets a wall
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
+        "far erase: no staircase wall east of polygon cell (2,0)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.South)),
+        "far erase: no staircase wall south of polygon cell (2,0)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(1, 1), Side.East)),
+        "far erase: no staircase wall east of polygon cell (1,1)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(1, 1), Side.South)),
+        "far erase: no staircase wall south of polygon cell (1,1)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(0, 2), Side.East)),
+        "far erase: no staircase wall east of polygon cell (0,2)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(0, 2), Side.South)),
+        "far erase: no staircase wall south of polygon cell (0,2)");
+    Check(h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.North)),
+        "far erase: polygon's own top boundary wall survives");
+    Check(h.Doc.HasWall(new EdgeKey(new CellKey(11, 10), Side.South)),
+        "far erase: hole edge in the far room gets its wall (adjust walls still works)");
     h.Dispose();
 }
 {

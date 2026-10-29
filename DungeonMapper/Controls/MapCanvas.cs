@@ -338,7 +338,7 @@ public sealed class MapCanvas : Control
                 Document.AngledDoors.Remove(w);
             Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
         }
-        if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls();
+        if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
@@ -1757,8 +1757,9 @@ public sealed class MapCanvas : Control
                         Document.RemovePolygon(p);
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
-                // outer edge gets fresh walls.
-                if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls();
+                // outer edge gets fresh walls. Scoped to the erase region: a
+                // global pass repaints polygon diagonals into staircases.
+                if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
                 Commit();
                 break;
             }
