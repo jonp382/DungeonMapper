@@ -18,7 +18,22 @@ public partial class MainWindow : Window
 {
     private MapProject _project = new();
     private MapDocument _doc => _project.Active;
-    private readonly History _history = new();
+    // per-map undo/redo: one History per MapEntry, keyed by reference. The old
+    // single shared History was re-Initialize'd on every map switch, wiping the
+    // snapshots of the map you left (symptom: switching maps loses undo history).
+    // keyed by entry, not index: RemoveMap shifts indices.
+    private readonly Dictionary<MapEntry, History> _histories = new();
+    private History HistoryFor(MapEntry e)
+    {
+        if (!_histories.TryGetValue(e, out var h))
+        {
+            h = new History();
+            h.Initialize(e.Doc);
+            _histories[e] = h;
+        }
+        return h;
+    }
+    private History ActiveHistory => HistoryFor(_project.Maps[_project.ActiveIndex]);
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly PawnLibrary _pawnLibrary = PawnLibrary.Load();
     // settings dirty flag: fields mutate live, the json write flushes once at
@@ -44,7 +59,7 @@ public partial class MainWindow : Window
         System.IO.Directory.CreateDirectory(Canvas.PawnImagesDir);
         Canvas.Settings = _settings;
         Canvas.Library = _pawnLibrary;
-        _history.Initialize(_doc);
+        HistoryFor(_project.Maps[0]); // snapshot the starting map at startup
 
         // hotkey labels on tool buttons (item: show hotkeys in tool text)
         LabelTool(ToolSelect, "Select");
@@ -126,7 +141,7 @@ public partial class MainWindow : Window
 
         Canvas.ActionCompleted += () =>
         {
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             CleanupUnreferencedImages();
         };
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
@@ -425,12 +440,13 @@ public partial class MainWindow : Window
         _suppressMapSelect = false;
     }
 
-    // Switches the canvas to a map by index. History is reset to the new map.
+    // Switches the canvas to a map by index. History is per-map, so switching
+    // preserves each map's undo/redo stack.
     private void SwitchMap(int index)
     {
         _project.SetActive(index);
         Canvas.Document = _doc;
-        _history.Initialize(_doc);
+        HistoryFor(_project.Maps[index]); // snapshot at switch time, not first commit
         // keep the armed selection + clipboard so cross-map move and cut/paste
         // work: select on map1, switch to map2, click the destination.
         Canvas.AutoFit();
@@ -446,7 +462,7 @@ public partial class MainWindow : Window
         string name = $"Map {_project.Maps.Count + 1}";
         _project.AddMap(name);
         Canvas.Document = _doc;
-        _history.Initialize(_doc);
+        HistoryFor(_project.Maps[^1]); // snapshot the new map at add time
         Canvas.ClearSelection();
         Canvas.ResetClipboard(); // new empty map: a cut from the old map must not paste/delete here
         Canvas.AutoFit();
@@ -474,7 +490,7 @@ public partial class MainWindow : Window
 
     private void DoUndo()
     {
-        var snap = _history.Undo();
+        var snap = ActiveHistory.Undo();
         if (snap is null) { StatusText.Text = "nothing to undo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
@@ -483,7 +499,7 @@ public partial class MainWindow : Window
 
     private void DoRedo()
     {
-        var snap = _history.Redo();
+        var snap = ActiveHistory.Redo();
         if (snap is null) { StatusText.Text = "nothing to redo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
@@ -554,7 +570,8 @@ public partial class MainWindow : Window
             }
             _currentMapPath = path; // Ctrl+S saves over the user-selected json
             Canvas.Document = _doc;
-            _history.Initialize(_doc);
+            _histories.Clear(); // fresh project = fresh entries
+            HistoryFor(_project.Maps[_project.ActiveIndex]); // snapshot loaded state
             Canvas.ClearSelection();
             Canvas.ResetClipboard(); // loaded project replaces all maps; old cut sources are stale
             Canvas.AutoFit();
@@ -791,7 +808,7 @@ public partial class MainWindow : Window
             _settings.DoorTypes.Remove(t);
             MarkSetting();
             FlushSettings();
-            _history.Commit(_doc); // one transaction: undo restores the doors
+            ActiveHistory.Commit(_doc); // one transaction: undo restores the doors
             Canvas.Refresh();
             ShowDoorPresets();
         }
@@ -830,14 +847,14 @@ public partial class MainWindow : Window
         ToolPanel.AddChoice("Type", names.ToArray(), door.Type, t =>
         {
             door.Type = t;
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
         ToolPanel.AddChoice("State", new[] { "open", "closed", "locked" },
             door.State.ToString().ToLowerInvariant(), s =>
             {
                 door.State = Enum.Parse<DoorState>(s, ignoreCase: true);
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
             });
     }
@@ -861,7 +878,7 @@ public partial class MainWindow : Window
                 var target = (StairDirection)Enum.Parse<StairDirection>(v);
                 foreach (var s2 in _doc.ConnectedStairs(cell))
                     s2.Direction = target;
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
             });
     }
@@ -872,7 +889,7 @@ public partial class MainWindow : Window
         ToolPanel.AddText("Text", label.Text, t =>
         {
             label.Text = t;
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
         // per-label size + color: size is a font size in points, 0 =
@@ -881,20 +898,20 @@ public partial class MainWindow : Window
         ToolPanel.AddNumber("Font size (0 = auto)", label.FontSize, v =>
         {
             label.FontSize = Math.Max(0, v);
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
         ToolPanel.AddColorField("Color (inherit = settings label color)",
             label.R, label.G, label.B, PresetColors(), c =>
             {
                 label.R = c.r; label.G = c.g; label.B = c.b;
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
             });
         ToolPanel.AddButton("reset to auto size + inherit color", () =>
         {
             label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
     }
@@ -931,7 +948,7 @@ public partial class MainWindow : Window
             ToolPanel.AddButton("delete pawn", () =>
             {
                 _doc.RemovePawn(pawn.Cell);
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
                 StatusText.Text = "pawn deleted";
             });
@@ -949,14 +966,14 @@ public partial class MainWindow : Window
             pawn.Status ?? "inherit", s =>
             {
                 pawn.Status = s == "inherit" ? null : s;
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
             });
         ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
         ToolPanel.AddButton("delete pawn", () =>
         {
             _doc.RemovePawn(pawn.Cell);
-            _history.Commit(_doc);
+            ActiveHistory.Commit(_doc);
             Canvas.Refresh();
             StatusText.Text = "pawn deleted";
         });
@@ -975,7 +992,7 @@ public partial class MainWindow : Window
             ToolPanel.AddButton(label, () =>
             {
                 pawn.TemplateId = captured.Id;
-                _history.Commit(_doc);
+                ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
                 StatusText.Text = $"pawn changed to {captured.Name}";
                 ShowPawnInfo(pawn);

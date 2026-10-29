@@ -1500,5 +1500,42 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
               "render: vertical gap punched along the door");
     }
 
+// --- per-map undo/redo: switching maps must not wipe the other map's history ---
+// simulates MainWindow's per-entry history dictionary (HistoryFor + ActiveHistory)
+{
+    var project = new MapProject();
+    var e1 = project.Maps[0];
+    var e2 = project.AddMap("Map 2");
+    project.SetActive(0);
+    var histories = new Dictionary<MapEntry, History>();
+    History For(MapEntry e)
+    {
+        if (!histories.TryGetValue(e, out var h)) { h = new History(); h.Initialize(e.Doc); histories[e] = h; }
+        return h;
+    }
+    var k1 = new EdgeKey(new CellKey(0, 0), Side.North);
+    var k2 = new EdgeKey(new CellKey(1, 0), Side.North);
+    var k3 = new EdgeKey(new CellKey(0, 0), Side.West);
+    e1.Doc.SetWall(k1, true); For(e1).Commit(e1.Doc);
+    e1.Doc.SetWall(k2, true); For(e1).Commit(e1.Doc);
+    project.SetActive(1); // switch to map 2: map 1's history must survive
+    For(e2); // MainWindow initializes the target map's history at switch time
+    e2.Doc.SetWall(k3, true); For(e2).Commit(e2.Doc);
+    e2.Doc.ApplyFrom(For(e2).Undo()!);
+    Check(!e2.Doc.HasWall(k3), "per-map: undo on active map removes its wall");
+    Check(For(e1).CanUndo, "per-map: map1 history survives switch to map2");
+    project.SetActive(0);
+    e1.Doc.ApplyFrom(For(e1).Undo()!);
+    Check(!e1.Doc.HasWall(k2) && e1.Doc.HasWall(k1), "per-map: map1 undo restores pre-switch state");
+    e1.Doc.ApplyFrom(For(e1).Redo()!);
+    Check(e1.Doc.HasWall(k2), "per-map: map1 redo works after round-trip switch");
+    project.SetActive(1);
+    e2.Doc.ApplyFrom(For(e2).Redo()!);
+    Check(e2.Doc.HasWall(k3), "per-map: map2 redo restores its own wall");
+    project.RemoveMap(0);
+    Check(For(project.Maps[0]) == histories[e2], "per-map: history follows entry through index shift");
+    Check(project.Maps[0].Doc.HasWall(k3), "per-map: surviving map keeps its state");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
