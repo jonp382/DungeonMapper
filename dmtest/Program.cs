@@ -1259,6 +1259,20 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     am2.AddRoom(0, 0, 2, 2);
     am2.AddPolygon(new List<(int, int)> { (0, 0), (2, 2), (0, 2) }, false, false, false);
     Check(am2.AngledWalls.Count == 1, "angled default: shared diagonal wall kept");
+
+    // base-edge merge: a triangle whose base is mated to a room face opens the
+    // WHOLE shared face, not just the rows that pass the center-point fill test.
+    // 5x4 room, triangle base 4 at x=5 (rows 0-3), apex at (6,2): the top and
+    // bottom base rows are sliver cells (center outside), so the merged-cell pass
+    // alone leaves their walls. The edge walk must open all four.
+    var t = new MapDocument();
+    t.AddRoom(0, 0, 5, 4);
+    t.AddPolygon(new List<(int, int)> { (5, 0), (5, 4), (6, 2) }, false, false, true);
+    Check(!t.HasWall(new EdgeKey(new CellKey(4, 0), Side.East)), "base merge: top base wall removed");
+    Check(!t.HasWall(new EdgeKey(new CellKey(4, 1), Side.East)), "base merge: inner base wall removed (row 1)");
+    Check(!t.HasWall(new EdgeKey(new CellKey(4, 2), Side.East)), "base merge: inner base wall removed (row 2)");
+    Check(!t.HasWall(new EdgeKey(new CellKey(4, 3), Side.East)), "base merge: bottom base wall removed");
+    Check(t.HasWall(new EdgeKey(new CellKey(4, 0), Side.North)), "base merge: room outer walls kept");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

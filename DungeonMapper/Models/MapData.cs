@@ -478,20 +478,48 @@ public sealed class MapDocument
                     if (merged.Contains(new CellKey(nx, ny)))
                         SetWall(new EdgeKey(c, side), false);
                 }
-            // angled walls: a polygon edge whose two side cells are both in the
-            // merged region is a shared boundary - open it. Same side-cell test
-            // as DiagonalInterior, run against merged.
+            // polygon edges shared with room cells open the full face, not just
+            // the rows that pass the center-point fill test. The merged-cell pass
+            // above only opens walls between merged cells, so a sliver cell on the
+            // polygon side (center outside, so not a fill cell) leaves its wall.
+            // Walk each edge: the polygon interior is the side the fill cells sit
+            // on; the room side is the opposite. Open the wall for every cell the
+            // edge spans when the room-side cell is a room.
             for (int i = 0; i < verts.Count; i++)
             {
                 var (ax, ay) = verts[i];
                 var (bx, by) = verts[(i + 1) % verts.Count];
-                if (ax == bx || ay == by) continue; // axis-aligned handled above
-                var w = new AngledWall(ax, ay, bx, by);
-                var sides = DiagonalSideCells(w);
-                if (merged.Contains(sides.Item1) && merged.Contains(sides.Item2))
+                if (ax == bx)
                 {
-                    AngledDoors.Remove(w);
-                    AngledWalls.RemoveAll(x => x.Ax == ax && x.Ay == ay && x.Bx == bx && x.By == by);
+                    int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+                    bool interiorRight = fill.Any(c => c.X == ax);
+                    for (int y = y0; y < y1; y++)
+                    {
+                        var roomCell = interiorRight ? new CellKey(ax - 1, y) : new CellKey(ax, y);
+                        if (Cells.Contains(roomCell))
+                            SetWall(new EdgeKey(roomCell, interiorRight ? Side.East : Side.West), false);
+                    }
+                }
+                else if (ay == by)
+                {
+                    int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+                    bool interiorDown = fill.Any(c => c.Y == ay);
+                    for (int x = x0; x < x1; x++)
+                    {
+                        var roomCell = interiorDown ? new CellKey(x, ay - 1) : new CellKey(x, ay);
+                        if (Cells.Contains(roomCell))
+                            SetWall(new EdgeKey(roomCell, interiorDown ? Side.South : Side.North), false);
+                    }
+                }
+                else
+                {
+                    var w = new AngledWall(ax, ay, bx, by);
+                    var sides = DiagonalSideCells(w);
+                    if (merged.Contains(sides.Item1) && merged.Contains(sides.Item2))
+                    {
+                        AngledDoors.Remove(w);
+                        AngledWalls.RemoveAll(x => x.Ax == ax && x.Ay == ay && x.Bx == bx && x.By == by);
+                    }
                 }
             }
         }
