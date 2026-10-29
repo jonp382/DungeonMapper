@@ -1,5 +1,8 @@
 ﻿using DungeonMapper.Models;
 using DungeonMapper.Controls;
+using Avalonia;
+
+if (args.Length > 0 && args[0] == "bench") { Bench.Run(); return 0; }
 
 int pass = 0, fail = 0;
 void Check(bool cond, string name)
@@ -1535,6 +1538,48 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     project.RemoveMap(0);
     Check(For(project.Maps[0]) == histories[e2], "per-map: history follows entry through index shift");
     Check(project.Maps[0].Doc.HasWall(k3), "per-map: surviving map keeps its state");
+}
+
+// --- wall drag commit batching: the old path committed (full-document JSON
+// snapshot) per edge per pointer move; now press commits once, moves mutate +
+// repaint only, release commits once. One drag = one undo step.
+using (var h = new CanvasHarness())
+{
+    h.Canvas.Mode = ToolMode.Wall;
+    // press on the edge midpoint world (2.5,2.0) = north edge of cell (2,2):
+    // screen ((2.5+1)*40, (2.0+1)*40) = (140,120). drag east along the y=2.0
+    // edge line; horizontal orientation is locked from the first edge.
+    h.PressAt(new Point(140, 120));
+    int afterPress = h.CommitCount;
+    int wallsAfterPress = h.Doc.Walls.Count;
+    for (int i = 1; i <= 4; i++) h.MoveToAt(new Point(140 + 40 * i, 120));
+    int duringDrag = h.CommitCount;
+    int wallsAfterDrag = h.Doc.Walls.Count;
+    h.ReleaseAt(new Point(300, 120));
+    Check(afterPress == 1, "wall add drag: press commits the first wall");
+    Check(duringDrag == 1, "wall add drag: drag moves commit zero times (batched)");
+    Check(h.CommitCount == 2, "wall add drag: release commits once");
+    Check(wallsAfterDrag > wallsAfterPress, "wall add drag: walls added along the drag line");
+    Check(h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North)), "wall add drag: pressed wall exists");
+    Check(h.Doc.HasWall(new EdgeKey(new CellKey(6, 2), Side.North)), "wall add drag: last dragged wall exists");
+}
+using (var h = new CanvasHarness())
+{
+    h.Doc.AddRoom(0, 0, 5, 0); // row of cells, north walls on cells 0..5
+    h.Canvas.Mode = ToolMode.Wall;
+    // press on the north wall of cell (0,0): world (0.5,0) -> screen (60,40)
+    h.PressAt(new Point(60, 40));
+    int afterPress = h.CommitCount;
+    for (int i = 1; i <= 4; i++) h.MoveToAt(new Point(60 + 40 * i, 40));
+    int duringDrag = h.CommitCount;
+    h.ReleaseAt(new Point(220, 40));
+    Check(afterPress == 1, "wall delete drag: press commits the first removal");
+    Check(duringDrag == 1, "wall delete drag: moves commit zero times (batched)");
+    Check(h.CommitCount == 2, "wall delete drag: release commits once");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "wall delete drag: pressed wall removed");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "wall delete drag: dragged wall removed (cell 1)");
+    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(4, 0), Side.North)), "wall delete drag: dragged wall removed (cell 4)");
+    Check(h.Doc.HasWall(new EdgeKey(new CellKey(5, 0), Side.North)), "wall delete drag: wall past the drag end survives");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

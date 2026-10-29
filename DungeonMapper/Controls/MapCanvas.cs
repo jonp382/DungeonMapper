@@ -410,11 +410,89 @@ public sealed class MapCanvas : Control
     // Canvas element colors come from Settings (settings menu). The old static
     // GridLine/FaintGridLine brushes were dead code - grid rendering uses the
     // MajorGrid/MinorGrid settings colors - and were removed.
-    private IBrush Background => new SolidColorBrush(Color.FromRgb((byte)Settings.BackgroundR, (byte)Settings.BackgroundG, (byte)Settings.BackgroundB));
-    private IBrush CellFill => new SolidColorBrush(Color.FromRgb((byte)Settings.CellFillR, (byte)Settings.CellFillG, (byte)Settings.CellFillB));
-    private IPen WallPen => new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.WallR, (byte)Settings.WallG, (byte)Settings.WallB)), 3);
-    private IBrush StairColor => new SolidColorBrush(Color.FromRgb((byte)Settings.StairColorR, (byte)Settings.StairColorG, (byte)Settings.StairColorB));
-    private IBrush LabelBrush => new SolidColorBrush(Color.FromRgb((byte)Settings.LabelR, (byte)Settings.LabelG, (byte)Settings.LabelB));
+    // Pen/Brush caching: the old properties allocated a fresh object on EVERY
+    // access, so a 100x100 room (400 wall lines) cost 400 Pen allocations per
+    // frame. Each is cached and rebuilt only when its settings color changes.
+    private IBrush? _bgBrush; private int _bgR, _bgG, _bgB;
+    private IBrush Background
+    {
+        get
+        {
+            if (_bgBrush is null || _bgR != Settings.BackgroundR || _bgG != Settings.BackgroundG || _bgB != Settings.BackgroundB)
+            {
+                _bgR = Settings.BackgroundR; _bgG = Settings.BackgroundG; _bgB = Settings.BackgroundB;
+                _bgBrush = new SolidColorBrush(Color.FromRgb((byte)_bgR, (byte)_bgG, (byte)_bgB));
+            }
+            return _bgBrush;
+        }
+    }
+    private IBrush? _cellFillBrush; private int _cfR, _cfG, _cfB;
+    private IBrush CellFill
+    {
+        get
+        {
+            if (_cellFillBrush is null || _cfR != Settings.CellFillR || _cfG != Settings.CellFillG || _cfB != Settings.CellFillB)
+            {
+                _cfR = Settings.CellFillR; _cfG = Settings.CellFillG; _cfB = Settings.CellFillB;
+                _cellFillBrush = new SolidColorBrush(Color.FromRgb((byte)_cfR, (byte)_cfG, (byte)_cfB));
+            }
+            return _cellFillBrush;
+        }
+    }
+    private Pen? _wallPenField; private int _wpR, _wpG, _wpB;
+    private IPen WallPen
+    {
+        get
+        {
+            if (_wallPenField is null || _wpR != Settings.WallR || _wpG != Settings.WallG || _wpB != Settings.WallB)
+            {
+                _wpR = Settings.WallR; _wpG = Settings.WallG; _wpB = Settings.WallB;
+                _wallPenField = new Pen(new SolidColorBrush(Color.FromRgb((byte)_wpR, (byte)_wpG, (byte)_wpB)), 3);
+            }
+            return _wallPenField;
+        }
+    }
+    private IBrush? _stairBrush; private int _scR, _scG, _scB;
+    private IBrush StairColor
+    {
+        get
+        {
+            if (_stairBrush is null || _scR != Settings.StairColorR || _scG != Settings.StairColorG || _scB != Settings.StairColorB)
+            {
+                _scR = Settings.StairColorR; _scG = Settings.StairColorG; _scB = Settings.StairColorB;
+                var col = Color.FromRgb((byte)_scR, (byte)_scG, (byte)_scB);
+                _stairBrush = new SolidColorBrush(col);
+                _stairTint = new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B));
+                _stairTintCol = col;
+            }
+            return _stairBrush;
+        }
+    }
+    // the 90-alpha stair fill tint, cached alongside StairColor (the stair loop
+    // used to allocate a tint brush per stair)
+    private IBrush? _stairTint; private Color _stairTintCol;
+    private IBrush StairTint(Color col)
+    {
+        if (_stairTint is null || _stairTintCol != col)
+        {
+            _stairTintCol = col;
+            _stairTint = new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B));
+        }
+        return _stairTint;
+    }
+    private IBrush? _labelBrush; private int _lbR, _lbG, _lbB;
+    private IBrush LabelBrush
+    {
+        get
+        {
+            if (_labelBrush is null || _lbR != Settings.LabelR || _lbG != Settings.LabelG || _lbB != Settings.LabelB)
+            {
+                _lbR = Settings.LabelR; _lbG = Settings.LabelG; _lbB = Settings.LabelB;
+                _labelBrush = new SolidColorBrush(Color.FromRgb((byte)_lbR, (byte)_lbG, (byte)_lbB));
+            }
+            return _labelBrush;
+        }
+    }
 
     // Door color per type, from the configurable DoorTypes list; unknown types
     // fall back to the first category.
@@ -548,13 +626,50 @@ public sealed class MapCanvas : Control
         // base-corner cells of a triangle). Remove fill cells from the
         // merged-rect pass, and keep the half-pixel pad from bleeding room
         // floor into a polygon cell across the polygon edge.
+        // culled to the visible window: off-screen polygons cost nothing. Fill
+        // cells are computed only for polygons whose bounds intersect the
+        // window, clamped to the window range, so a huge polygon enclosing the
+        // viewport costs O(window area), not O(polygon area).
+        int cx0 = (int)Math.Floor(topLeft.X), cx1 = (int)Math.Ceiling(bottomRight.X);
+        int cy0 = (int)Math.Floor(topLeft.Y), cy1 = (int)Math.Ceiling(bottomRight.Y);
         var polyCells = new HashSet<CellKey>();
         foreach (var p in Document.Polygons)
-            polyCells.UnionWith(Document.PolygonFillCells(p.Verts));
+        {
+            if (p.Verts.Count < 3) continue;
+            int pminX = p.Verts.Min(v => v.x), pmaxX = p.Verts.Max(v => v.x);
+            int pminY = p.Verts.Min(v => v.y), pmaxY = p.Verts.Max(v => v.y);
+            if (pmaxX < topLeft.X || pminX > bottomRight.X + 1 || pmaxY < topLeft.Y || pminY > bottomRight.Y + 1) continue;
+            polyCells.UnionWith(Document.PolygonFillCells(p.Verts, cx0, cx1, cy0, cy1));
+        }
 
-        var remaining = new HashSet<CellKey>(Document.Cells);
-        remaining.ExceptWith(polyCells);
-        foreach (var c in Document.Cells.OrderBy(c => c.Y).ThenBy(c => c.X))
+        // Visible cells only. The greedy pass below needs top-left-first order;
+        // iterating the viewport area row-by-row gives that for free (no LINQ
+        // sort) and off-screen cells never enter the scan. When the viewport is
+        // larger than the document (zoomed way out), iterate the document and
+        // cull instead - O(min(window area, document size)) per frame.
+        var visibleCells = new List<CellKey>();
+        var remaining = new HashSet<CellKey>();
+        long windowArea = (long)(cx1 - cx0 + 1) * (cy1 - cy0 + 1);
+        if (windowArea <= Document.Cells.Count)
+        {
+            for (int y = cy0; y <= cy1; y++)
+                for (int x = cx0; x <= cx1; x++)
+                {
+                    var k = new CellKey(x, y);
+                    if (Document.Cells.Contains(k) && !polyCells.Contains(k))
+                    { visibleCells.Add(k); remaining.Add(k); }
+                }
+        }
+        else
+        {
+            foreach (var c in Document.Cells.Where(c => c.X >= cx0 && c.X <= cx1 && c.Y >= cy0 && c.Y <= cy1)
+                                             .OrderBy(c => c.Y).ThenBy(c => c.X))
+            {
+                if (!polyCells.Contains(c))
+                { visibleCells.Add(c); remaining.Add(c); }
+            }
+        }
+        foreach (var c in visibleCells)
         {
             if (!remaining.Contains(c)) continue;
             int w = 1;
@@ -637,12 +752,13 @@ public sealed class MapCanvas : Control
         // triangle's tip is the direction the stairs face.
         foreach (var (c, s) in Document.Stairs)
         {
+            if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(c.X, c.Y);
             var rect = new Rect(p0.X, p0.Y, _scale, _scale);
             // single stair color: every direction renders in the same color.
             var brush = StairColor;
             var col = ((SolidColorBrush)brush).Color;
-            ctx.FillRectangle(new SolidColorBrush(Color.FromArgb(90, col.R, col.G, col.B)), rect);
+            ctx.FillRectangle(StairTint(col), rect);
             var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
             double a = _scale * 0.28;
             // tip points along the direction, base sits opposite the tip
@@ -674,11 +790,15 @@ public sealed class MapCanvas : Control
             ctx.DrawGeometry(brush, null, geo);
         }
 
-        // Walls, with door symbol where a door exists
+        // Walls, with door symbol where a door exists. Culled to the visible
+        // window: a 100x100 room adds 400 perimeter walls, and the old loop
+        // iterated every wall in the document on every frame, on-screen or not.
         foreach (var (e, has) in Document.Walls)
         {
             if (!has) continue;
             var seg = EdgeSegment(e);
+            if (Math.Max(seg.a.X, seg.b.X) < topLeft.X || Math.Min(seg.a.X, seg.b.X) > bottomRight.X
+                || Math.Max(seg.a.Y, seg.b.Y) < topLeft.Y || Math.Min(seg.a.Y, seg.b.Y) > bottomRight.Y) continue;
             var a = WorldToScreen(seg.a.X, seg.a.Y);
             var b = WorldToScreen(seg.b.X, seg.b.Y);
             ctx.DrawLine(WallPen, a, b);
@@ -692,6 +812,8 @@ public sealed class MapCanvas : Control
         // glyph rotated to the segment angle.
         foreach (var w in Document.AngledWalls)
         {
+            if (Math.Max(w.Ax, w.Bx) + 1 < topLeft.X || Math.Min(w.Ax, w.Bx) - 1 > bottomRight.X
+                || Math.Max(w.Ay, w.By) + 1 < topLeft.Y || Math.Min(w.Ay, w.By) - 1 > bottomRight.Y) continue;
             var a = WorldToScreen(w.Ax, w.Ay);
             var b = WorldToScreen(w.Bx, w.By);
             var doors = Document.GetAngledDoors(w);
@@ -703,6 +825,7 @@ public sealed class MapCanvas : Control
         // the orientation, then draw the glyph rotated to it.
         foreach (var (k, d) in Document.VertexDoors)
         {
+            if (k.X + 1 < topLeft.X || k.X - 1 > bottomRight.X || k.Y + 1 < topLeft.Y || k.Y - 1 > bottomRight.Y) continue;
             var v = WorldToScreen(k.X, k.Y);
             double gap = _scale; // 5ft door = one cell of wall width
             var gapRect = k.Horizontal
@@ -715,6 +838,7 @@ public sealed class MapCanvas : Control
         // Labels centered on their cell
         foreach (var l in Document.Labels)
         {
+            if (l.Cell.X + 1 < topLeft.X || l.Cell.X > bottomRight.X || l.Cell.Y + 1 < topLeft.Y || l.Cell.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
             // per-label overrides: FontSize 0 = zoom-scaled auto, color -1 = inherit
             double fs = l.FontSize > 0 ? l.FontSize : Math.Max(10, _scale * 0.35);
@@ -731,7 +855,10 @@ public sealed class MapCanvas : Control
         // by zoom. Visual data resolves from the library template (hard reference);
         // a missing template renders an X (broken reference). Drawn after labels.
         foreach (var (c, p) in Document.Pawns)
+        {
+            if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
             DrawPawnGlyph(ctx, c, p.TemplateId, p.Status);
+        }
 
         // per-pawn drag ghost: the dragged pawn follows the cursor as a
         // semi-transparent glyph at the cell it will land on.
@@ -750,6 +877,12 @@ public sealed class MapCanvas : Control
     private EdgeKey? _wallDragStart;
     private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
     private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
+    // wall drag commits are batched: the press commits the first wall, drag
+    // moves mutate the document with repaint-only invalidation, and the release
+    // commits once. Per-edge commits serialized the WHOLE document per pointer
+    // move (3.6 ms/commit on a 20k-cell doc), so a long wall-line drag froze the
+    // UI and burned 100 history snapshots. One commit per drag = one undo step.
+    private bool _wallDragDirty;
 
     // polygon tool: vertices are LATTICE points (integer grid intersections).
     // Click adds a snapped vertex; clicking the first vertex closes the polygon;
@@ -1383,13 +1516,15 @@ public sealed class MapCanvas : Control
                             if (Document.HasWall(e2))
                             {
                                 Document.SetWall(e2, false);
-                                Commit();
+                                _wallDragDirty = true;
+                                InvalidateVisual();
                             }
                         }
                         else if (!Document.HasWall(e2))
                         {
                             Document.SetWall(e2, true);
-                            Commit();
+                            _wallDragDirty = true;
+                            InvalidateVisual();
                         }
                     }
                 }
@@ -1578,6 +1713,11 @@ public sealed class MapCanvas : Control
             }
             case ToolMode.Wall:
                 _wallDragStart = null;
+                if (_wallDragDirty)
+                {
+                    _wallDragDirty = false;
+                    Commit();
+                }
                 break;
             case ToolMode.Erase:
             {

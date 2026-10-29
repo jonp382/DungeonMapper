@@ -29,6 +29,7 @@ public sealed class CanvasHarness : IDisposable
     public MapDocument Doc { get; }
     public Window Window => _window;
     public List<string> Statuses { get; } = new();
+    public int CommitCount { get; private set; }
 
     public CanvasHarness()
     {
@@ -44,6 +45,7 @@ public sealed class CanvasHarness : IDisposable
         Canvas = new MapCanvas();
         Canvas.Document = Doc;
         Canvas.StatusMessage += s => Statuses.Add(s);
+        Canvas.ActionCompleted += () => CommitCount++;
         _window = new Window { Content = Canvas };
         _window.Show();
         _window.ApplyTemplate();
@@ -82,6 +84,23 @@ public sealed class CanvasHarness : IDisposable
     public void ClickW(double wx, double wy) { PressW(wx, wy); ReleaseW(wx, wy); }
 
     public string LastStatus => Statuses.Count > 0 ? Statuses[^1] : "(none)";
+
+    /// Right-drag pan by (dx,dy) screen pixels, driven through the real pan
+    /// handler. The drag stays inside the window: press right at the right edge,
+    /// move to the left edge, release. Positive dx pans the view right (content
+    /// moves left on screen, offset.X increases by dx/scale).
+    public void PanBy(double dx, double dy)
+    {
+        var start = new Point(999, 350);
+        var end = new Point(1, 350);
+        _window.MouseDown(start, MouseButton.Right, RawInputModifiers.None);
+        _window.MouseMove(end, RawInputModifiers.None);
+        _window.MouseUp(end, MouseButton.Right, RawInputModifiers.None);
+    }
+
+    public void PressAt(Point p) => _window.MouseDown(p, MouseButton.Left, RawInputModifiers.None);
+    public void MoveToAt(Point p) => _window.MouseMove(p, RawInputModifiers.None);
+    public void ReleaseAt(Point p) => _window.MouseUp(p, MouseButton.Left, RawInputModifiers.None);
 
     /// Render the window to a bitmap. With UseHeadlessDrawing = false the
     /// headless platform runs the software renderer, so RenderTargetBitmap

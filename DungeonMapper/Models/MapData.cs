@@ -614,7 +614,13 @@ public sealed class MapDocument
 
     /// The cells whose CENTER (x+0.5, y+0.5) lies inside the closed polygon.
     /// Shared by AddPolygon and the Polygon tool's live fill preview.
-    public HashSet<CellKey> PolygonFillCells(List<(int x, int y)> verts)
+    /// The scan is clamped to the optional window (cx0..cx1, cy0..cy1): the
+    /// render pass passes the visible viewport so a huge polygon enclosing the
+    /// view costs O(window area), not O(polygon area). AddPolygon/preview pass
+    /// the defaults (int.MinValue/MaxValue) and get the full fill.
+    public HashSet<CellKey> PolygonFillCells(List<(int x, int y)> verts,
+        int cx0 = int.MinValue, int cx1 = int.MaxValue,
+        int cy0 = int.MinValue, int cy1 = int.MaxValue)
     {
         var cells = new HashSet<CellKey>();
         if (verts.Count < 3) return cells;
@@ -624,6 +630,9 @@ public sealed class MapDocument
             if (vx < minX) minX = vx; if (vx > maxX) maxX = vx;
             if (vy < minY) minY = vy; if (vy > maxY) maxY = vy;
         }
+        if (minX < cx0) minX = cx0; if (maxX > cx1) maxX = cx1;
+        if (minY < cy0) minY = cy0; if (maxY > cy1) maxY = cy1;
+        if (minX >= maxX || minY >= maxY) return cells;
         for (int x = minX; x < maxX; x++)
             for (int y = minY; y < maxY; y++)
                 if (PointInPolygon(x + 0.5, y + 0.5, verts))
