@@ -293,14 +293,14 @@ public partial class MainWindow : Window
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
             ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
-            ToolMode.Floor => "floor: click-drag a rectangle. fills cells, clears interior walls/doors/stairs/labels, draws no walls",
+            ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
             ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
             ToolMode.Label => "label: click a cell to place, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
-            ToolMode.Line => "line: press at a grid vertex, drag to the end vertex, release. orthogonal lines create walls along the path, angled lines create one angled wall",
+            ToolMode.Line => "line: click on your starting grid point and release on your end point to draw a line",
             _ => "",
         };
         PopulatePanel(mode);
@@ -424,9 +424,16 @@ public partial class MainWindow : Window
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
                 break;
 
+            case ToolMode.Floor:
+                ToolPanel.Clear("Floor");
+                ToolPanel.AddHint("manual: drag a rectangle. flood fill: click a cell to fill the room it is in, bounded by walls, doors and stairs");
+                ToolPanel.AddButton("manual rectangle", () => { Canvas.FloorFloodFill = false; FocusCanvas(); });
+                ToolPanel.AddButton("flood fill", () => { Canvas.FloorFloodFill = true; FocusCanvas(); });
+                break;
+
             case ToolMode.Line:
                 ToolPanel.Clear("Line");
-                ToolPanel.AddHint("press at a grid vertex, drag to the end vertex, release. orthogonal lines create a series of walls along the path; angled lines create one angled wall. walls merge with existing walls, doors survive; erase removes them");
+                ToolPanel.AddHint("click on your starting grid point and release on your end point to draw a line");
                 break;
 
             default:

@@ -898,6 +898,13 @@ public sealed class MapCanvas : Control
     private (int x, int y)? _lineEnd; // snapped end vertex during the drag
     private bool _lineDragging;
 
+    // Floor tool sub-mode: false = manual rectangle drag (the original),
+    // true = flood fill, click a cell to fill the room it is in. The popup
+    // panel buttons flip this; the status bar shows which mode is active.
+    public bool FloorFloodFill;
+    private HashSet<CellKey>? _floodPreview;
+    private CellKey? _floodPreviewCell;
+
     /// Discards an in-progress line (Escape / tool switch): the ghost is
     /// dropped and nothing is committed.
     public void CancelLine()
@@ -1065,6 +1072,19 @@ public sealed class MapCanvas : Control
             var ldot = new SolidColorBrush(Color.FromRgb(250, 250, 250));
             ctx.DrawEllipse(ldot, null, la, 3, 3);
             ctx.DrawEllipse(ldot, null, lb, 3, 3);
+        }
+
+        // flood fill preview: the room the cursor is in, painted in the same
+        // muted tan as the floor drag ghost. Skipped for huge regions (the
+        // unclosed/cap case) - too many rects to paint per frame.
+        if (Mode == ToolMode.Floor && FloorFloodFill && _floodPreview is not null && _floodPreview.Count <= 2000)
+        {
+            var floodFill = new SolidColorBrush(Color.FromArgb(70, 150, 130, 90));
+            foreach (var c in _floodPreview)
+            {
+                var tl = WorldToScreen(c.X, c.Y);
+                ctx.FillRectangle(floodFill, new Rect(tl.X, tl.Y, _scale, _scale));
+            }
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
@@ -1333,7 +1353,37 @@ public sealed class MapCanvas : Control
                 break;
 
             case ToolMode.Room:
+                _dragging = true;
+                _dragStart = cell;
+                _dragEnd = cell;
+                e.Pointer.Capture(this);
+                break;
+
             case ToolMode.Floor:
+                if (FloorFloodFill)
+                {
+                    // flood fill: click commits. The region is the room the
+                    // clicked cell is in, bounded by walls, doors, stairs and
+                    // angled walls. Floors only - nothing is cleared.
+                    var region = Document.FloodFillRegion(cell);
+                    _floodPreview = null;
+                    _floodPreviewCell = null;
+                    if (region is null)
+                        StatusMessage?.Invoke("floor fill: region not enclosed (cap 10000 cells), nothing filled");
+                    else
+                    {
+                        Document.AddFloorCells(region);
+                        Commit();
+                        StatusMessage?.Invoke($"floor fill: {region.Count} cells");
+                    }
+                    InvalidateVisual();
+                    break;
+                }
+                _dragging = true;
+                _dragStart = cell;
+                _dragEnd = cell;
+                e.Pointer.Capture(this);
+                break;
             case ToolMode.Stair:
             case ToolMode.Erase:
                 _dragging = true;
@@ -1543,6 +1593,20 @@ public sealed class MapCanvas : Control
             // lattice vertex, same rule as the press.
             var end = ((int)Math.Round(world.X), (int)Math.Round(world.Y));
             if (end != _lineEnd) { _lineEnd = end; InvalidateVisual(); }
+            return;
+        }
+
+        // flood fill preview: hovering a cell highlights the whole region a
+        // click would fill. Recomputed only when the cursor cell changes.
+        if (Mode == ToolMode.Floor && FloorFloodFill && !_dragging && !_panning)
+        {
+            var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+            if (cell != _floodPreviewCell)
+            {
+                _floodPreviewCell = cell;
+                _floodPreview = Document.FloodFillRegion(cell);
+                InvalidateVisual();
+            }
             return;
         }
 

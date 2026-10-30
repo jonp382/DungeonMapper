@@ -1745,5 +1745,57 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     h.Dispose();
 }
 
+
+// --- floor flood fill (model) ---
+{
+    var fdoc = new MapDocument();
+    fdoc.AddLine(0, 0, 4, 0); fdoc.AddLine(4, 0, 4, 4); fdoc.AddLine(4, 4, 0, 4); fdoc.AddLine(0, 4, 0, 0);
+    var reg = fdoc.FloodFillRegion(new CellKey(1, 1));
+    Check(reg is not null && reg.Count == 16, "line room floods 16 cells");
+    fdoc.AddFloorCells(reg!);
+    Check(fdoc.Cells.Count == 16 && fdoc.Walls.Count == 16, "AddFloorCells adds cells only, walls untouched");
+    var ddoc = new MapDocument();
+    ddoc.AddRoom(0, 0, 5, 5);
+    for (int y = 0; y <= 5; y++) ddoc.SetWall(new EdgeKey(new CellKey(2, y), Side.East), true);
+    ddoc.TryPlaceDoor(new EdgeKey(new CellKey(2, 2), Side.East), out _);
+    var dreg = ddoc.FloodFillRegion(new CellKey(1, 1));
+    Check(dreg is not null && dreg.Count == 18, "door blocks fill: left half 18 cells");
+    var sdoc = new MapDocument();
+    sdoc.AddRoom(0, 0, 3, 3);
+    sdoc.Stairs[new CellKey(2, 2)] = new Stair { Direction = StairDirection.Up };
+    var sreg = sdoc.FloodFillRegion(new CellKey(1, 1));
+    Check(sreg is not null && sreg.Count == 15, "stair blocks fill: 15 cells");
+    var xdoc = new MapDocument();
+    xdoc.AddLine(0, 0, 4, 0); xdoc.AddLine(4, 0, 4, 4); xdoc.AddLine(4, 4, 0, 4); xdoc.AddLine(0, 4, 0, 0);
+    xdoc.AddLine(0, 0, 4, 4);
+    var xreg = xdoc.FloodFillRegion(new CellKey(1, 0));
+    Check(xreg is not null && xreg.Count == 6, "diagonal splits room: 6 cells below");
+    var xreg2 = xdoc.FloodFillRegion(new CellKey(0, 1));
+    Check(xreg2 is not null && xreg2.Count == 6, "diagonal splits room: 6 cells above");
+    var cdoc = new MapDocument();
+    Check(cdoc.FloodFillRegion(new CellKey(0, 0)) is null, "open field exceeds cap, returns null");
+}
+
+// --- floor flood fill (canvas) ---
+{
+    var fc = new CanvasHarness();
+    fc.Canvas.Mode = ToolMode.Line;
+    fc.PressW(0, 0); fc.MoveToAt(fc.ScreenWorld(4, 0)); fc.ReleaseW(4, 0);
+    fc.PressW(4, 0); fc.MoveToAt(fc.ScreenWorld(4, 4)); fc.ReleaseW(4, 4);
+    fc.PressW(4, 4); fc.MoveToAt(fc.ScreenWorld(0, 4)); fc.ReleaseW(0, 4);
+    fc.PressW(0, 4); fc.MoveToAt(fc.ScreenWorld(0, 0)); fc.ReleaseW(0, 0);
+    fc.Canvas.Mode = ToolMode.Floor;
+    fc.Canvas.FloorFloodFill = true;
+    int baseCommits = fc.CommitCount;
+    fc.ClickW(1.5, 1.5);
+    Check(fc.Doc.Cells.Count == 16, "canvas flood fills 16 cells");
+    Check(fc.CommitCount == baseCommits + 1, "canvas flood commits once");
+    Check(fc.Doc.Walls.Count == 16, "canvas flood leaves walls untouched");
+    fc.Canvas.FloorFloodFill = false;
+    fc.PressW(1.5, 1.5); fc.MoveToAt(fc.ScreenWorld(2.5, 2.5)); fc.ReleaseW(2.5, 2.5);
+    Check(fc.CommitCount == baseCommits + 2, "manual drag still commits after flood mode");
+    fc.Dispose();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

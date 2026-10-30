@@ -891,6 +891,120 @@ public sealed class MapDocument
         }
     }
 
+    /// Wall-aware flood fill: the set of cells reachable from START through
+    /// open cell edges, the same 4-adjacency BFS as ConnectedStairs, but the
+    /// walk is the fill itself. A move is blocked by: a unit wall on the
+    /// shared edge (a door implies a wall, so doors block), an angled wall
+    /// crossing the shared edge, an angled wall cutting through the neighbour
+    /// cell's interior (a diagonal boundary owns that cell, the fill stops
+    /// before it), and a stair in the neighbour cell (fill stays on this
+    /// level). Returns null when the region exceeds MAX_CELLS - the clicked
+    /// region is not enclosed (open field, gap in the walls), so the caller
+    /// fills nothing.
+    public HashSet<CellKey>? FloodFillRegion(CellKey start, int maxCells = 10000)
+    {
+        var cut = BuildCutCells();
+        var crossed = BuildCrossedEdges();
+        var region = new HashSet<CellKey>();
+        if (Stairs.ContainsKey(start) || cut.Contains(start)) return region;
+        var seen = new HashSet<CellKey> { start };
+        var queue = new Queue<CellKey>();
+        queue.Enqueue(start);
+        while (queue.Count > 0)
+        {
+            var c = queue.Dequeue();
+            region.Add(c);
+            if (region.Count > maxCells) return null;
+            foreach (var (dx, dy, side) in new[] { (1, 0, Side.East), (-1, 0, Side.West), (0, 1, Side.South), (0, -1, Side.North) })
+            {
+                var n = new CellKey(c.X + dx, c.Y + dy);
+                if (seen.Contains(n)) continue;
+                var edge = EdgeKey.Normalize(c, side);
+                if (HasWall(edge) || crossed.Contains(edge)) continue;
+                if (cut.Contains(n) || Stairs.ContainsKey(n)) continue;
+                seen.Add(n);
+                queue.Enqueue(n);
+            }
+        }
+        return region;
+    }
+
+    /// Adds floor cells ONLY - walls, doors, stairs, labels untouched. Floors
+    /// are independent of the lines that bound them, so the flood fill never
+    /// clears anything. (The manual rectangle AddFloor does clear interiors.)
+    public void AddFloorCells(HashSet<CellKey> cells)
+    {
+        foreach (var c in cells) Cells.Add(c);
+    }
+
+    /// Cells whose INTERIOR an angled wall cuts through. A lattice-to-lattice
+    /// diagonal passes through the cells it crosses (a 45 degree wall from
+    /// (2,2) to (3,3) is the diagonal of cells (2,2) and (3,3)); those cells
+    /// belong to the boundary, so the flood fill stops before them.
+    private HashSet<CellKey> BuildCutCells()
+    {
+        var cut = new HashSet<CellKey>();
+        foreach (var w in AngledWalls)
+        {
+            int x0 = Math.Min(w.Ax, w.Bx), x1 = Math.Max(w.Ax, w.Bx);
+            int y0 = Math.Min(w.Ay, w.By), y1 = Math.Max(w.Ay, w.By);
+            for (int cx = x0; cx < x1; cx++)
+                for (int cy = y0; cy < y1; cy++)
+                    if (SegmentCutsCell(w.Ax, w.Ay, w.Bx, w.By, cx, cy))
+                        cut.Add(new CellKey(cx, cy));
+        }
+        return cut;
+    }
+
+    /// Unit edges an angled wall crosses through their interior. Touching a
+    /// lattice corner is not a crossing: a diagonal that only touches the
+    /// shared edge at its endpoint leaves the 4-adjacency move open.
+    private HashSet<EdgeKey> BuildCrossedEdges()
+    {
+        var crossed = new HashSet<EdgeKey>();
+        foreach (var w in AngledWalls)
+        {
+            int x0 = Math.Min(w.Ax, w.Bx), x1 = Math.Max(w.Ax, w.Bx);
+            int y0 = Math.Min(w.Ay, w.By), y1 = Math.Max(w.Ay, w.By);
+            for (int x = x0; x <= x1; x++)
+                for (int cy = y0; cy < y1; cy++)
+                    if (SegmentsCross(w.Ax, w.Ay, w.Bx, w.By, x, cy, x, cy + 1))
+                        crossed.Add(new EdgeKey(new CellKey(x - 1, cy), Side.East));
+            for (int y = y0; y <= y1; y++)
+                for (int cx = x0; cx < x1; cx++)
+                    if (SegmentsCross(w.Ax, w.Ay, w.Bx, w.By, cx, y, cx + 1, y))
+                        crossed.Add(new EdgeKey(new CellKey(cx, y), Side.North));
+        }
+        return crossed;
+    }
+
+    static double Orient(double ax, double ay, double bx, double by, double px, double py)
+        => (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+
+    /// Proper crossing of two OPEN segments: strict straddle on both lines,
+    /// so endpoint touches and collinear overlaps do not count.
+    static bool SegmentsCross(double ax, double ay, double bx, double by, double ex, double ey, double fx, double fy)
+    {
+        double o1 = Orient(ex, ey, fx, fy, ax, ay);
+        double o2 = Orient(ex, ey, fx, fy, bx, by);
+        double o3 = Orient(ax, ay, bx, by, ex, ey);
+        double o4 = Orient(ax, ay, bx, by, fx, fy);
+        return ((o1 > 0 && o2 < 0) || (o1 < 0 && o2 > 0)) && ((o3 > 0 && o4 < 0) || (o3 < 0 && o4 > 0));
+    }
+
+    /// Slab clipping: the open segment passes through the OPEN square
+    /// (cx,cy)-(cx+1,cy+1) when the clipped t-interval has positive length.
+    static bool SegmentCutsCell(double ax, double ay, double bx, double by, int cx, int cy)
+    {
+        double dx = bx - ax, dy = by - ay;
+        double t0 = 0, t1 = 1;
+        if (Math.Abs(dx) < 1e-9) { if (ax <= cx || ax >= cx + 1) return false; }
+        else { double ta = (cx - ax) / dx, tb = (cx + 1 - ax) / dx; t0 = Math.Max(t0, Math.Min(ta, tb)); t1 = Math.Min(t1, Math.Max(ta, tb)); }
+        if (Math.Abs(dy) < 1e-9) { if (ay <= cy || ay >= cy + 1) return false; }
+        else { double ta = (cy - ay) / dy, tb = (cy + 1 - ay) / dy; t0 = Math.Max(t0, Math.Min(ta, tb)); t1 = Math.Min(t1, Math.Max(ta, tb)); }
+        return t0 < t1;
+    }
+
     /// All stairs connected to the given cell by 4-directional adjacency
     /// (up/down/left/right), including the start cell. Used so configuring one
     /// stair updates every stair in the same contiguous group. A wall on the
