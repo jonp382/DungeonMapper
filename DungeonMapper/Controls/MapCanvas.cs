@@ -726,6 +726,41 @@ public sealed class MapCanvas : Control
             }
         }
 
+        // flood region floors: exact geometry (ring 0 outer, rings 1+ holes via
+        // EvenOdd), so diagonal rooms show their triangular sections. Seam
+        // stroke closes the anti-aliasing gap where an edge meets a room rect.
+        foreach (var fr in Document.FloodRegions)
+        {
+            if (fr.Rings.Count == 0) continue;
+            double fminX = double.MaxValue, fminY = double.MaxValue, fmaxX = double.MinValue, fmaxY = double.MinValue;
+            foreach (var ring in fr.Rings)
+                foreach (var (rx, ry) in ring)
+                {
+                    if (rx < fminX) fminX = rx; if (rx > fmaxX) fmaxX = rx;
+                    if (ry < fminY) fminY = ry; if (ry > fmaxY) fmaxY = ry;
+                }
+            if (fmaxX < topLeft.X || fminX > bottomRight.X + 1 || fmaxY < topLeft.Y || fminY > bottomRight.Y + 1) continue;
+            var fgeo = new StreamGeometry();
+            using (var g = fgeo.Open())
+            {
+                foreach (var ring in fr.Rings)
+                {
+                    g.BeginFigure(WorldToScreen(ring[0].Item1, ring[0].Item2), true);
+                    for (int i = 1; i < ring.Count; i++)
+                        g.LineTo(WorldToScreen(ring[i].Item1, ring[i].Item2), true);
+                }
+            }
+            ctx.DrawGeometry(CellFill, null, fgeo);
+            var fpen = new Pen(CellFill, 1.2);
+            foreach (var ring in fr.Rings)
+                for (int i = 0; i < ring.Count; i++)
+                {
+                    var (ax, ay) = ring[i];
+                    var (bx, by) = ring[(i + 1) % ring.Count];
+                    ctx.DrawLine(fpen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
+                }
+        }
+
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
         // so the grid is visible everywhere. Drawn after cell fills so lines show
         // on top of flooring. Major at spacing boundaries, minor at every 5ft cell
@@ -902,7 +937,7 @@ public sealed class MapCanvas : Control
     // true = flood fill, click a cell to fill the room it is in. The popup
     // panel buttons flip this; the status bar shows which mode is active.
     public bool FloorFloodFill;
-    private HashSet<CellKey>? _floodPreview;
+    private List<List<(double, double)>>? _floodPreview;
     private CellKey? _floodPreviewCell;
 
     /// Discards an in-progress line (Escape / tool switch): the ghost is
@@ -1077,14 +1112,20 @@ public sealed class MapCanvas : Control
         // flood fill preview: the room the cursor is in, painted in the same
         // muted tan as the floor drag ghost. Skipped for huge regions (the
         // unclosed/cap case) - too many rects to paint per frame.
-        if (Mode == ToolMode.Floor && FloorFloodFill && _floodPreview is not null && _floodPreview.Count <= 2000)
+        if (Mode == ToolMode.Floor && FloorFloodFill && _floodPreview is not null)
         {
             var floodFill = new SolidColorBrush(Color.FromArgb(70, 150, 130, 90));
-            foreach (var c in _floodPreview)
+            var geo = new StreamGeometry();
+            using (var g = geo.Open())
             {
-                var tl = WorldToScreen(c.X, c.Y);
-                ctx.FillRectangle(floodFill, new Rect(tl.X, tl.Y, _scale, _scale));
+                foreach (var ring in _floodPreview)
+                {
+                    g.BeginFigure(WorldToScreen(ring[0].Item1, ring[0].Item2), true);
+                    for (int i = 1; i < ring.Count; i++)
+                        g.LineTo(WorldToScreen(ring[i].Item1, ring[i].Item2), true);
+                }
             }
+            ctx.DrawGeometry(floodFill, null, geo);
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
@@ -1372,7 +1413,9 @@ public sealed class MapCanvas : Control
                         StatusMessage?.Invoke("floor fill: region not enclosed (cap 10000 cells), nothing filled");
                     else
                     {
-                        Document.AddFloorCells(region);
+                        // exact floor geometry: full cells plus the triangular
+                        // sections left by diagonal walls, same as polygon floors
+                        Document.AddFloodRegion(new FloodRegion { Rings = Document.BuildFloodRings(region) });
                         Commit();
                         StatusMessage?.Invoke($"floor fill: {region.Count} cells");
                     }
@@ -1604,7 +1647,9 @@ public sealed class MapCanvas : Control
             if (cell != _floodPreviewCell)
             {
                 _floodPreviewCell = cell;
-                _floodPreview = Document.FloodFillRegion(cell);
+                var region = Document.FloodFillRegion(cell);
+                _floodPreview = region is not null && region.Count <= 2000
+                    ? Document.BuildFloodRings(region) : null;
                 InvalidateVisual();
             }
             return;
@@ -1894,6 +1939,12 @@ public sealed class MapCanvas : Control
                     foreach (var p in Document.Polygons
                                  .Where(p => MapDocument.PolygonTouchesRect(p, x0, y0, x1, y1)).ToList())
                         Document.RemovePolygon(p);
+                // flood region floors touching the erase rect are removed as
+                // whole objects (they own no walls - the lines survive)
+                if (f.Cells)
+                    foreach (var fr in Document.FloodRegions
+                                 .Where(fr => MapDocument.FloodRegionTouchesRect(fr, x0, y0, x1, y1)).ToList())
+                        Document.FloodRegions.Remove(fr);
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
                 // outer edge gets fresh walls. Scoped to the erase region: a

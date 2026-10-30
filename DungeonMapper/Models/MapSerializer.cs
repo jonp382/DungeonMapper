@@ -23,6 +23,7 @@ public sealed class MapFileDto
     [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
     [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
     [JsonPropertyName("polygons")] public List<PolygonDto> Polygons { get; set; } = new();
+    [JsonPropertyName("flood_regions")] public List<FloodRegionDto> FloodRegions { get; set; } = new();
     [JsonPropertyName("vertex_doors")] public List<VertexDoorDto> VertexDoors { get; set; } = new();
 }
 
@@ -31,6 +32,14 @@ public sealed class PolygonDto
     // closed vertex loop of LATTICE points "x,y" (cell corners); the exact
     // polygon floor shape. v1 files have no polygons field.
     [JsonPropertyName("verts")] public List<string> Verts { get; set; } = new();
+}
+
+public sealed class FloodRegionDto
+{
+    // closed rings of world points "x,y" (cell corners and diagonal cut
+    // points): ring 0 outer, rings 1+ holes. The exact flood floor geometry.
+    // v2 files have no flood_regions field.
+    [JsonPropertyName("rings")] public List<List<string>> Rings { get; set; } = new();
 }
 
 public sealed class AngledDoorDto
@@ -109,7 +118,7 @@ public static class MapSerializer
     // as-is; app-only additive changes with backwards-compatible defaults do NOT
     // increment (the map porter app ports old files to the latest spec).
     // v2 adds the "polygons" field (polygon rooms stored as vertex loops).
-    public const int MapSpecVersion = 2;
+    public const int MapSpecVersion = 3;
     public const int ProjectSpecVersion = 2;
 
     private static readonly JsonSerializerOptions Opts = new()
@@ -166,6 +175,30 @@ public static class MapSerializer
             foreach (var s in d.Verts)
                 if (TryParseCell(s, out var c)) loop.Add((c.X, c.Y));
             if (loop.Count >= 3) doc.Polygons.Add(new PolygonRoom { Verts = loop });
+        }
+    }
+
+    // shared loader for flood region floors. v2 files have no flood_regions
+    // field, so they load with none. Rings are world points (doubles, diagonal
+    // cut points included); rings with fewer than 3 points are dropped.
+    private static void AddFloodRegions(MapFileDto dto, MapDocument doc)
+    {
+        foreach (var d in dto.FloodRegions)
+        {
+            var rings = new List<List<(double x, double y)>>();
+            foreach (var ring in d.Rings)
+            {
+                var r = new List<(double, double)>();
+                foreach (var s in ring)
+                {
+                    var parts = s.Split(',');
+                    if (parts.Length != 2) continue;
+                    if (!double.TryParse(parts[0], out double vx) || !double.TryParse(parts[1], out double vy)) continue;
+                    r.Add((vx, vy));
+                }
+                if (r.Count >= 3) rings.Add(r);
+            }
+            if (rings.Count >= 1) doc.FloodRegions.Add(new FloodRegion { Rings = rings });
         }
     }
 
@@ -245,6 +278,17 @@ public static class MapSerializer
             foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
             dto.Polygons.Add(pd);
         }
+        foreach (var fr in doc.FloodRegions)
+        {
+            var fd = new FloodRegionDto();
+            foreach (var ring in fr.Rings)
+            {
+                var r = new List<string>();
+                foreach (var (vx, vy) in ring) r.Add($"{vx},{vy}");
+                fd.Rings.Add(r);
+            }
+            dto.FloodRegions.Add(fd);
+        }
         foreach (var (k, d) in doc.VertexDoors)
             dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         return JsonSerializer.Serialize(dto, Opts);
@@ -301,6 +345,7 @@ public static class MapSerializer
         AddPawns(dto, doc);
         AddAngled(dto, doc);
         AddPolygons(dto, doc);
+        AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
         return doc;
     }
@@ -360,6 +405,17 @@ public static class MapSerializer
             foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
             dto.Polygons.Add(pd);
         }
+        foreach (var fr in doc.FloodRegions)
+        {
+            var fd = new FloodRegionDto();
+            foreach (var ring in fr.Rings)
+            {
+                var r = new List<string>();
+                foreach (var (vx, vy) in ring) r.Add($"{vx},{vy}");
+                fd.Rings.Add(r);
+            }
+            dto.FloodRegions.Add(fd);
+        }
         foreach (var (k, d) in doc.VertexDoors)
             dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         return dto;
@@ -398,6 +454,7 @@ public static class MapSerializer
         AddPawns(dto, doc);
         AddAngled(dto, doc);
         AddPolygons(dto, doc);
+        AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
         return doc;
     }

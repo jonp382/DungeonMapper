@@ -1278,8 +1278,8 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     d.AddRoom(0, 0, 1, 1);
     d.AddPolygon(new List<(int, int)> { (2, 0), (5, 0), (2, 3) });
     string mapJson = MapSerializer.ToJson(d);
-    Check(mapJson.Contains("polygons") && mapJson.Contains("\"version\": 2"),
-        "json: polygons saved with version 2");
+    Check(mapJson.Contains("polygons") && mapJson.Contains("\"version\": 3"),
+        "json: polygons saved with version 3");
     var back = MapSerializer.FromJson(mapJson);
     Check(back.Polygons.Count == 1 && back.Polygons[0].Verts.Count == 3 && back.Polygons[0].Verts[1] == (5, 0),
         "json: polygons round-trip");
@@ -1752,8 +1752,8 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     fdoc.AddLine(0, 0, 4, 0); fdoc.AddLine(4, 0, 4, 4); fdoc.AddLine(4, 4, 0, 4); fdoc.AddLine(0, 4, 0, 0);
     var reg = fdoc.FloodFillRegion(new CellKey(1, 1));
     Check(reg is not null && reg.Count == 16, "line room floods 16 cells");
-    fdoc.AddFloorCells(reg!);
-    Check(fdoc.Cells.Count == 16 && fdoc.Walls.Count == 16, "AddFloorCells adds cells only, walls untouched");
+    var frings = fdoc.BuildFloodRings(reg!);
+    Check(frings.Count == 1 && frings[0].Count == 4, "rect room: one ring, 4 corners");
     var ddoc = new MapDocument();
     ddoc.AddRoom(0, 0, 5, 5);
     for (int y = 0; y <= 5; y++) ddoc.SetWall(new EdgeKey(new CellKey(2, y), Side.East), true);
@@ -1772,8 +1772,46 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     Check(xreg is not null && xreg.Count == 6, "diagonal splits room: 6 cells below");
     var xreg2 = xdoc.FloodFillRegion(new CellKey(0, 1));
     Check(xreg2 is not null && xreg2.Count == 6, "diagonal splits room: 6 cells above");
+    // the exact floor geometry: the below region is the triangle (0,0),(4,0),(4,4)
+    var xring = xdoc.BuildFloodRings(xreg!);
+    Check(xring.Count == 1 && xring[0].Count == 3, "45 degree room: one triangle ring");
+    var pts = new HashSet<(double, double)>(xring[0]);
+    Check(pts.Contains((0, 0)) && pts.Contains((4, 0)) && pts.Contains((4, 4)), "triangle ring has the room corners");
+    var xring2 = xdoc.BuildFloodRings(xreg2!);
+    Check(xring2.Count == 1 && xring2[0].Count == 3, "above region: one triangle ring");
+    // steep diagonal (0,0)-(3,2): cut points are rational, ring has 7 vertices
+    var zdoc = new MapDocument();
+    zdoc.AddLine(0, 0, 3, 0); zdoc.AddLine(3, 0, 3, 2); zdoc.AddLine(3, 2, 0, 2); zdoc.AddLine(0, 2, 0, 0);
+    zdoc.AddLine(0, 0, 3, 2);
+    var zreg = zdoc.FloodFillRegion(new CellKey(2, 0));
+    Check(zreg is not null && zreg.Count == 1, "steep diagonal: below region is cell (2,0)");
+    var zring = zdoc.BuildFloodRings(zreg!);
+    Check(zring.Count == 1 && zring[0].Count == 7, "steep diagonal: ring includes cut points (7 vertices)");
     var cdoc = new MapDocument();
     Check(cdoc.FloodFillRegion(new CellKey(0, 0)) is null, "open field exceeds cap, returns null");
+    // flood regions are whole objects: erase removes them, walls survive
+    var edoc = new MapDocument();
+    edoc.AddLine(0, 0, 4, 0); edoc.AddLine(4, 0, 4, 4); edoc.AddLine(4, 4, 0, 4); edoc.AddLine(0, 4, 0, 0);
+    edoc.AddFloodRegion(new FloodRegion { Rings = edoc.BuildFloodRings(edoc.FloodFillRegion(new CellKey(1, 1))!) });
+    Check(edoc.FloodRegions.Count == 1, "AddFloodRegion adds the region");
+    edoc.ClearRegion(1, 1, 2, 2);
+    Check(edoc.FloodRegions.Count == 0 && edoc.Walls.Count == 16, "erase removes flood region, walls survive");
+    // move carries the flood region as a whole object
+    var mdoc = new MapDocument();
+    mdoc.AddLine(0, 0, 4, 0); mdoc.AddLine(4, 0, 4, 4); mdoc.AddLine(4, 4, 0, 4); mdoc.AddLine(0, 4, 0, 0);
+    mdoc.AddFloodRegion(new FloodRegion { Rings = mdoc.BuildFloodRings(mdoc.FloodFillRegion(new CellKey(1, 1))!) });
+    var msnap = mdoc.CaptureRegion(0, 0, 4, 4);
+    Check(msnap.FloodRegions.Count == 1, "capture carries flood region");
+    var pd = new MapDocument();
+    pd.PasteRegion(msnap, 10, 0);
+    Check(pd.FloodRegions.Count == 1 && pd.FloodRegions[0].Bounds().minX == 10, "paste translates flood region");
+    // rotate turns the rings
+    var rsnap = MapDocument.Rotate(msnap, 1);
+    Check(rsnap.FloodRegions.Count == 1 && rsnap.FloodRegions[0].Rings[0].Count == 4, "rotate keeps the ring closed");
+    // serializer round-trip
+    var fjson = MapSerializer.ToJson(mdoc);
+    var rdoc = MapSerializer.FromJson(fjson);
+    Check(rdoc.FloodRegions.Count == 1 && rdoc.FloodRegions[0].Rings.Count == 1 && rdoc.FloodRegions[0].Rings[0].Count == 4, "flood region survives save/load");
 }
 
 // --- floor flood fill (canvas) ---
@@ -1788,7 +1826,8 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     fc.Canvas.FloorFloodFill = true;
     int baseCommits = fc.CommitCount;
     fc.ClickW(1.5, 1.5);
-    Check(fc.Doc.Cells.Count == 16, "canvas flood fills 16 cells");
+    Check(fc.Doc.FloodRegions.Count == 1 && fc.Doc.FloodRegions[0].Rings[0].Count == 4, "canvas flood adds one geometry region");
+    Check(fc.Doc.Cells.Count == 0, "flood floor is geometry, not cells");
     Check(fc.CommitCount == baseCommits + 1, "canvas flood commits once");
     Check(fc.Doc.Walls.Count == 16, "canvas flood leaves walls untouched");
     fc.Canvas.FloorFloodFill = false;

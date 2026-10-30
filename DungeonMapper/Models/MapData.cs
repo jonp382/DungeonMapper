@@ -23,6 +23,32 @@ public sealed class PolygonRoom
     public PolygonRoom Clone() => new PolygonRoom { Verts = new List<(int x, int y)>(Verts) };
 }
 
+public sealed class FloodRegion
+{
+    // closed rings of world points (cell corners and diagonal cut points):
+    // ring 0 is the outer boundary, rings 1+ are holes. The floor is this exact
+    // geometry, so a room bounded by diagonals fills its triangular sections
+    // too, not just the full cells.
+    public List<List<(double x, double y)>> Rings = new();
+    public FloodRegion Clone()
+    {
+        var r = new FloodRegion();
+        foreach (var ring in Rings) r.Rings.Add(new List<(double, double)>(ring));
+        return r;
+    }
+    public (double minX, double minY, double maxX, double maxY) Bounds()
+    {
+        double minX = double.MaxValue, minY = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue;
+        foreach (var ring in Rings)
+            foreach (var (x, y) in ring)
+            {
+                if (x < minX) minX = x; if (x > maxX) maxX = x;
+                if (y < minY) minY = y; if (y > maxY) maxY = y;
+            }
+        return (minX, minY, maxX, maxY);
+    }
+}
+
 /// A door on an angled wall. The door sits at parameter T (0..1) along its wall
 /// segment, centered, with a fixed projected width of 1 cell (matching axis-aligned
 /// doors). Type/State mirror the edge Door. Multiple doors may sit on one segment.
@@ -172,6 +198,7 @@ public sealed class MapDocument
     public List<AngledWall> AngledWalls { get; } = new();
     public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
     public List<PolygonRoom> Polygons { get; } = new();
+    public List<FloodRegion> FloodRegions { get; } = new();
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
 
     /// The two collinear unit edges a vertex door straddles (2.5ft of the door
@@ -937,6 +964,160 @@ public sealed class MapDocument
         foreach (var c in cells) Cells.Add(c);
     }
 
+    public void AddFloodRegion(FloodRegion fr) => FloodRegions.Add(fr);
+
+    /// Builds the exact floor geometry of a flood region: the union of every
+    /// region cell's full square and every cut cell's region-side part (the
+    /// triangle a diagonal leaves behind), clipped by each wall's half-plane.
+    /// The union's boundary is walked into closed rings: ring 0 outer, rings
+    /// 1+ holes (interior wall islands). Same non-full-cell logic as the
+    /// polygon tool's floor.
+    public List<List<(double x, double y)>> BuildFloodRings(HashSet<CellKey> region)
+    {
+        var polys = new List<List<(double, double)>>();
+        foreach (var c in region)
+            polys.Add(new List<(double, double)> { (c.X, c.Y), (c.X + 1, c.Y), (c.X + 1, c.Y + 1), (c.X, c.Y + 1) });
+
+        var cutWalls = CutCellWalls();
+        foreach (var (cell, walls) in cutWalls)
+        {
+            if (region.Contains(cell)) continue; // cut cells are never region cells
+            // the region neighbor touching this cell defines the region side
+            (int x, int y) sample = default;
+            foreach (var r in region)
+                if (Math.Abs(r.X - cell.X) + Math.Abs(r.Y - cell.Y) == 1) { sample = (r.X, r.Y); break; }
+            if (sample == default) continue; // not adjacent to the region
+            var poly = new List<(double, double)> { (cell.X, cell.Y), (cell.X + 1, cell.Y), (cell.X + 1, cell.Y + 1), (cell.X, cell.Y + 1) };
+            foreach (var w in walls)
+                poly = ClipHalfPlane(poly, w.Ax, w.Ay, w.Bx, w.By, sample.x + 0.5, sample.y + 0.5);
+            if (poly.Count >= 3) polys.Add(poly);
+        }
+
+        // union boundary: shared interior edges cancel (each appears in
+        // opposite directions in the two polygons that share it)
+        var edges = new HashSet<(double, double, double, double)>();
+        foreach (var poly in polys)
+        {
+            int n = poly.Count;
+            for (int i = 0; i < n; i++)
+            {
+                var (ax, ay) = poly[i];
+                var (bx, by) = poly[(i + 1) % n];
+                if (ax == bx && ay == by) continue;
+                if (edges.Contains((bx, by, ax, ay))) edges.Remove((bx, by, ax, ay));
+                else edges.Add((ax, ay, bx, by));
+            }
+        }
+
+        // walk rings: every boundary vertex has one in-edge and one out-edge
+        var outMap = new Dictionary<(double, double), List<(double, double)>>();
+        foreach (var (ax, ay, bx, by) in edges)
+        {
+            if (!outMap.TryGetValue((ax, ay), out var l)) outMap[(ax, ay)] = l = new List<(double, double)>();
+            l.Add((bx, by));
+        }
+        var used = new HashSet<(double, double, double, double)>();
+        var rings = new List<List<(double, double)>>();
+        foreach (var (ax, ay, bx, by) in edges)
+        {
+            if (used.Contains((ax, ay, bx, by))) continue;
+            var ring = new List<(double, double)> { (ax, ay) };
+            var start = (ax, ay);
+            var cur = (bx, by);
+            used.Add((ax, ay, bx, by));
+            while (cur != start)
+            {
+                ring.Add(cur);
+                // nullable sentinel: (0,0) is a legitimate boundary vertex, so a
+                // plain default tuple would read as "no next edge" and break the
+                // walk on any region touching the origin
+                (double, double)? nxt = null;
+                foreach (var n2 in outMap[cur])
+                    if (!used.Contains((cur.Item1, cur.Item2, n2.Item1, n2.Item2))) { nxt = n2; used.Add((cur.Item1, cur.Item2, n2.Item1, n2.Item2)); break; }
+                if (nxt is null) break; // open boundary: unclosed region
+                cur = nxt.Value;
+            }
+            if (ring.Count >= 3) rings.Add(MergeCollinear(ring));
+        }
+        return rings;
+    }
+
+    // drops vertices where the two adjacent edges are parallel: the ring walk
+    // emits unit edges, so a straight boundary arrives as collinear points that
+    // merge to one corner per turn
+    private static List<(double, double)> MergeCollinear(List<(double, double)> ring)
+    {
+        if (ring.Count < 3) return ring;
+        var res = new List<(double, double)>();
+        for (int i = 0; i < ring.Count; i++)
+        {
+            var a = ring[(i - 1 + ring.Count) % ring.Count];
+            var b = ring[i];
+            var c = ring[(i + 1) % ring.Count];
+            double d1x = b.Item1 - a.Item1, d1y = b.Item2 - a.Item2;
+            double d2x = c.Item1 - b.Item1, d2y = c.Item2 - b.Item2;
+            if (Math.Abs(d1x * d2y - d1y * d2x) > 1e-9) res.Add(b);
+        }
+        return res;
+    }
+
+    // Sutherland-Hodgman clip of a polygon by the half-plane of line A-B
+    // that contains the sample point S.
+    private static List<(double, double)> ClipHalfPlane(List<(double, double)> poly, double ax, double ay, double bx, double by, double sx, double sy)
+    {
+        double Cross(double px, double py) => (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+        double sSide = Cross(sx, sy);
+        var result = new List<(double, double)>();
+        int n = poly.Count;
+        for (int i = 0; i < n; i++)
+        {
+            var (cx, cy) = poly[i];
+            var (dx, dy) = poly[(i + 1) % n];
+            double c1 = Cross(cx, cy), c2 = Cross(dx, dy);
+            bool in1 = c1 * sSide >= 0, in2 = c2 * sSide >= 0;
+            if (in1) result.Add((cx, cy));
+            if (in1 != in2)
+            {
+                double t = c1 / (c1 - c2);
+                result.Add((cx + t * (dx - cx), cy + t * (dy - cy)));
+            }
+        }
+        return result;
+    }
+
+    // cell -> the angled walls passing through its interior
+    private Dictionary<CellKey, List<AngledWall>> CutCellWalls()
+    {
+        var map = new Dictionary<CellKey, List<AngledWall>>();
+        foreach (var w in AngledWalls)
+        {
+            int dx = w.Bx - w.Ax, dy = w.By - w.Ay;
+            if (dx == 0 || dy == 0) continue;
+            int x0 = Math.Min(w.Ax, w.Bx), x1 = Math.Max(w.Ax, w.Bx);
+            int y0 = Math.Min(w.Ay, w.By), y1 = Math.Max(w.Ay, w.By);
+            for (int k = x0; k < x1; k++)
+                for (int l = y0; l < y1; l++)
+                {
+                    double t0 = (k - w.Ax) / (double)dx, t1 = (k + 1 - w.Ax) / (double)dx;
+                    double yA = w.Ay + dy * t0, yB = w.Ay + dy * t1;
+                    double lo = Math.Min(yA, yB), hi = Math.Max(yA, yB);
+                    if (hi > l && lo < l + 1)
+                    {
+                        var cell = new CellKey(k, l);
+                        if (!map.TryGetValue(cell, out var list)) map[cell] = list = new List<AngledWall>();
+                        list.Add(w);
+                    }
+                }
+        }
+        return map;
+    }
+
+    public static bool FloodRegionTouchesRect(FloodRegion fr, int x0, int y0, int x1, int y1)
+    {
+        var (minX, minY, maxX, maxY) = fr.Bounds();
+        return maxX >= x0 && minX <= x1 + 1 && maxY >= y0 && minY <= y1 + 1;
+    }
+
     /// Cells whose INTERIOR an angled wall cuts through. A lattice-to-lattice
     /// diagonal passes through the cells it crosses (a 45 degree wall from
     /// (2,2) to (3,3) is the diagonal of cells (2,2) and (3,3)); those cells
@@ -1048,6 +1229,7 @@ public sealed class MapDocument
         public List<AngledWall> AngledWalls = new();
         public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
         public List<PolygonRoom> Polygons = new();
+        public List<FloodRegion> FloodRegions = new();
         public Dictionary<VertexDoorKey, VertexDoor> VertexDoors = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
                               && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
@@ -1103,6 +1285,8 @@ public sealed class MapDocument
         // contract: the WHOLE polygon moves, even the parts outside the rect)
         foreach (var p in Polygons)
             if (PolygonTouchesRect(p, x0, y0, x1, y1)) snap.Polygons.Add(p.Clone());
+        foreach (var fr in FloodRegions)
+            if (FloodRegionTouchesRect(fr, x0, y0, x1, y1)) snap.FloodRegions.Add(fr.Clone());
         return snap;
     }
 
@@ -1163,6 +1347,17 @@ public sealed class MapDocument
             foreach (var c in fill) Cells.Add(c);
             ApplyPolygonBoundary(loop, fill, new HashSet<CellKey>(), false, true);
         }
+        foreach (var fr in snap.FloodRegions)
+        {
+            var rings = new List<List<(double, double)>>();
+            foreach (var ring in fr.Rings)
+            {
+                var r = new List<(double, double)>();
+                foreach (var (vx, vy) in ring) r.Add((vx + dx, vy + dy));
+                rings.Add(r);
+            }
+            FloodRegions.Add(new FloodRegion { Rings = rings });
+        }
     }
 
     /// Replaces all content of this document with the content of another.
@@ -1188,6 +1383,8 @@ public sealed class MapDocument
             AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
         Polygons.Clear();
         foreach (var p in other.Polygons) Polygons.Add(p.Clone());
+        FloodRegions.Clear();
+        foreach (var fr in other.FloodRegions) FloodRegions.Add(fr.Clone());
         VertexDoors.Clear();
         foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
     }
@@ -1216,6 +1413,7 @@ public sealed class MapDocument
         // cells, boundary walls, angled walls, doors). Their fill cells can
         // reach outside the rect, so the rebuild restores the surviving rooms'
         // boundaries after the removal.
+        FloodRegions.RemoveAll(fr => FloodRegionTouchesRect(fr, x0, y0, x1, y1));
         var doomed = Polygons.Where(p => PolygonTouchesRect(p, x0, y0, x1, y1)).ToList();
         foreach (var p in doomed) RemovePolygon(p);
         if (doomed.Count > 0)
@@ -1288,6 +1486,22 @@ public sealed class MapDocument
         {
             var (rx, ry) = RotCell(e.Cell.X, e.Cell.Y);
             s.Walls[EdgeKey.Normalize(new CellKey(rx, ry), RotSide(e.Side))] = w;
+        }
+        foreach (var fr in snap.FloodRegions)
+        {
+            var rings = new List<List<(double x, double y)>>();
+            foreach (var ring in fr.Rings)
+            {
+                var r = new List<(double, double)>();
+                foreach (var (vx, vy) in ring)
+                {
+                    double ddx = vx - x0, ddy = vy - y0;
+                    for (int i = 0; i < turns; i++) (ddx, ddy) = (ddy, -ddx);
+                    r.Add((x0 + ddx, y0 + ddy));
+                }
+                rings.Add(r);
+            }
+            s.FloodRegions.Add(new FloodRegion { Rings = rings });
         }
         foreach (var (e, d) in snap.Doors)
         {
@@ -1375,6 +1589,15 @@ public sealed class MapDocument
                 if (vy > maxY) maxY = vy;
                 any = true;
             }
+        foreach (var fr in FloodRegions)
+        {
+            var (bminX, bminY, bmaxX, bmaxY) = fr.Bounds();
+            int bxi = (int)Math.Floor(bminX), bxa = (int)Math.Ceiling(bmaxX);
+            int byi = (int)Math.Floor(bminY), bya = (int)Math.Ceiling(bmaxY);
+            if (bxi < minX) minX = bxi; if (bxa > maxX) maxX = bxa;
+            if (byi < minY) minY = byi; if (bya > maxY) maxY = bya;
+            any = true;
+        }
         if (!any) return null;
         return (minX, minY, maxX, maxY);
     }
