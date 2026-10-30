@@ -1619,5 +1619,131 @@ using (var h = new CanvasHarness())
     Check(h.Doc.HasWall(new EdgeKey(new CellKey(5, 0), Side.North)), "wall delete drag: wall past the drag end survives");
 }
 
+// ---------- line tool ----------
+// model: horizontal line (2,3)->(6,3) = North edges of cells (2,3)..(5,3)
+var ldoc = new MapDocument();
+ldoc.AddLine(2, 3, 6, 3);
+Check(ldoc.Walls.Count == 4, "line horizontal creates 4 walls");
+Check(ldoc.HasWall(new EdgeKey(new CellKey(2, 3), Side.North))
+    && ldoc.HasWall(new EdgeKey(new CellKey(3, 3), Side.North))
+    && ldoc.HasWall(new EdgeKey(new CellKey(4, 3), Side.North))
+    && ldoc.HasWall(new EdgeKey(new CellKey(5, 3), Side.North))
+    && !ldoc.HasWall(new EdgeKey(new CellKey(6, 3), Side.North)),
+    "line horizontal walls are the unit North edges along the span, end vertex exclusive");
+
+// vertical line (3,0)->(3,4) = East edges of cells (2,0)..(2,3)
+ldoc.AddLine(3, 0, 3, 4);
+Check(ldoc.Walls.Count == 8
+    && ldoc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East))
+    && ldoc.HasWall(new EdgeKey(new CellKey(2, 3), Side.East))
+    && !ldoc.HasWall(new EdgeKey(new CellKey(2, 4), Side.East)),
+    "line vertical creates the unit East edges along the span");
+
+// diagonal (0,0)->(4,3) = one AngledWall, any lattice angle
+ldoc.AddLine(0, 0, 4, 3);
+Check(ldoc.AngledWalls.Count == 1 && ldoc.AngledWalls[0] == new AngledWall(0, 0, 4, 3),
+    "line diagonal creates one angled wall from start to end vertex");
+
+// reversed diagonal is the same wall: no duplicate entry
+ldoc.AddLine(4, 3, 0, 0);
+Check(ldoc.AngledWalls.Count == 1, "line diagonal reversed does not duplicate the angled wall");
+
+// zero-length line does nothing
+ldoc.AddLine(2, 2, 2, 2);
+Check(ldoc.Walls.Count == 8 && ldoc.AngledWalls.Count == 1,
+    "line zero-length does nothing");
+
+// additive: line over an existing room wall keeps the door on it.
+// AddRoom(2,2,4,4) is a 3x3 room: 12 perimeter walls. The line (2,2)->(4,2)
+// runs along the room's top edge, so its 2 walls are already present: the
+// count must stay 12 and the door on the top edge must survive.
+var ldoc2 = new MapDocument();
+ldoc2.AddRoom(2, 2, 4, 4);
+ldoc2.TryPlaceDoor(new EdgeKey(new CellKey(3, 2), Side.North), out _);
+ldoc2.AddLine(2, 2, 4, 2);
+Check(ldoc2.GetDoor(new EdgeKey(new CellKey(3, 2), Side.North)) != null && ldoc2.Walls.Count == 12,
+    "line over existing walls merges additively and preserves doors");
+
+// serialization round-trip: line walls and angled wall survive
+var ldoc3 = new MapDocument();
+ldoc3.AddLine(1, 1, 5, 1);
+ldoc3.AddLine(1, 1, 1, 4);
+ldoc3.AddLine(1, 1, 4, 3);
+var lrt = MapSerializer.FromJson(MapSerializer.ToJson(ldoc3));
+Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
+    && lrt.AngledWalls[0] == new AngledWall(1, 1, 4, 3),
+    "line walls and angled wall round-trip through the serializer");
+
+// canvas: press-drag-release commits ONE line of walls
+{
+    var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
+    Check(h.CommitCount == 1, "line drag commits exactly once");
+    Check(h.Doc.Walls.Count == 4
+        && h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North))
+        && h.Doc.HasWall(new EdgeKey(new CellKey(5, 2), Side.North)),
+        "line drag creates the wall series from start to end vertex");
+    h.Dispose();
+}
+
+// snap: press at (2.4,2.4) snaps to (2,2), release at (5.6,2.4) snaps to (6,2)
+{
+    var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(2.4, 2.4); h.MoveToAt(h.ScreenWorld(5.6, 2.4)); h.ReleaseW(5.6, 2.4);
+    Check(h.Doc.Walls.Count == 4
+        && h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North))
+        && h.Doc.HasWall(new EdgeKey(new CellKey(5, 2), Side.North)),
+        "line snaps press and release to the nearest lattice vertices");
+    h.Dispose();
+}
+
+// zero-length drag: press and release on the same vertex commits nothing
+{
+    var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(3, 3); h.ReleaseW(3, 3);
+    Check(h.CommitCount == 0 && h.Doc.Walls.Count == 0,
+        "line zero-length drag commits nothing");
+    h.Dispose();
+}
+
+// diagonal drag: one angled wall, one commit
+{
+    var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(5, 4)); h.ReleaseW(5, 4);
+    Check(h.CommitCount == 1 && h.Doc.AngledWalls.Count == 1
+        && h.Doc.AngledWalls[0] == new AngledWall(2, 2, 5, 4),
+        "line diagonal drag creates one angled wall with one commit");
+    h.Dispose();
+}
+
+// undo: one line drag is one history entry (history wired like MainWindow)
+{
+    var h = new CanvasHarness();
+    var hist = new History();
+    hist.Initialize(h.Doc);
+    h.Canvas.ActionCompleted += () => hist.Commit(h.Doc);
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
+    var restored = hist.Undo();
+    Check(restored != null && restored.Walls.Count == 0,
+        "line drag undoes as a single history entry");
+    h.Dispose();
+}
+
+// erase removes line walls
+{
+    var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Line;
+    h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
+    h.Canvas.Mode = ToolMode.Erase;
+    h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
+    Check(h.Doc.Walls.Count == 0, "erase drag removes line walls");
+    h.Dispose();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

@@ -73,6 +73,7 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
+        LabelTool(ToolLine, "Line");
 
         // map list (item 8)
         RefreshMapList();
@@ -97,6 +98,7 @@ public partial class MainWindow : Window
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
+        ToolLine.Click += (_, _) => SetTool(ToolMode.Line);
 
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
@@ -200,6 +202,8 @@ public partial class MainWindow : Window
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Polygon && !IsTyping())
             { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
+            if (Canvas.Mode == ToolMode.Line && !IsTyping())
+            { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
         }
         else if (e.Key == Key.R && Canvas.CanRotate && !IsTyping())
         {
@@ -270,6 +274,7 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
+        LabelTool(ToolLine, "Line");
     }
 
     private void SetTool(ToolMode mode)
@@ -282,6 +287,7 @@ public partial class MainWindow : Window
         // re-selecting a tool resets the armed pawn template: the user expects
         // clicking the pawn tool again to clear a stale selection.
         Canvas.ArmedPawn = null;
+        Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
@@ -294,6 +300,7 @@ public partial class MainWindow : Window
             ToolMode.Label => "label: click a cell to place, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
+            ToolMode.Line => "line: press at a grid vertex, drag to the end vertex, release. orthogonal lines create walls along the path, angled lines create one angled wall",
             _ => "",
         };
         PopulatePanel(mode);
@@ -415,6 +422,11 @@ public partial class MainWindow : Window
                 ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
                 ToolPanel.AddCheck("merge adjacent walls", Canvas.PolygonMergeNearby, v => { Canvas.PolygonMergeNearby = v; FocusCanvas(); });
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
+                break;
+
+            case ToolMode.Line:
+                ToolPanel.Clear("Line");
+                ToolPanel.AddHint("press at a grid vertex, drag to the end vertex, release. orthogonal lines create a series of walls along the path; angled lines create one angled wall. walls merge with existing walls, doors survive; erase removes them");
                 break;
 
             default:

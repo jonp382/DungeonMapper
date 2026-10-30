@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Line }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -890,6 +890,23 @@ public sealed class MapCanvas : Control
     private readonly List<(int x, int y)> _polyVerts = new();
     private Point _polyCursor; // world cursor, for the closing preview segment
 
+    // line tool: press snaps the start LATTICE vertex (same snap rule as the
+    // polygon tool), the ghost line follows the snapped cursor, and release
+    // snaps the end vertex and commits ONCE. Additive: existing walls merge,
+    // doors on them survive; removal goes through the Erase tool.
+    private (int x, int y)? _lineStart;
+    private (int x, int y)? _lineEnd; // snapped end vertex during the drag
+    private bool _lineDragging;
+
+    /// Discards an in-progress line (Escape / tool switch): the ghost is
+    /// dropped and nothing is committed.
+    public void CancelLine()
+    {
+        _lineStart = null;
+        _lineEnd = null;
+        _lineDragging = false;
+    }
+
     private void DrawPreview(DrawingContext ctx)
     {
         if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
@@ -1033,6 +1050,21 @@ public sealed class MapCanvas : Control
                 var p = WorldToScreen(vx, vy);
                 ctx.DrawEllipse(dot, null, p, 3, 3);
             }
+        }
+
+        // line tool ghost: snapped start vertex -> snapped end vertex, fully
+        // grid-aligned, with dots on both endpoints.
+        if (Mode == ToolMode.Line && _lineStart is not null && _lineEnd is not null)
+        {
+            var (sx, sy) = _lineStart.Value;
+            var (ex, ey) = _lineEnd.Value;
+            var la = WorldToScreen(sx, sy);
+            var lb = WorldToScreen(ex, ey);
+            var linePen = new Pen(new SolidColorBrush(Color.FromRgb(250, 250, 250)), 2);
+            ctx.DrawLine(linePen, la, lb);
+            var ldot = new SolidColorBrush(Color.FromRgb(250, 250, 250));
+            ctx.DrawEllipse(ldot, null, la, 3, 3);
+            ctx.DrawEllipse(ldot, null, lb, 3, 3);
         }
 
         // paste ghost: clipboard preview at the cursor cell. In Select mode it
@@ -1455,6 +1487,16 @@ public sealed class MapCanvas : Control
                     StatusMessage?.Invoke($"vertex ({vx},{vy}) added - click first vertex or press Enter to close");
                 }
                 break;
+
+            case ToolMode.Line:
+                // snap the press to the nearest LATTICE vertex, same rule as the
+                // polygon tool. the drag previews the line; release commits.
+                int lsx = (int)Math.Round(world.X), lsy = (int)Math.Round(world.Y);
+                _lineStart = (lsx, lsy);
+                _lineEnd = (lsx, lsy);
+                _lineDragging = true;
+                e.Pointer.Capture(this);
+                break;
         }
         InvalidateVisual();
     }
@@ -1492,6 +1534,15 @@ public sealed class MapCanvas : Control
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
             if (cell != _selectEnd) { _selectEnd = cell; InvalidateVisual(); }
+            return;
+        }
+
+        if (_lineDragging)
+        {
+            // the ghost end stays grid-aligned: snap the cursor to the nearest
+            // lattice vertex, same rule as the press.
+            var end = ((int)Math.Round(world.X), (int)Math.Round(world.Y));
+            if (end != _lineEnd) { _lineEnd = end; InvalidateVisual(); }
             return;
         }
 
@@ -1647,6 +1698,30 @@ public sealed class MapCanvas : Control
                     var lbl = Document.Labels.FirstOrDefault(l => l.Cell == cell);
                     if (lbl is not null) LabelConfigRequested?.Invoke(lbl);
                 }
+            }
+            InvalidateVisual();
+            return;
+        }
+
+        if (_lineDragging)
+        {
+            _lineDragging = false;
+            e.Pointer.Capture(null);
+            var world = ScreenToWorld(e.GetPosition(this));
+            (int x, int y) lend = ((int)Math.Round(world.X), (int)Math.Round(world.Y));
+            var lstart = _lineStart!.Value;
+            _lineStart = null;
+            _lineEnd = null;
+            if (lend == lstart)
+            {
+                // zero-length line: press and release on the same vertex
+                StatusMessage?.Invoke("line cancelled: start and end are the same vertex");
+            }
+            else
+            {
+                Document.AddLine(lstart.x, lstart.y, lend.x, lend.y);
+                Commit();
+                StatusMessage?.Invoke($"line ({lstart.x},{lstart.y}) -> ({lend.x},{lend.y})");
             }
             InvalidateVisual();
             return;

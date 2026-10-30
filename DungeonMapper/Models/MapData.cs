@@ -856,6 +856,41 @@ public sealed class MapDocument
         Labels.RemoveAll(l => l.Cell.X >= x0 && l.Cell.X <= x1 && l.Cell.Y >= y0 && l.Cell.Y <= y1);
     }
 
+    /// Adds a straight wall line between two LATTICE vertices (integer grid
+    /// points = cell corners), using the same edge decomposition as a polygon
+    /// edge. Axis-aligned segments become the series of unit EdgeKey walls
+    /// along the span (horizontal at y=ay: North edges of cells (x, ay) for
+    /// x in [min..max-1]; vertical at x=ax: East edges of cells (ax-1, y) for
+    /// y in [min..max-1]). Any other lattice segment becomes ONE AngledWall
+    /// from start to end, so a 5x3 slope is a single angled wall, matching the
+    /// polygon tool. Additive: walls that already exist are left untouched
+    /// (doors on them preserved), a diagonal that already exists in either
+    /// direction is not duplicated, and a zero-length line does nothing.
+    public void AddLine(int ax, int ay, int bx, int by)
+    {
+        if (ax == bx && ay == by) return;
+        if (ay == by) // horizontal segment along the grid line y = ay
+        {
+            int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
+            for (int x = x0; x < x1; x++)
+                SetWall(new EdgeKey(new CellKey(x, ay), Side.North), true);
+        }
+        else if (ax == bx) // vertical segment along the grid line x = ax
+        {
+            int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
+            for (int y = y0; y < y1; y++)
+                SetWall(new EdgeKey(new CellKey(ax - 1, y), Side.East), true);
+        }
+        else
+        {
+            var w = new AngledWall(ax, ay, bx, by);
+            var rev = new AngledWall(bx, by, ax, ay);
+            foreach (var e in AngledWalls)
+                if (e == w || e == rev) return; // already present, no duplicate
+            AngledWalls.Add(w);
+        }
+    }
+
     /// All stairs connected to the given cell by 4-directional adjacency
     /// (up/down/left/right), including the start cell. Used so configuring one
     /// stair updates every stair in the same contiguous group. A wall on the
