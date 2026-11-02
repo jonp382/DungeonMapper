@@ -70,9 +70,6 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         Canvas.Document = _doc;
-        // unique-pawn images live in a pawn_images subfolder next to the exe.
-        Canvas.PawnImagesDir = System.IO.Path.Combine(AppContext.BaseDirectory, "pawn_images");
-        System.IO.Directory.CreateDirectory(Canvas.PawnImagesDir);
         Canvas.Settings = _settings;
         Canvas.Library = ActiveLibrary;
         HistoryFor(_project.Maps[0]); // snapshot the starting map at startup
@@ -139,7 +136,7 @@ public partial class MainWindow : Window
             var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
             System.IO.Directory.CreateDirectory(dir);
             var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
-            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, Canvas.PawnImagesDir);
+            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary);
             StatusText.Text = $"autosaved {name}";
         };
         _autosaveTimer.Start();
@@ -159,7 +156,6 @@ public partial class MainWindow : Window
         Canvas.ActionCompleted += () =>
         {
             ActiveHistory.Commit(_doc);
-            CleanupUnreferencedImages();
         };
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
@@ -412,7 +408,7 @@ public partial class MainWindow : Window
                         var (eo, ei) = t.Effective(_settings);
                         items.Add((t.Id, string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
                                    PawnTemplate.NormalizeAffiliation(t.Affiliation),
-                                   eo.r, eo.g, eo.b, ei.r, ei.g, ei.b, t.Image));
+                                   eo.r, eo.g, eo.b,            ei.r, ei.g, ei.b, t.Id));
                     }
                     // live count: recomputed on each hover from the live placed pawns
                     Func<string, int> liveCount = id =>
@@ -559,7 +555,7 @@ public partial class MainWindow : Window
         });
         if (file is null) return;
         var path = file.Path.LocalPath;
-        MapSerializer.SaveProject(_project, path, ActiveLibrary, Canvas.PawnImagesDir);
+        MapSerializer.SaveProject(_project, path, ActiveLibrary);
         _currentMapPath = path; // Ctrl+S saves over this file from now on
         StatusText.Text = $"saved {path}";
     }
@@ -570,7 +566,7 @@ public partial class MainWindow : Window
     private void SaveCurrent()
     {
         if (_currentMapPath is null) { SaveMap(); return; }
-        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, Canvas.PawnImagesDir);
+        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary);
         StatusText.Text = $"saved {_currentMapPath}";
     }
 
@@ -604,16 +600,11 @@ public partial class MainWindow : Window
             }
             // merge the project's embedded library (v3 files; v2 files have none):
             // append with fresh ids for collisions, remap this project's pawn
-            // references through the id map, write embedded images to pawn_images.
+            // references through the id map. images travel as base64 on the
+            // templates, so nothing is written to disk.
             var embeddedDtos = MapSerializer.ExtractLibrary(text);
-            var pairs = new List<(PawnTemplateDto dto, PawnTemplate tpl)>();
-            foreach (var d in embeddedDtos)
-            {
-                if (string.IsNullOrEmpty(d.Id) && string.IsNullOrEmpty(d.Name)) continue;
-                pairs.Add((d, MapSerializer.LibraryFromDtos(new List<PawnTemplateDto> { d })[0]));
-            }
-            var idMap = ActiveLibrary.MergeAppend(pairs.ConvertAll(p => p.tpl));
-            WriteLibraryImages(pairs);
+            var templates = MapSerializer.LibraryFromDtos(embeddedDtos);
+            var idMap = ActiveLibrary.MergeAppend(templates);
             RemapPawns(_project, idMap);
             Canvas.Library = ActiveLibrary;
             Canvas.InvalidateImageCache();
@@ -1050,27 +1041,6 @@ public partial class MainWindow : Window
         ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
     }
 
-    /// Deletes image files in pawn_images that no placed pawn references any more.
-    /// A template's image is referenced while at least one placed pawn on the
-    /// active map points at that template. Runs after every committed action.
-    private void CleanupUnreferencedImages()
-    {
-        var referenced = new HashSet<string>();
-        foreach (var p in _doc.Pawns.Values)
-        {
-            var t = ActiveLibrary.Find(p.TemplateId);
-            if (t is not null && !string.IsNullOrEmpty(t.Image)) referenced.Add(t.Image);
-        }
-        foreach (var f in System.IO.Directory.GetFiles(Canvas.PawnImagesDir))
-        {
-            var name = System.IO.Path.GetFileName(f);
-            if (!referenced.Contains(name))
-            {
-                try { System.IO.File.Delete(f); } catch { }
-            }
-        }
-    }
-
     // Template editor: edits a library template (name, affiliation, custom colors,
     // inner/outer, status). Reached from the management menu. Editing a template
     // propagates to every placed pawn that references it (hard reference).
@@ -1168,25 +1138,21 @@ public partial class MainWindow : Window
             });
             if (files.Count == 0) return;
             var src = files[0].Path.LocalPath;
-            var ext = System.IO.Path.GetExtension(src).ToLowerInvariant();
-            var dest = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
-            System.IO.File.Copy(src, dest, overwrite: true);
-            t.Image = System.IO.Path.GetFileName(dest);
+            t.ImageB64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes(src));
+            t.ImageExt = System.IO.Path.GetExtension(src).ToLowerInvariant();
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
-        if (!string.IsNullOrEmpty(t.Image))
+        if (!string.IsNullOrEmpty(t.ImageB64))
         {
             ToolPanel.AddButton("remove image", () =>
             {
-                var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Image);
-                if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
-                t.Image = "";
+                t.ImageB64 = "";
+                t.ImageExt = "";
                 Canvas.InvalidateImageCache();
                 Canvas.Refresh();
                 BuildLibraryGrid();
-                CleanupUnreferencedImages();
             });
         }
 
@@ -1351,22 +1317,6 @@ public partial class MainWindow : Window
         (128, 0, 128), (255, 255, 255), (0, 0, 0), (128, 128, 128), (128, 64, 0),
     };
 
-    // writes embedded base64 images of imported templates into the pawn_images
-    // folder, named <new id><original extension>, and re-points each template's
-    // Image field to the written file (fresh-id imports must not keep pointing
-    // at the source filename, which can collide with a live template's image).
-    private void WriteLibraryImages(List<(PawnTemplateDto dto, PawnTemplate tpl)> pairs)
-    {
-        foreach (var (d, t) in pairs)
-        {
-            if (string.IsNullOrEmpty(d.ImageB64)) continue;
-            var ext = string.IsNullOrEmpty(d.ImageExt) ? ".png" : d.ImageExt;
-            var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
-            try { System.IO.File.WriteAllBytes(path, System.Convert.FromBase64String(d.ImageB64)); t.Image = System.IO.Path.GetFileName(path); }
-            catch { }
-        }
-    }
-
     // re-points every pawn in the project through the id remap from a library merge.
     private void RemapPawns(MapProject project, Dictionary<string, string> map)
     {
@@ -1387,7 +1337,7 @@ public partial class MainWindow : Window
         });
         if (file is null) return;
         var path = file.Path.LocalPath;
-        System.IO.File.WriteAllText(path, MapSerializer.LibraryToJson(ActiveLibrary, Canvas.PawnImagesDir));
+        System.IO.File.WriteAllText(path, MapSerializer.LibraryToJson(ActiveLibrary));
         StatusText.Text = $"exported {_libraries[_project].Pawns.Count} templates to {path}";
     }
 
@@ -1411,20 +1361,6 @@ public partial class MainWindow : Window
         catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; return; }
         if (templates.Count == 0) { StatusText.Text = "nothing to import (empty library file)"; return; }
 
-        // base64 images keyed by the file's original ids: the merge re-issues
-        // colliding ids, so the image write looks up by old id, not by the
-        // (possibly new) live id.
-        var imgMap = new Dictionary<string, PawnTemplateDto>();
-        foreach (var d in MapSerializer.LibraryFromJson(System.IO.File.ReadAllText(files[0].Path.LocalPath)))
-            if (!string.IsNullOrEmpty(d.Id) && !string.IsNullOrEmpty(d.ImageB64)) imgMap[d.Id] = d;
-        void WriteImported(List<PawnTemplate> t, List<string> oldIds)
-        {
-            var pairs = new List<(PawnTemplateDto dto, PawnTemplate tpl)>();
-            for (int i = 0; i < t.Count; i++)
-                if (imgMap.TryGetValue(oldIds[i], out var d)) pairs.Add((d, t[i]));
-            WriteLibraryImages(pairs);
-        }
-
         var overlay = new StackPanel { Spacing = 8 };
         overlay.Children.Add(new TextBlock { Text = $"import {templates.Count} templates:", Foreground = Brushes.White, FontSize = 14 });
         var appendBtn = new Button { Content = "append (add to the end)" };
@@ -1434,9 +1370,7 @@ public partial class MainWindow : Window
         appendBtn.Click += (_, _) =>
         {
             Close();
-            var oldIds = templates.ConvertAll(t => t.Id);
             ActiveLibrary.MergeAppend(templates);
-            WriteImported(templates, oldIds);
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
@@ -1445,13 +1379,11 @@ public partial class MainWindow : Window
         overBtn.Click += (_, _) =>
         {
             Close();
-            var oldIds = templates.ConvertAll(t => t.Id);
             ActiveLibrary.MergeOverwrite(templates);
-            WriteImported(templates, oldIds);
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
-            StatusText.Text = $"overwrote library with {templates.Count} pawns";
+            StatusText.Text = $"replaced library with {templates.Count} pawns";
         };
         cancelBtn.Click += (_, _) => Close();
         overlay.Children.Add(appendBtn);
@@ -1756,7 +1688,7 @@ public partial class MainWindow : Window
             var canvas = new Avalonia.Controls.Canvas { Width = 30, Height = 30 };
             // unique-image templates render the image in the swatch (center-crop
             // square, clipped to the outer circle), same as on the map.
-            var bmp = string.IsNullOrEmpty(t.Image) ? null : Canvas.LoadPawnImage(t.Image);
+            var bmp = string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
             // non-image pawns keep the affiliation outer color; the image brush
             // replaces it only when a bitmap loads.
             IBrush outerFill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));

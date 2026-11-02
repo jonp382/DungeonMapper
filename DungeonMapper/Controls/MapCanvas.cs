@@ -50,30 +50,32 @@ public sealed class MapCanvas : Control
     /// Template armed for placement from the floating submenu. Clicking a cell
     /// places a pawn referencing this template. Null = no pawn armed.
     public PawnTemplate? ArmedPawn { get; set; }
-    // folder of unique-pawn images (filenames stored on templates as PawnTemplate.Image)
-    public string PawnImagesDir { get; set; } = "";
+    // bitmap cache keyed by template Id; images are base64 on the template
+    // (PawnTemplate.ImageB64), decoded in memory - no pawn_images folder.
     private readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _bitmapCache = new();
 
     /// Drops every cached bitmap. Call when a template's image is uploaded,
-    /// removed, or the template is deleted, so the next render reloads.
+    /// removed, the template is deleted, or a project is loaded, so the next
+    /// render re-decodes.
     public void InvalidateImageCache()
     {
         foreach (var b in _bitmapCache.Values) b.Dispose();
         _bitmapCache.Clear();
     }
 
-    /// Loads (and caches) a pawn image bitmap from the pawn_images folder.
+    /// Decodes (and caches) a template's base64 image, keyed by template Id.
     /// Public so the pawn management modal and the pawn tool swatch grids can
     /// render template images in their swatches, not just on the map.
-    public Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string fileName)
+    public Avalonia.Media.Imaging.Bitmap? LoadPawnImage(string templateId)
     {
-        if (_bitmapCache.TryGetValue(fileName, out var cached)) return cached;
-        var path = System.IO.Path.Combine(PawnImagesDir, fileName);
-        if (!System.IO.File.Exists(path)) return null;
+        if (_bitmapCache.TryGetValue(templateId, out var cached)) return cached;
+        var t = Library.Find(templateId);
+        if (t is null || string.IsNullOrEmpty(t.ImageB64)) return null;
         try
         {
-            var bmp = new Avalonia.Media.Imaging.Bitmap(path);
-            _bitmapCache[fileName] = bmp;
+            using var ms = new System.IO.MemoryStream(System.Convert.FromBase64String(t.ImageB64));
+            var bmp = new Avalonia.Media.Imaging.Bitmap(ms);
+            _bitmapCache[templateId] = bmp;
             return bmp;
         }
         catch { return null; }
@@ -1169,11 +1171,11 @@ public sealed class MapCanvas : Control
             }
             double outerR = _scale * 0.42;
             double innerR = _scale * 0.22;
-            if (!string.IsNullOrEmpty(t.Image))
+            if (!string.IsNullOrEmpty(t.ImageB64))
             {
                 // unique pawn: the image replaces the two-tone circles entirely.
                 // center-crop to a square so any aspect ratio fits the cell.
-                var bmp = LoadPawnImage(t.Image);
+                var bmp = LoadPawnImage(t.Id);
                 if (bmp is not null)
                 {
                     double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);

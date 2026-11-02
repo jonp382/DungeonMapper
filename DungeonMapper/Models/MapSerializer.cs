@@ -101,7 +101,6 @@ public sealed class PawnTemplateDto
     [JsonPropertyName("outer_g")] public int OuterG { get; set; }
     [JsonPropertyName("outer_b")] public int OuterB { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; } = "none";
-    [JsonPropertyName("image")] public string Image { get; set; } = "";
     [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
     [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
 }
@@ -380,12 +379,12 @@ public static class MapSerializer
 
     public static MapDocument Load(string path) => FromJson(File.ReadAllText(path));
 
-    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, string? imagesDir = null)
+    public static string ProjectToJson(MapProject project, PawnLibrary? library = null)
     {
         var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
-        if (library is not null) dto.PawnLibrary = LibraryToDtos(library, imagesDir);
+        if (library is not null) dto.PawnLibrary = LibraryToDtos(library);
         return JsonSerializer.Serialize(dto, Opts);
     }
 
@@ -412,30 +411,19 @@ public static class MapSerializer
 
     // ---- pawn library wire format (shared by project embedding and import/export files) ----
 
-    public static List<PawnTemplateDto> LibraryToDtos(PawnLibrary lib, string? imagesDir = null)
+    public static List<PawnTemplateDto> LibraryToDtos(PawnLibrary lib)
     {
         var list = new List<PawnTemplateDto>();
         foreach (var t in lib.Pawns)
-        {
-            var d = new PawnTemplateDto
+            list.Add(new PawnTemplateDto
             {
                 Id = t.Id, Name = t.Name, Affiliation = t.Affiliation,
                 ColorOverride = t.ColorOverride,
                 InnerR = t.InnerR, InnerG = t.InnerG, InnerB = t.InnerB,
                 OuterR = t.OuterR, OuterG = t.OuterG, OuterB = t.OuterB,
-                Status = t.Status, Image = t.Image,
-            };
-            if (!string.IsNullOrEmpty(t.Image) && imagesDir is not null)
-            {
-                var path = Path.Combine(imagesDir, t.Image);
-                if (File.Exists(path))
-                {
-                    d.ImageB64 = Convert.ToBase64String(File.ReadAllBytes(path));
-                    d.ImageExt = Path.GetExtension(t.Image);
-                }
-            }
-            list.Add(d);
-        }
+                Status = t.Status,
+                ImageB64 = t.ImageB64, ImageExt = t.ImageExt,
+            });
         return list;
     }
 
@@ -452,14 +440,14 @@ public static class MapSerializer
                 InnerR = d.InnerR, InnerG = d.InnerG, InnerB = d.InnerB,
                 OuterR = d.OuterR, OuterG = d.OuterG, OuterB = d.OuterB,
                 Status = string.IsNullOrEmpty(d.Status) ? "none" : d.Status,
-                Image = d.Image,
+                ImageB64 = d.ImageB64, ImageExt = d.ImageExt,
             });
         }
         return list;
     }
 
-    public static string LibraryToJson(PawnLibrary lib, string? imagesDir = null)
-        => JsonSerializer.Serialize(new { pawn_library = LibraryToDtos(lib, imagesDir) }, Opts);
+    public static string LibraryToJson(PawnLibrary lib)
+        => JsonSerializer.Serialize(new { pawn_library = LibraryToDtos(lib) }, Opts);
 
     public static List<PawnTemplateDto> LibraryFromJson(string json)
     {
@@ -474,8 +462,8 @@ public static class MapSerializer
         [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> pawn_library { get; set; } = new();
     }
 
-    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null, string? imagesDir = null)
-        => File.WriteAllText(path, ProjectToJson(project, library, imagesDir));
+    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null)
+        => File.WriteAllText(path, ProjectToJson(project, library));
 
     public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
 

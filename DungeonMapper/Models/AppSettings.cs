@@ -50,10 +50,13 @@ public sealed class PawnTemplate
     [JsonPropertyName("outer_g")] public int OuterG { get; set; }
     [JsonPropertyName("outer_b")] public int OuterB { get; set; }
     [JsonPropertyName("status")] public string Status { get; set; } = "none";
-    // optional image for unique pawns: filename in the pawn_images folder next to
-    // the exe. When set, the image replaces the two-tone circles entirely, drawn
-    // square (center-cropped) to fit the cell.
-    [JsonPropertyName("image")] public string Image { get; set; } = "";
+    // optional image for unique pawns: base64 bytes carried on the template, so
+    // the image travels inside the project file and import/export files. When
+    // set, the image replaces the two-tone circles entirely, drawn square
+    // (center-cropped) to fit the cell. ImageExt is the original extension
+    // (".png"/".jpg"), kept for decoding and re-export.
+    [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
+    [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
 
     /// Affiliation default colors: outer bright, inner dark accent.
     public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch

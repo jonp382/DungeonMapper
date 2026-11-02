@@ -1878,7 +1878,7 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     var t = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" };
     t.ApplyAffiliationDefaults();
     lib.Add(t);
-    var t2 = new PawnTemplate { Name = "Boss", Affiliation = "Enemy", Status = "alert", Image = "p2.png" };
+    var t2 = new PawnTemplate { Name = "Boss", Affiliation = "Enemy", Status = "alert", ImageB64 = "AB", ImageExt = ".png" };
     t2.ApplyAffiliationDefaults();
     lib.Add(t2);
     proj.Maps[0].Doc.AddRoom(0, 0, 3, 3);
@@ -1934,16 +1934,13 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
 
     // --- library embedding probes (task 1: library travels inside the project file) ---
     {
-        var scratch = "/tmp/scratch/dm_probe";
-        System.IO.Directory.CreateDirectory(scratch);
-        var img = System.IO.Path.Combine(scratch, "p1.png");
-        System.IO.File.WriteAllBytes(img, System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png"));
+        var probeB64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png"));
 
         var probeLib = new PawnLibrary();
-        probeLib.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Affiliation = "Skeleton", Image = "p1.png", Status = "stunned" });
+        probeLib.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Affiliation = "Skeleton", ImageB64 = probeB64, ImageExt = ".png", Status = "stunned" });
 
         // DTO round-trip keeps fields
-        var dtos = MapSerializer.LibraryToDtos(probeLib, scratch);
+        var dtos = MapSerializer.LibraryToDtos(probeLib);
         var back = MapSerializer.LibraryFromDtos(dtos);
         Check(back.Count == 1 && back[0].Name == "Skeleton" && back[0].Status == "stunned", "probe: library DTO round-trip keeps fields");
         Check(dtos[0].ImageB64.Length > 0 && dtos[0].ImageExt == ".png", "probe: embedded base64 image present in DTO");
@@ -1951,7 +1948,7 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
         // project file embeds the library; extraction returns it
         var probeProj = new MapProject();
         probeProj.Maps[0].Doc.Pawns[new CellKey(1, 1)] = new Pawn { TemplateId = "p1" };
-        var probeJson = MapSerializer.ProjectToJson(probeProj, probeLib, scratch);
+        var probeJson = MapSerializer.ProjectToJson(probeProj, probeLib);
         var extracted = MapSerializer.ExtractLibrary(probeJson);
         Check(extracted.Count == 1 && extracted[0].Id == "p1" && extracted[0].ImageB64.Length > 0, "probe: project file embeds library + image");
 
@@ -1960,13 +1957,13 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
         Check(MapSerializer.ExtractLibrary(v2).Count == 0, "probe: v2 project file has empty embedded library");
 
         // library export file round-trip (import/export format)
-        var libJson = MapSerializer.LibraryToJson(probeLib, scratch);
+        var libJson = MapSerializer.LibraryToJson(probeLib);
         var libBack = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(libJson));
         Check(libBack.Count == 1 && libBack[0].Name == "Skeleton", "probe: library export file round-trip");
 
         // append: free ids keep their id, colliding ids get fresh ids, remap returned
         var live = new PawnLibrary();
-        live.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Image = "p1.png" });
+        live.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton" });
         var incoming = MapSerializer.LibraryFromDtos(new List<PawnTemplateDto>
         {
             new PawnTemplateDto { Id = "p1", Name = "Skeleton" },   // collides -> fresh id
@@ -1983,27 +1980,18 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
         var map2 = live2.MergeOverwrite(new List<PawnTemplate> { new PawnTemplate { Id = "p1", Name = "Wraith" } });
         Check(live2.Pawns.Count == 1 && live2.Find("p1")!.Name == "Wraith", "probe: overwrite deletes all, free id keeps its id");
 
-        // image re-point on fresh-id append (the WriteLibraryImages flow in MainWindow):
-        // colliding template gets a fresh id, its image is written under
-        // <new id><ext>, and its Image field is re-pointed; the existing
-        // template's image stays untouched.
-        var scratch2 = "/tmp/scratch/dm_probe2";
-        System.IO.Directory.CreateDirectory(scratch2);
-        var imgBytes = System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png");
+        // base64 travels with the template through a merge: a fresh-id import
+        // keeps its image bytes; no files are written anywhere.
         var live3 = new PawnLibrary();
-        live3.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Image = "p1.png" });
-        System.IO.File.WriteAllBytes(System.IO.Path.Combine(scratch2, "p1.png"), imgBytes);
+        live3.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", ImageB64 = probeB64, ImageExt = ".png" });
         var incoming2 = MapSerializer.LibraryFromDtos(new List<PawnTemplateDto>
         {
-            new PawnTemplateDto { Id = "p1", Name = "Ghost", Image = "p1.png", ImageB64 = System.Convert.ToBase64String(imgBytes), ImageExt = ".png" },
+            new PawnTemplateDto { Id = "p1", Name = "Ghost", ImageB64 = probeB64, ImageExt = ".png" },
         });
         var map3 = live3.MergeAppend(incoming2);
         var ghost = live3.Find(map3["p1"])!;
-        var newFile = System.IO.Path.Combine(scratch2, ghost.Id + ".png");
-        System.IO.File.WriteAllBytes(newFile, imgBytes);
-        ghost.Image = System.IO.Path.GetFileName(newFile);
-        Check(ghost.Id != "p1" && ghost.Image == ghost.Id + ".png" && System.IO.File.Exists(newFile), "probe: fresh-id import re-points image to new filename");
-        Check(live3.Find("p1")!.Name == "Skeleton" && live3.Find("p1")!.Image == "p1.png", "probe: existing template image untouched on append");
+        Check(ghost.Id != "p1" && ghost.ImageB64 == probeB64, "probe: base64 travels with a fresh-id import");
+        Check(live3.Find("p1")!.Name == "Skeleton" && live3.Find("p1")!.ImageB64 == probeB64, "probe: existing template base64 untouched on append");
 
         // project save/load round-trip with embedded library
         var probeProj2 = MapSerializer.ProjectFromJson(probeJson);
