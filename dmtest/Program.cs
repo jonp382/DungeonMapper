@@ -1811,6 +1811,17 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     }
     Check(InRing(tring[0], 1.1, 2.1) && InRing(tring[0], 2.5, 1.1) && InRing(tring[0], 3.5, 0.3),
         "3x4 triangle: sliver cell interiors inside the ring");
+    // two disconnected triangles 5 cells apart: filling A must not add B's cells
+    var tdoc2 = new MapDocument();
+    tdoc2.AddLine(0, 0, 4, 0); tdoc2.AddLine(0, 0, 0, 3); tdoc2.AddLine(0, 3, 4, 0);
+    tdoc2.AddLine(6, 0, 10, 0); tdoc2.AddLine(6, 0, 6, 3); tdoc2.AddLine(6, 3, 10, 0);
+    var treg2 = tdoc2.FloodFillRegion(new CellKey(0, 0));
+    Check(treg2 is not null && treg2.Count == 3, "disconnected triangles: fill region is only triangle A cells");
+    var tring2 = tdoc2.BuildFloodRings(treg2!);
+    Check(tring2.Count == 1 && tring2[0].Count == 3, "disconnected triangles: one ring, 3 corners");
+    var tpts2 = new HashSet<(double, double)>(tring2[0]);
+    Check(tpts2.Contains((0, 0)) && tpts2.Contains((4, 0)) && tpts2.Contains((0, 3)), "disconnected triangles ring has triangle A corners");
+    Check(!tpts2.Contains((6, 0)) && !tpts2.Contains((10, 0)) && !tpts2.Contains((6, 3)), "disconnected triangles ring excludes triangle B corners");
     var cdoc = new MapDocument();
     Check(cdoc.FloodFillRegion(new CellKey(0, 0)) is null, "open field exceeds cap, returns null");
     // flood regions are whole objects: erase removes them, walls survive

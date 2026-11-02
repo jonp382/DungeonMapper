@@ -979,14 +979,23 @@ public sealed class MapDocument
             polys.Add(new List<(double, double)> { (c.X, c.Y), (c.X + 1, c.Y), (c.X + 1, c.Y + 1), (c.X, c.Y + 1) });
 
         var cutWalls = CutCellWalls();
+        // bounding walls: the angled walls cutting the cut cells the region BFS
+        // stopped at (cut cells adjacent to a region cell). A cut cell in a
+        // disconnected feature is not adjacent to this region, so its wall is
+        // not a bounding wall and its triangle must not join this ring.
+        var boundWalls = new HashSet<AngledWall>();
+        foreach (var c in region)
+            foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                if (cutWalls.TryGetValue(new CellKey(c.X + dx, c.Y + dy), out var ws))
+                    foreach (var w in ws) boundWalls.Add(w);
         foreach (var (cell, walls) in cutWalls)
         {
             if (region.Contains(cell)) continue; // cut cells are never region cells
-            // the region lies entirely on one side of every bounding wall, so any
-            // region cell defines the region side. A cut cell can be adjacent to
-            // other cut cells (not the region), so the old adjacency lookup found
-            // no sample and skipped the cell - its triangle never filled.
             if (region.Count == 0) continue;
+            // include a cut cell only when one of its cutting walls bounds this
+            // region; the region lies entirely on one side of every bounding
+            // wall, so any region cell defines the region side
+            if (!walls.Any(w => boundWalls.Contains(w))) continue;
             var sample = region.First();
             var poly = new List<(double, double)> { (cell.X, cell.Y), (cell.X + 1, cell.Y), (cell.X + 1, cell.Y + 1), (cell.X, cell.Y + 1) };
             foreach (var w in walls)
