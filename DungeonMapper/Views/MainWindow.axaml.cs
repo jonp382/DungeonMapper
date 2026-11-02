@@ -36,16 +36,18 @@ public partial class MainWindow : Window
     private History ActiveHistory => HistoryFor(_project.Maps[_project.ActiveIndex]);
     private readonly AppSettings _settings = AppSettings.Load();
     // per-project pawn library: each project file carries its own library
-    // (embedded "pawn_library" field, v3). keyed by project reference, like the
-    // per-map histories. loading a project appends its embedded library into the
-    // live one (fresh ids for collisions) and remaps the loaded pawns' ids.
+    // (embedded "pawn_library" field, v3), keyed by project reference, like the
+    // per-map histories. there is NO global library: a project's library starts
+    // empty and its embedded templates are appended on load (fresh ids for
+    // collisions), remapping the loaded pawns' ids. template edits persist with
+    // the project file (Ctrl+S / autosave), not to any global file.
     private readonly Dictionary<MapProject, PawnLibrary> _libraries = new();
     private PawnLibrary ActiveLibrary => LibraryFor(_project);
     private PawnLibrary LibraryFor(MapProject p)
     {
         if (!_libraries.TryGetValue(p, out var lib))
         {
-            lib = PawnLibrary.Load();
+            lib = new PawnLibrary();
             _libraries[p] = lib;
         }
         return lib;
@@ -149,7 +151,6 @@ public partial class MainWindow : Window
             var t = new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
             t.ApplyAffiliationDefaults();
             ActiveLibrary.Add(t);
-            ActiveLibrary.Save();
             Canvas.ArmedPawn = t;
             StatusText.Text = $"added {t.Name} - armed for placement";
             ShowPawnManagement();
@@ -1086,7 +1087,6 @@ public partial class MainWindow : Window
         ToolPanel.AddText("Name", t.Name, name =>
         {
             t.Name = name;
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1097,7 +1097,6 @@ public partial class MainWindow : Window
             {
                 t.Affiliation = aff;
                 if (!t.ColorOverride) t.ApplyAffiliationDefaults();
-                ActiveLibrary.Save();
                 Canvas.Refresh();
                 BuildLibraryGrid();
             });
@@ -1109,14 +1108,12 @@ public partial class MainWindow : Window
         var innerPanel = ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
         {
             t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
         var outerPanel = ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
         {
             t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1126,7 +1123,6 @@ public partial class MainWindow : Window
             bool on = check.IsChecked == true;
             t.ColorOverride = on;
             if (!on) t.ApplyAffiliationDefaults();
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             if (on)
@@ -1152,7 +1148,6 @@ public partial class MainWindow : Window
         var statusCombo = ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
         {
             t.Status = s;
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1177,7 +1172,6 @@ public partial class MainWindow : Window
             var dest = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
             System.IO.File.Copy(src, dest, overwrite: true);
             t.Image = System.IO.Path.GetFileName(dest);
-            ActiveLibrary.Save();
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
@@ -1189,7 +1183,6 @@ public partial class MainWindow : Window
                 var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Image);
                 if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
                 t.Image = "";
-                ActiveLibrary.Save();
                 Canvas.InvalidateImageCache();
                 Canvas.Refresh();
                 BuildLibraryGrid();
@@ -1218,7 +1211,6 @@ public partial class MainWindow : Window
         void doDelete()
         {
             ActiveLibrary.Remove(t.Id);
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1274,7 +1266,6 @@ public partial class MainWindow : Window
                 }
             _settings.AffiliationColors.Remove(ac);
             _settings.Save();
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1320,7 +1311,6 @@ public partial class MainWindow : Window
                 if (t.Status == st.Name) t.Status = "none";
             _settings.PawnStatuses.Remove(st);
             _settings.Save();
-            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1447,7 +1437,6 @@ public partial class MainWindow : Window
             var oldIds = templates.ConvertAll(t => t.Id);
             ActiveLibrary.MergeAppend(templates);
             WriteImported(templates, oldIds);
-            ActiveLibrary.Save();
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
@@ -1459,7 +1448,6 @@ public partial class MainWindow : Window
             var oldIds = templates.ConvertAll(t => t.Id);
             ActiveLibrary.MergeOverwrite(templates);
             WriteImported(templates, oldIds);
-            ActiveLibrary.Save();
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();

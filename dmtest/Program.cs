@@ -1890,13 +1890,18 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     Check(proj2.Maps[0].Doc.Pawns[new CellKey(1, 1)].TemplateId == "p1", "probe: template id survives project round-trip");
     Check(proj2.Maps[0].Doc.Pawns[new CellKey(2, 2)].Status == "none", "probe: per-instance status survives project round-trip");
 
-    // REAL Save()/Load() round-trip: the field-serialization fix must persist
-    // templates to pawn_library.json next to the app (the user-reported bug).
-    lib.Save();
-    var lib2 = PawnLibrary.Load();
-    Check(lib2.Pawns.Count == 2, "probe: library Save/Load round-trip keeps templates");
-    Check(lib2.Find("p1")!.Name == "Skeleton" && lib2.Find("p2")!.Image == "p2.png", "probe: template fields survive disk");
-    Check(lib2.NextId == 3, "probe: next_id counter persists");
+    // per-project library: ids embedded in a project file keep their ids when
+    // merged into a fresh project library (there is no global library file).
+    var freshLib = new PawnLibrary();
+    var embedded = MapSerializer.LibraryFromDtos(new List<PawnTemplateDto>
+    {
+        new PawnTemplateDto { Id = "p1", Name = "Skeleton" },
+        new PawnTemplateDto { Id = "p5", Name = "Ghost" },
+    });
+    var idMap2 = freshLib.MergeAppend(embedded);
+    Check(freshLib.Find("p1")!.Name == "Skeleton" && freshLib.Find("p5")!.Name == "Ghost", "probe: embedded ids keep their ids in a fresh project library");
+    Check(idMap2["p1"] == "p1" && idMap2["p5"] == "p5", "probe: free ids map to themselves (identity remap)");
+    Check(freshLib.NewId() == "p6", "probe: counter bumps past embedded ids");
     // AppSettings real Save/Load: door types + statuses + affiliations persist
     var st = AppSettings.Default();
     st.DoorTypes.Add(new DoorType("gate", 10, 20, 30));

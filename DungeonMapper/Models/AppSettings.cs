@@ -34,7 +34,7 @@ public sealed class PawnStatus
     { Name = name; R = r; G = g; B = b; Thickness = thickness; }
 }
 
-/// A reusable pawn template in the library (pawn_library.json). Identified by a
+/// A reusable pawn template in the project's library. Identified by a
 /// stable Id; map pawns reference it by Id (hard reference). Colors inherit from
 /// the affiliation unless ColorOverride is on. Extra fields can be added over time.
 public sealed class PawnTemplate
@@ -286,37 +286,13 @@ public sealed class AppSettings
     }
 }
 
-/// The reusable pawn database, stored in pawn_library.json next to the app.
-/// A list of PawnTemplate entries; new pawns added via the UI persist here for reuse.
+/// The per-project pawn database, embedded in each project file.
+/// A list of PawnTemplate entries. There is no global library: each project
+/// file embeds its own library, and template edits persist with the project
+/// file (Ctrl+S / autosave). Import/export files move libraries between projects.
 public sealed class PawnLibrary
 {
     [JsonPropertyName("pawns")] public List<PawnTemplate> Pawns { get; set; } = new();
-
-    public string LibraryPath()
-    {
-        var dir = AppContext.BaseDirectory;
-        return System.IO.Path.Combine(dir, "pawn_library.json");
-    }
-
-    public void Save()
-    {
-        var opts = new JsonSerializerOptions { WriteIndented = true };
-        System.IO.File.WriteAllText(LibraryPath(), JsonSerializer.Serialize(this, opts));
-    }
-
-    public static PawnLibrary Load()
-    {
-        var path = new PawnLibrary().LibraryPath();
-        if (!System.IO.File.Exists(path)) return new PawnLibrary();
-        try
-        {
-            var l = JsonSerializer.Deserialize<PawnLibrary>(System.IO.File.ReadAllText(path)) ?? new PawnLibrary();
-            l.EnsureIds();
-            l.BumpNextId();
-            return l;
-        }
-        catch { return new PawnLibrary(); }
-    }
 
     public PawnTemplate? Find(string id) => Pawns.Find(p => p.Id == id);
 
@@ -361,7 +337,8 @@ public sealed class PawnLibrary
         return MergeAppend(templates);
     }
 
-    /// Ids are stable across sessions: a counter persisted with the library.
+    /// Id counter for fresh ids. Not persisted to disk (the project file stores
+    /// template DTOs, not the counter); BumpNextId keeps it ahead of embedded ids.
     [JsonPropertyName("next_id")] public int NextId { get; private set; } = 1;
     // New ids skip ids already in use: a library whose counter lags behind its
     // live ids (legacy file, manual adds) must never re-issue a live id.
@@ -378,12 +355,5 @@ public sealed class PawnLibrary
     {
         foreach (var p in Pawns)
             if (p.Id.StartsWith("p") && int.TryParse(p.Id[1..], out int n) && n >= NextId) NextId = n + 1;
-    }
-
-    /// Backfills Ids for templates loaded from a legacy library (no Id field).
-    public void EnsureIds()
-    {
-        foreach (var p in Pawns)
-            if (string.IsNullOrEmpty(p.Id)) p.Id = NewId();
     }
 }
