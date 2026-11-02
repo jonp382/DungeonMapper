@@ -1871,5 +1871,140 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     fc.Dispose();
 }
 
+// --- PROBE: pawn save round-trips (user bug report: pawns vanish on re-open) ---
+{
+    var proj = new MapProject();
+    var lib = new PawnLibrary();
+    var t = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" };
+    t.ApplyAffiliationDefaults();
+    lib.Add(t);
+    var t2 = new PawnTemplate { Name = "Boss", Affiliation = "Enemy", Status = "alert", Image = "p2.png" };
+    t2.ApplyAffiliationDefaults();
+    lib.Add(t2);
+    proj.Maps[0].Doc.AddRoom(0, 0, 3, 3);
+    proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = t.Id });
+    proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = t2.Id, Status = "none" });
+    string pj = MapSerializer.ProjectToJson(proj);
+    var proj2 = MapSerializer.ProjectFromJson(pj);
+    Check(proj2.Maps[0].Doc.Pawns.Count == 2, "probe: project save/load keeps pawn instances");
+    Check(proj2.Maps[0].Doc.Pawns[new CellKey(1, 1)].TemplateId == "p1", "probe: template id survives project round-trip");
+    Check(proj2.Maps[0].Doc.Pawns[new CellKey(2, 2)].Status == "none", "probe: per-instance status survives project round-trip");
+
+    // REAL Save()/Load() round-trip: the field-serialization fix must persist
+    // templates to pawn_library.json next to the app (the user-reported bug).
+    lib.Save();
+    var lib2 = PawnLibrary.Load();
+    Check(lib2.Pawns.Count == 2, "probe: library Save/Load round-trip keeps templates");
+    Check(lib2.Find("p1")!.Name == "Skeleton" && lib2.Find("p2")!.Image == "p2.png", "probe: template fields survive disk");
+    Check(lib2.NextId == 3, "probe: next_id counter persists");
+    // AppSettings real Save/Load: door types + statuses + affiliations persist
+    var st = AppSettings.Default();
+    st.DoorTypes.Add(new DoorType("gate", 10, 20, 30));
+    st.PawnStatuses.Add(new PawnStatus("stunned", 1, 2, 3, 4));
+    st.AffiliationColors.Add(new AffiliationColor("Cult", (11, 12, 13), (21, 22, 23)));
+    st.GridDrawSpacing = 2;
+    st.Save();
+    var st2 = AppSettings.Load();
+    Check(st2.DoorTypes.Any(d => d.Name == "gate" && d.R == 10), "probe: door type survives settings disk round-trip");
+    Check(st2.PawnStatuses.Any(s2 => s2.Name == "stunned" && s2.Thickness == 4), "probe: pawn status survives settings disk round-trip");
+    Check(st2.AffiliationColors.Any(a => a.Name == "Cult" && a.InnerB == 23), "probe: affiliation color survives settings disk round-trip");
+    Check(st2.GridDrawSpacing == 2, "probe: scalar setting survives settings disk round-trip");
+    Check(st2.ToolHotkeys["Line"] == "I", "probe: hotkeys survive settings disk round-trip");
+    // legacy library (ids p1..pN, no counter): BumpNextId must not re-issue a live id
+    var legacy = new PawnLibrary();
+    legacy.Pawns.Add(new PawnTemplate { Id = "p1", Name = "old1" });
+    legacy.Pawns.Add(new PawnTemplate { Id = "p7", Name = "old7" });
+    legacy.BumpNextId();
+    Check(legacy.NewId() == "p8", "probe: BumpNextId skips legacy live ids");
+
+    // base64 size probe: real pawn glyph PNGs generated in scratch
+    foreach (var f in new[] { "flat256", "circle256", "circle512" })
+    {
+        var p = System.IO.Path.Combine("/tmp/scratch", f + ".png");
+        if (!System.IO.File.Exists(p)) continue;
+        byte[] raw = System.IO.File.ReadAllBytes(p);
+        int b64 = System.Convert.ToBase64String(raw).Length;
+        Console.WriteLine($"PROBE {f}.png: {raw.Length} bytes raw, base64 {b64} chars, ratio {(double)b64 / raw.Length:0.00}");
+    }
+
+    // --- library embedding probes (task 1: library travels inside the project file) ---
+    {
+        var scratch = "/tmp/scratch/dm_probe";
+        System.IO.Directory.CreateDirectory(scratch);
+        var img = System.IO.Path.Combine(scratch, "p1.png");
+        System.IO.File.WriteAllBytes(img, System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png"));
+
+        var probeLib = new PawnLibrary();
+        probeLib.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Affiliation = "Skeleton", Image = "p1.png", Status = "stunned" });
+
+        // DTO round-trip keeps fields
+        var dtos = MapSerializer.LibraryToDtos(probeLib, scratch);
+        var back = MapSerializer.LibraryFromDtos(dtos);
+        Check(back.Count == 1 && back[0].Name == "Skeleton" && back[0].Status == "stunned", "probe: library DTO round-trip keeps fields");
+        Check(dtos[0].ImageB64.Length > 0 && dtos[0].ImageExt == ".png", "probe: embedded base64 image present in DTO");
+
+        // project file embeds the library; extraction returns it
+        var probeProj = new MapProject();
+        probeProj.Maps[0].Doc.Pawns[new CellKey(1, 1)] = new Pawn { TemplateId = "p1" };
+        var probeJson = MapSerializer.ProjectToJson(probeProj, probeLib, scratch);
+        var extracted = MapSerializer.ExtractLibrary(probeJson);
+        Check(extracted.Count == 1 && extracted[0].Id == "p1" && extracted[0].ImageB64.Length > 0, "probe: project file embeds library + image");
+
+        // v2 project file (no library field) loads with empty embedded library
+        var v2 = "{\"version\":2,\"active\":0,\"maps\":[{\"name\":\"map\",\"map\":{\"width\":10,\"height\":10}}]}";
+        Check(MapSerializer.ExtractLibrary(v2).Count == 0, "probe: v2 project file has empty embedded library");
+
+        // library export file round-trip (import/export format)
+        var libJson = MapSerializer.LibraryToJson(probeLib, scratch);
+        var libBack = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(libJson));
+        Check(libBack.Count == 1 && libBack[0].Name == "Skeleton", "probe: library export file round-trip");
+
+        // append: free ids keep their id, colliding ids get fresh ids, remap returned
+        var live = new PawnLibrary();
+        live.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Image = "p1.png" });
+        var incoming = MapSerializer.LibraryFromDtos(new List<PawnTemplateDto>
+        {
+            new PawnTemplateDto { Id = "p1", Name = "Skeleton" },   // collides -> fresh id
+            new PawnTemplateDto { Id = "p9", Name = "Ghost" },      // free -> keeps p9
+        });
+        var map = live.MergeAppend(incoming);
+        Check(live.Pawns.Count == 3, "probe: append adds all imported templates");
+        Check(live.Find("p9") is not null && live.Find("p9")!.Name == "Ghost", "probe: free id keeps its id on append");
+        Check(map["p1"] != "p1" && live.Find(map["p1"])!.Name == "Skeleton", "probe: colliding id gets fresh id + remap on append");
+
+        // overwrite: deletes all, appends imported
+        var live2 = new PawnLibrary();
+        live2.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton" });
+        var map2 = live2.MergeOverwrite(new List<PawnTemplate> { new PawnTemplate { Id = "p1", Name = "Wraith" } });
+        Check(live2.Pawns.Count == 1 && live2.Find("p1")!.Name == "Wraith", "probe: overwrite deletes all, free id keeps its id");
+
+        // image re-point on fresh-id append (the WriteLibraryImages flow in MainWindow):
+        // colliding template gets a fresh id, its image is written under
+        // <new id><ext>, and its Image field is re-pointed; the existing
+        // template's image stays untouched.
+        var scratch2 = "/tmp/scratch/dm_probe2";
+        System.IO.Directory.CreateDirectory(scratch2);
+        var imgBytes = System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png");
+        var live3 = new PawnLibrary();
+        live3.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Image = "p1.png" });
+        System.IO.File.WriteAllBytes(System.IO.Path.Combine(scratch2, "p1.png"), imgBytes);
+        var incoming2 = MapSerializer.LibraryFromDtos(new List<PawnTemplateDto>
+        {
+            new PawnTemplateDto { Id = "p1", Name = "Ghost", Image = "p1.png", ImageB64 = System.Convert.ToBase64String(imgBytes), ImageExt = ".png" },
+        });
+        var map3 = live3.MergeAppend(incoming2);
+        var ghost = live3.Find(map3["p1"])!;
+        var newFile = System.IO.Path.Combine(scratch2, ghost.Id + ".png");
+        System.IO.File.WriteAllBytes(newFile, imgBytes);
+        ghost.Image = System.IO.Path.GetFileName(newFile);
+        Check(ghost.Id != "p1" && ghost.Image == ghost.Id + ".png" && System.IO.File.Exists(newFile), "probe: fresh-id import re-points image to new filename");
+        Check(live3.Find("p1")!.Name == "Skeleton" && live3.Find("p1")!.Image == "p1.png", "probe: existing template image untouched on append");
+
+        // project save/load round-trip with embedded library
+        var probeProj2 = MapSerializer.ProjectFromJson(probeJson);
+        Check(probeProj2.Maps[0].Doc.Pawns[new CellKey(1, 1)].TemplateId == "p1", "probe: pawn instance survives project round-trip with library embedded");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

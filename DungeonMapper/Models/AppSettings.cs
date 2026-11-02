@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace DungeonMapper.Models;
 
 /// A configurable door category: a name shown in the dropdown and an RGB color.
 public sealed class DoorType
 {
-    public string Name = "standard";
-    public int R = 245, G = 220, B = 60;
+    [JsonPropertyName("name")] public string Name { get; set; } = "standard";
+    [JsonPropertyName("r")] public int R { get; set; } = 245;
+    [JsonPropertyName("g")] public int G { get; set; } = 220;
+    [JsonPropertyName("b")] public int B { get; set; } = 60;
 
     public DoorType() { }
     public DoorType(string name, int r, int g, int b) { Name = name; R = r; G = g; B = b; }
@@ -20,9 +23,11 @@ public sealed class DoorType
 /// UI like door types, so new effects (paralyzed, fear, ...) can be created.
 public sealed class PawnStatus
 {
-    public string Name = "none";
-    public int R = 255, G = 255, B = 255;
-    public int Thickness = 0;
+    [JsonPropertyName("name")] public string Name { get; set; } = "none";
+    [JsonPropertyName("r")] public int R { get; set; } = 255;
+    [JsonPropertyName("g")] public int G { get; set; } = 255;
+    [JsonPropertyName("b")] public int B { get; set; } = 255;
+    [JsonPropertyName("thickness")] public int Thickness { get; set; } = 0;
 
     public PawnStatus() { }
     public PawnStatus(string name, int r, int g, int b, int thickness)
@@ -34,17 +39,21 @@ public sealed class PawnStatus
 /// the affiliation unless ColorOverride is on. Extra fields can be added over time.
 public sealed class PawnTemplate
 {
-    public string Id = "";
-    public string Name = "";
-    public string Affiliation = "Neutral";
-    public bool ColorOverride = false;
-    public int InnerR, InnerG, InnerB;
-    public int OuterR, OuterG, OuterB;
-    public string Status = "none";
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("affiliation")] public string Affiliation { get; set; } = "Neutral";
+    [JsonPropertyName("color_override")] public bool ColorOverride { get; set; } = false;
+    [JsonPropertyName("inner_r")] public int InnerR { get; set; }
+    [JsonPropertyName("inner_g")] public int InnerG { get; set; }
+    [JsonPropertyName("inner_b")] public int InnerB { get; set; }
+    [JsonPropertyName("outer_r")] public int OuterR { get; set; }
+    [JsonPropertyName("outer_g")] public int OuterG { get; set; }
+    [JsonPropertyName("outer_b")] public int OuterB { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = "none";
     // optional image for unique pawns: filename in the pawn_images folder next to
     // the exe. When set, the image replaces the two-tone circles entirely, drawn
     // square (center-cropped) to fit the cell.
-    public string Image = "";
+    [JsonPropertyName("image")] public string Image { get; set; } = "";
 
     /// Affiliation default colors: outer bright, inner dark accent.
     public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch
@@ -90,9 +99,13 @@ public sealed class PawnTemplate
 /// they have ColorOverride on.
 public sealed class AffiliationColor
 {
-    public string Name = "Neutral";
-    public int OuterR, OuterG, OuterB;
-    public int InnerR, InnerG, InnerB;
+    [JsonPropertyName("name")] public string Name { get; set; } = "Neutral";
+    [JsonPropertyName("outer_r")] public int OuterR { get; set; }
+    [JsonPropertyName("outer_g")] public int OuterG { get; set; }
+    [JsonPropertyName("outer_b")] public int OuterB { get; set; }
+    [JsonPropertyName("inner_r")] public int InnerR { get; set; }
+    [JsonPropertyName("inner_g")] public int InnerG { get; set; }
+    [JsonPropertyName("inner_b")] public int InnerB { get; set; }
 
     public AffiliationColor() { }
     public AffiliationColor(string name, (int r, int g, int b) outer, (int r, int g, int b) inner)
@@ -108,53 +121,67 @@ public sealed class AppSettings
 {
     // Grid is always 5ft (1 cell). This is how many cells between drawn grid
     // lines: 1 = every 5ft, 2 = every 10ft, etc. This is the MAJOR spacing.
-    public int GridDrawSpacing = 1;
+    [JsonPropertyName("grid_draw_spacing")] public int GridDrawSpacing { get; set; } = 1;
 
     // Gridline colors. Major lines sit at the GridDrawSpacing boundaries; minor
     // lines sit at every 5ft cell edge (system default). At 1x spacing (sp==1)
     // major and minor coincide, so only major is drawn. Defaults: major dark grey,
     // minor lighter grey, both visible against the flooring fill.
-    public int MajorGridR = 30, MajorGridG = 30, MajorGridB = 35;
-    public int MinorGridR = 90, MinorGridG = 90, MinorGridB = 100;
+    [JsonPropertyName("major_grid_r")] public int MajorGridR { get; set; } = 30;
+    [JsonPropertyName("major_grid_g")] public int MajorGridG { get; set; } = 30;
+    [JsonPropertyName("major_grid_b")] public int MajorGridB { get; set; } = 35;
+    [JsonPropertyName("minor_grid_r")] public int MinorGridR { get; set; } = 90;
+    [JsonPropertyName("minor_grid_g")] public int MinorGridG { get; set; } = 90;
+    [JsonPropertyName("minor_grid_b")] public int MinorGridB { get; set; } = 100;
     // Toggle: when false, minor gridlines (every 5ft edge) are not drawn at all,
     // so at spacing 2 you can show only the 10ft major lines.
-    public bool ShowMinorGrid = true;
+    [JsonPropertyName("show_minor_grid")] public bool ShowMinorGrid { get; set; } = true;
 
     // Canvas element colors (settings menu). Defaults match the original hardcoded
     // brushes in MapCanvas. The old static GridLine/FaintGridLine brushes were dead
     // code (grid rendering uses the MajorGrid/MinorGrid settings colors), removed.
-    public int BackgroundR = 20, BackgroundG = 20, BackgroundB = 25;
-    public int CellFillR = 60, CellFillG = 75, CellFillB = 105;
-    public int WallR = 235, WallG = 235, WallB = 240;
+    [JsonPropertyName("background_r")] public int BackgroundR { get; set; } = 20;
+    [JsonPropertyName("background_g")] public int BackgroundG { get; set; } = 20;
+    [JsonPropertyName("background_b")] public int BackgroundB { get; set; } = 25;
+    [JsonPropertyName("cell_fill_r")] public int CellFillR { get; set; } = 60;
+    [JsonPropertyName("cell_fill_g")] public int CellFillG { get; set; } = 75;
+    [JsonPropertyName("cell_fill_b")] public int CellFillB { get; set; } = 105;
+    [JsonPropertyName("wall_r")] public int WallR { get; set; } = 235;
+    [JsonPropertyName("wall_g")] public int WallG { get; set; } = 235;
+    [JsonPropertyName("wall_b")] public int WallB { get; set; } = 240;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
-    public int StairColorR = 230, StairColorG = 160, StairColorB = 80;
-    public int LabelR = 250, LabelG = 250, LabelB = 250;
+    [JsonPropertyName("stair_color_r")] public int StairColorR { get; set; } = 230;
+    [JsonPropertyName("stair_color_g")] public int StairColorG { get; set; } = 160;
+    [JsonPropertyName("stair_color_b")] public int StairColorB { get; set; } = 80;
+    [JsonPropertyName("label_r")] public int LabelR { get; set; } = 250;
+    [JsonPropertyName("label_g")] public int LabelG { get; set; } = 250;
+    [JsonPropertyName("label_b")] public int LabelB { get; set; } = 250;
 
     // Autosave interval in minutes; 0 = autosave off. Writes to
     // maps/autosaves/ with a standardized name (index + datetime stamp).
-    public int AutosaveMinutes = 0;
+    [JsonPropertyName("autosave_minutes")] public int AutosaveMinutes { get; set; } = 0;
 
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
-    public Dictionary<string, string> ToolHotkeys = new();
+    [JsonPropertyName("tool_hotkeys")] public Dictionary<string, string> ToolHotkeys { get; set; } = new();
 
     // Door categories shown in the door dropdown, each with a color.
-    public List<DoorType> DoorTypes = new();
+    [JsonPropertyName("door_types")] public List<DoorType> DoorTypes { get; set; } = new();
 
     // Pawn status styles shown in the pawn status dropdown, each with a border
     // color + thickness. "none" = no border. Addable via the UI like door types.
-    public List<PawnStatus> PawnStatuses = new();
+    [JsonPropertyName("pawn_statuses")] public List<PawnStatus> PawnStatuses { get; set; } = new();
 
     // Global affiliation coloring (Player/Ally/Enemy/Neutral). Templates inherit
     // these unless ColorOverride is on. Configurable in the pawn management menu.
-    public List<AffiliationColor> AffiliationColors = new();
+    [JsonPropertyName("affiliation_colors")] public List<AffiliationColor> AffiliationColors { get; set; } = new();
 
     // New doors take these properties automatically (item 3).
-    public string DefaultDoorType = "standard";
-    public string DefaultDoorState = "closed";
+    [JsonPropertyName("default_door_type")] public string DefaultDoorType { get; set; } = "standard";
+    [JsonPropertyName("default_door_state")] public string DefaultDoorState { get; set; } = "closed";
 
     // New labels start with this text so a placed label is visible (item 1).
-    public string DefaultLabelText = "label";
+    [JsonPropertyName("default_label_text")] public string DefaultLabelText { get; set; } = "label";
 
     public static AppSettings Default()
     {
@@ -263,7 +290,7 @@ public sealed class AppSettings
 /// A list of PawnTemplate entries; new pawns added via the UI persist here for reuse.
 public sealed class PawnLibrary
 {
-    public List<PawnTemplate> Pawns = new();
+    [JsonPropertyName("pawns")] public List<PawnTemplate> Pawns { get; set; } = new();
 
     public string LibraryPath()
     {
@@ -283,8 +310,10 @@ public sealed class PawnLibrary
         if (!System.IO.File.Exists(path)) return new PawnLibrary();
         try
         {
-            var l = JsonSerializer.Deserialize<PawnLibrary>(System.IO.File.ReadAllText(path));
-            return l ?? new PawnLibrary();
+            var l = JsonSerializer.Deserialize<PawnLibrary>(System.IO.File.ReadAllText(path)) ?? new PawnLibrary();
+            l.EnsureIds();
+            l.BumpNextId();
+            return l;
         }
         catch { return new PawnLibrary(); }
     }
@@ -303,9 +332,53 @@ public sealed class PawnLibrary
 
     public void Remove(string id) => Pawns.RemoveAll(p => p.Id == id);
 
+    /// Appends imported templates: entries whose id is free keep their id,
+    /// entries colliding with the live library get a fresh id (the import
+    /// becomes a new entry; existing references are untouched). Returns the
+    /// id remap (old id -> new id) so the caller can re-point pawn references.
+    public Dictionary<string, string> MergeAppend(List<PawnTemplate> templates)
+    {
+        var map = new Dictionary<string, string>();
+        foreach (var t in templates)
+        {
+            string oldId = t.Id;
+            string newId = (!string.IsNullOrEmpty(oldId) && Find(oldId) is null) ? oldId : NewId();
+            t.Id = newId;
+            Pawns.Add(t);
+            if (!string.IsNullOrEmpty(oldId)) map[oldId] = newId;
+        }
+        BumpNextId();
+        return map;
+    }
+
+    /// Overwrites: deletes every current template, then appends the imported
+    /// ones (fresh ids for collisions, same rule as append). Pawns pointing at
+    /// deleted templates become broken references (X render) - the user accepted
+    /// this for overwrite mode.
+    public Dictionary<string, string> MergeOverwrite(List<PawnTemplate> templates)
+    {
+        Pawns.Clear();
+        return MergeAppend(templates);
+    }
+
     /// Ids are stable across sessions: a counter persisted with the library.
-    private int _nextId = 1;
-    public string NewId() => $"p{_nextId++}";
+    [JsonPropertyName("next_id")] public int NextId { get; private set; } = 1;
+    // New ids skip ids already in use: a library whose counter lags behind its
+    // live ids (legacy file, manual adds) must never re-issue a live id.
+    public string NewId()
+    {
+        string id;
+        do { id = $"p{NextId++}"; } while (Find(id) is not null);
+        return id;
+    }
+
+    /// Keeps the id counter ahead of every existing template id, so a
+    /// legacy library (ids p1..pN, no counter field) never re-issues a live id.
+    public void BumpNextId()
+    {
+        foreach (var p in Pawns)
+            if (p.Id.StartsWith("p") && int.TryParse(p.Id[1..], out int n) && n >= NextId) NextId = n + 1;
+    }
 
     /// Backfills Ids for templates loaded from a legacy library (no Id field).
     public void EnsureIds()

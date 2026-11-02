@@ -85,6 +85,27 @@ public sealed class LabelDto
     [JsonPropertyName("b")] public int B { get; set; } = -1;
 }
 
+public sealed class PawnTemplateDto
+{
+    // a library template embedded in a project file (or in a library export
+    // file). image_b64 carries the pawn image bytes so shared files are
+    // complete; image_ext is the original extension (".png"/".jpg").
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("affiliation")] public string Affiliation { get; set; } = "Neutral";
+    [JsonPropertyName("color_override")] public bool ColorOverride { get; set; } = false;
+    [JsonPropertyName("inner_r")] public int InnerR { get; set; }
+    [JsonPropertyName("inner_g")] public int InnerG { get; set; }
+    [JsonPropertyName("inner_b")] public int InnerB { get; set; }
+    [JsonPropertyName("outer_r")] public int OuterR { get; set; }
+    [JsonPropertyName("outer_g")] public int OuterG { get; set; }
+    [JsonPropertyName("outer_b")] public int OuterB { get; set; }
+    [JsonPropertyName("status")] public string Status { get; set; } = "none";
+    [JsonPropertyName("image")] public string Image { get; set; } = "";
+    [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
+    [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
+}
+
 public sealed class PawnDto
 {
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
@@ -100,9 +121,12 @@ public sealed class PawnDto
 /// Wire format for a multi-map project: a list of named maps plus the active index.
 public sealed class ProjectFileDto
 {
-    [JsonPropertyName("version")] public int Version { get; set; } = 2;
+    [JsonPropertyName("version")] public int Version { get; set; } = 3;
     [JsonPropertyName("active")] public int Active { get; set; } = 0;
     [JsonPropertyName("maps")] public List<NamedMapDto> Maps { get; set; } = new();
+    // the pawn library travels with the project file (v3). older project files
+    // have no field and load with an empty embedded library.
+    [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
 }
 
 public sealed class NamedMapDto
@@ -119,7 +143,9 @@ public static class MapSerializer
     // increment (the map porter app ports old files to the latest spec).
     // v2 adds the "polygons" field (polygon rooms stored as vertex loops).
     public const int MapSpecVersion = 3;
-    public const int ProjectSpecVersion = 2;
+    // v3 adds the "pawn_library" field: the project's pawn library travels
+    // inside the project file. v2 files load with an empty embedded library.
+    public const int ProjectSpecVersion = 3;
 
     private static readonly JsonSerializerOptions Opts = new()
     {
@@ -354,12 +380,21 @@ public static class MapSerializer
 
     public static MapDocument Load(string path) => FromJson(File.ReadAllText(path));
 
-    public static string ProjectToJson(MapProject project)
+    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, string? imagesDir = null)
     {
         var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
+        if (library is not null) dto.PawnLibrary = LibraryToDtos(library, imagesDir);
         return JsonSerializer.Serialize(dto, Opts);
+    }
+
+    /// Embedded library DTOs of a project file (empty for v2 files). The caller
+    /// merges them into the live library and remaps the loaded pawns' ids.
+    public static List<PawnTemplateDto> ExtractLibrary(string json)
+    {
+        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json);
+        return dto?.PawnLibrary ?? new List<PawnTemplateDto>();
     }
 
     public static MapProject ProjectFromJson(string json)
@@ -375,7 +410,72 @@ public static class MapSerializer
         return project;
     }
 
-    public static void SaveProject(MapProject project, string path) => File.WriteAllText(path, ProjectToJson(project));
+    // ---- pawn library wire format (shared by project embedding and import/export files) ----
+
+    public static List<PawnTemplateDto> LibraryToDtos(PawnLibrary lib, string? imagesDir = null)
+    {
+        var list = new List<PawnTemplateDto>();
+        foreach (var t in lib.Pawns)
+        {
+            var d = new PawnTemplateDto
+            {
+                Id = t.Id, Name = t.Name, Affiliation = t.Affiliation,
+                ColorOverride = t.ColorOverride,
+                InnerR = t.InnerR, InnerG = t.InnerG, InnerB = t.InnerB,
+                OuterR = t.OuterR, OuterG = t.OuterG, OuterB = t.OuterB,
+                Status = t.Status, Image = t.Image,
+            };
+            if (!string.IsNullOrEmpty(t.Image) && imagesDir is not null)
+            {
+                var path = Path.Combine(imagesDir, t.Image);
+                if (File.Exists(path))
+                {
+                    d.ImageB64 = Convert.ToBase64String(File.ReadAllBytes(path));
+                    d.ImageExt = Path.GetExtension(t.Image);
+                }
+            }
+            list.Add(d);
+        }
+        return list;
+    }
+
+    public static List<PawnTemplate> LibraryFromDtos(List<PawnTemplateDto> dtos)
+    {
+        var list = new List<PawnTemplate>();
+        foreach (var d in dtos)
+        {
+            if (string.IsNullOrEmpty(d.Id) && string.IsNullOrEmpty(d.Name)) continue;
+            list.Add(new PawnTemplate
+            {
+                Id = d.Id, Name = d.Name, Affiliation = d.Affiliation,
+                ColorOverride = d.ColorOverride,
+                InnerR = d.InnerR, InnerG = d.InnerG, InnerB = d.InnerB,
+                OuterR = d.OuterR, OuterG = d.OuterG, OuterB = d.OuterB,
+                Status = string.IsNullOrEmpty(d.Status) ? "none" : d.Status,
+                Image = d.Image,
+            });
+        }
+        return list;
+    }
+
+    public static string LibraryToJson(PawnLibrary lib, string? imagesDir = null)
+        => JsonSerializer.Serialize(new { pawn_library = LibraryToDtos(lib, imagesDir) }, Opts);
+
+    public static List<PawnTemplateDto> LibraryFromJson(string json)
+    {
+        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json);
+        if (dto is not null && dto.PawnLibrary.Count > 0) return dto.PawnLibrary;
+        var w = JsonSerializer.Deserialize<LibraryWire>(json);
+        return w?.pawn_library ?? new List<PawnTemplateDto>();
+    }
+
+    private sealed class LibraryWire
+    {
+        [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> pawn_library { get; set; } = new();
+    }
+
+    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null, string? imagesDir = null)
+        => File.WriteAllText(path, ProjectToJson(project, library, imagesDir));
 
     public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
 

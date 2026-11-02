@@ -35,7 +35,21 @@ public partial class MainWindow : Window
     }
     private History ActiveHistory => HistoryFor(_project.Maps[_project.ActiveIndex]);
     private readonly AppSettings _settings = AppSettings.Load();
-    private readonly PawnLibrary _pawnLibrary = PawnLibrary.Load();
+    // per-project pawn library: each project file carries its own library
+    // (embedded "pawn_library" field, v3). keyed by project reference, like the
+    // per-map histories. loading a project appends its embedded library into the
+    // live one (fresh ids for collisions) and remaps the loaded pawns' ids.
+    private readonly Dictionary<MapProject, PawnLibrary> _libraries = new();
+    private PawnLibrary ActiveLibrary => LibraryFor(_project);
+    private PawnLibrary LibraryFor(MapProject p)
+    {
+        if (!_libraries.TryGetValue(p, out var lib))
+        {
+            lib = PawnLibrary.Load();
+            _libraries[p] = lib;
+        }
+        return lib;
+    }
     // settings dirty flag: fields mutate live, the json write flushes once at
     // modal close / tool switch / menu open / autosave tick (avoids hundreds of
     // writes during color-wheel drags)
@@ -58,7 +72,7 @@ public partial class MainWindow : Window
         Canvas.PawnImagesDir = System.IO.Path.Combine(AppContext.BaseDirectory, "pawn_images");
         System.IO.Directory.CreateDirectory(Canvas.PawnImagesDir);
         Canvas.Settings = _settings;
-        Canvas.Library = _pawnLibrary;
+        Canvas.Library = ActiveLibrary;
         HistoryFor(_project.Maps[0]); // snapshot the starting map at startup
 
         // hotkey labels on tool buttons (item: show hotkeys in tool text)
@@ -123,7 +137,7 @@ public partial class MainWindow : Window
             var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
             System.IO.Directory.CreateDirectory(dir);
             var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
-            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name));
+            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, Canvas.PawnImagesDir);
             StatusText.Text = $"autosaved {name}";
         };
         _autosaveTimer.Start();
@@ -134,8 +148,8 @@ public partial class MainWindow : Window
         {
             var t = new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
             t.ApplyAffiliationDefaults();
-            _pawnLibrary.Add(t);
-            _pawnLibrary.Save();
+            ActiveLibrary.Add(t);
+            ActiveLibrary.Save();
             Canvas.ArmedPawn = t;
             StatusText.Text = $"added {t.Name} - armed for placement";
             ShowPawnManagement();
@@ -372,7 +386,7 @@ public partial class MainWindow : Window
                 // manage pawns FIRST: at small resolutions the pawn display can grow
                 // past the panel, so all controls sit above it.
                 ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
-                if (_pawnLibrary.Pawns.Count == 0)
+                if (ActiveLibrary.Pawns.Count == 0)
                 {
                     ToolPanel.AddHint("library is empty - add pawns in the pawn menu.");
                 }
@@ -544,7 +558,7 @@ public partial class MainWindow : Window
         });
         if (file is null) return;
         var path = file.Path.LocalPath;
-        MapSerializer.SaveProject(_project, path);
+        MapSerializer.SaveProject(_project, path, ActiveLibrary, Canvas.PawnImagesDir);
         _currentMapPath = path; // Ctrl+S saves over this file from now on
         StatusText.Text = $"saved {path}";
     }
@@ -555,7 +569,7 @@ public partial class MainWindow : Window
     private void SaveCurrent()
     {
         if (_currentMapPath is null) { SaveMap(); return; }
-        MapSerializer.SaveProject(_project, _currentMapPath);
+        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, Canvas.PawnImagesDir);
         StatusText.Text = $"saved {_currentMapPath}";
     }
 
@@ -587,6 +601,21 @@ public partial class MainWindow : Window
                 _project = new MapProject();
                 _project.Maps[0].Doc = MapSerializer.Load(path);
             }
+            // merge the project's embedded library (v3 files; v2 files have none):
+            // append with fresh ids for collisions, remap this project's pawn
+            // references through the id map, write embedded images to pawn_images.
+            var embeddedDtos = MapSerializer.ExtractLibrary(text);
+            var pairs = new List<(PawnTemplateDto dto, PawnTemplate tpl)>();
+            foreach (var d in embeddedDtos)
+            {
+                if (string.IsNullOrEmpty(d.Id) && string.IsNullOrEmpty(d.Name)) continue;
+                pairs.Add((d, MapSerializer.LibraryFromDtos(new List<PawnTemplateDto> { d })[0]));
+            }
+            var idMap = ActiveLibrary.MergeAppend(pairs.ConvertAll(p => p.tpl));
+            WriteLibraryImages(pairs);
+            RemapPawns(_project, idMap);
+            Canvas.Library = ActiveLibrary;
+            Canvas.InvalidateImageCache();
             _currentMapPath = path; // Ctrl+S saves over the user-selected json
             Canvas.Document = _doc;
             _histories.Clear(); // fresh project = fresh entries
@@ -954,7 +983,7 @@ public partial class MainWindow : Window
     // management menu, not here (the select tool must not modify the pawn).
     private void ShowPawnInfo(Pawn pawn)
     {
-        var t = _pawnLibrary.Find(pawn.TemplateId);
+        var t = ActiveLibrary.Find(pawn.TemplateId);
         ToolPanel.Clear("Pawn");
         int count = 0;
         foreach (var p in _doc.Pawns.Values)
@@ -1004,7 +1033,7 @@ public partial class MainWindow : Window
     {
         ToolPanel.Clear("Change pawn");
         ToolPanel.AddHint("pick a template to replace this pawn with:");
-        foreach (var t in _pawnLibrary.Pawns)
+        foreach (var t in ActiveLibrary.Pawns)
         {
             var captured = t;
             var label = string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name;
@@ -1028,7 +1057,7 @@ public partial class MainWindow : Window
         var referenced = new HashSet<string>();
         foreach (var p in _doc.Pawns.Values)
         {
-            var t = _pawnLibrary.Find(p.TemplateId);
+            var t = ActiveLibrary.Find(p.TemplateId);
             if (t is not null && !string.IsNullOrEmpty(t.Image)) referenced.Add(t.Image);
         }
         foreach (var f in System.IO.Directory.GetFiles(Canvas.PawnImagesDir))
@@ -1057,7 +1086,7 @@ public partial class MainWindow : Window
         ToolPanel.AddText("Name", t.Name, name =>
         {
             t.Name = name;
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1068,7 +1097,7 @@ public partial class MainWindow : Window
             {
                 t.Affiliation = aff;
                 if (!t.ColorOverride) t.ApplyAffiliationDefaults();
-                _pawnLibrary.Save();
+                ActiveLibrary.Save();
                 Canvas.Refresh();
                 BuildLibraryGrid();
             });
@@ -1080,14 +1109,14 @@ public partial class MainWindow : Window
         var innerPanel = ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
         {
             t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
         var outerPanel = ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
         {
             t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1097,7 +1126,7 @@ public partial class MainWindow : Window
             bool on = check.IsChecked == true;
             t.ColorOverride = on;
             if (!on) t.ApplyAffiliationDefaults();
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             if (on)
@@ -1123,7 +1152,7 @@ public partial class MainWindow : Window
         var statusCombo = ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
         {
             t.Status = s;
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
         });
@@ -1148,7 +1177,7 @@ public partial class MainWindow : Window
             var dest = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
             System.IO.File.Copy(src, dest, overwrite: true);
             t.Image = System.IO.Path.GetFileName(dest);
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.InvalidateImageCache();
             Canvas.Refresh();
             BuildLibraryGrid();
@@ -1160,7 +1189,7 @@ public partial class MainWindow : Window
                 var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Image);
                 if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
                 t.Image = "";
-                _pawnLibrary.Save();
+                ActiveLibrary.Save();
                 Canvas.InvalidateImageCache();
                 Canvas.Refresh();
                 BuildLibraryGrid();
@@ -1188,8 +1217,8 @@ public partial class MainWindow : Window
 
         void doDelete()
         {
-            _pawnLibrary.Remove(t.Id);
-            _pawnLibrary.Save();
+            ActiveLibrary.Remove(t.Id);
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1232,12 +1261,12 @@ public partial class MainWindow : Window
         if (ac.Name == "Player" || ac.Name == "Ally" || ac.Name == "Enemy" || ac.Name == "Neutral") return;
 
         int affected = 0;
-        foreach (var t in _pawnLibrary.Pawns)
+        foreach (var t in ActiveLibrary.Pawns)
             if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name) affected++;
 
         void doDelete()
         {
-            foreach (var t in _pawnLibrary.Pawns)
+            foreach (var t in ActiveLibrary.Pawns)
                 if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name)
                 {
                     t.Affiliation = "Neutral";
@@ -1245,7 +1274,7 @@ public partial class MainWindow : Window
                 }
             _settings.AffiliationColors.Remove(ac);
             _settings.Save();
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1282,16 +1311,16 @@ public partial class MainWindow : Window
         if (st.Name == "none") return; // hard default, un-deletable
 
         int affected = 0;
-        foreach (var t in _pawnLibrary.Pawns)
+        foreach (var t in ActiveLibrary.Pawns)
             if (t.Status == st.Name) affected++;
 
         void doDelete()
         {
-            foreach (var t in _pawnLibrary.Pawns)
+            foreach (var t in ActiveLibrary.Pawns)
                 if (t.Status == st.Name) t.Status = "none";
             _settings.PawnStatuses.Remove(st);
             _settings.Save();
-            _pawnLibrary.Save();
+            ActiveLibrary.Save();
             Canvas.Refresh();
             BuildLibraryGrid();
             ShowPawnManagement();
@@ -1332,6 +1361,118 @@ public partial class MainWindow : Window
         (128, 0, 128), (255, 255, 255), (0, 0, 0), (128, 128, 128), (128, 64, 0),
     };
 
+    // writes embedded base64 images of imported templates into the pawn_images
+    // folder, named <new id><original extension>, and re-points each template's
+    // Image field to the written file (fresh-id imports must not keep pointing
+    // at the source filename, which can collide with a live template's image).
+    private void WriteLibraryImages(List<(PawnTemplateDto dto, PawnTemplate tpl)> pairs)
+    {
+        foreach (var (d, t) in pairs)
+        {
+            if (string.IsNullOrEmpty(d.ImageB64)) continue;
+            var ext = string.IsNullOrEmpty(d.ImageExt) ? ".png" : d.ImageExt;
+            var path = System.IO.Path.Combine(Canvas.PawnImagesDir, t.Id + ext);
+            try { System.IO.File.WriteAllBytes(path, System.Convert.FromBase64String(d.ImageB64)); t.Image = System.IO.Path.GetFileName(path); }
+            catch { }
+        }
+    }
+
+    // re-points every pawn in the project through the id remap from a library merge.
+    private void RemapPawns(MapProject project, Dictionary<string, string> map)
+    {
+        foreach (var m in project.Maps)
+            foreach (var p in m.Doc.Pawns.Values)
+                if (map.TryGetValue(p.TemplateId, out var nid)) p.TemplateId = nid;
+    }
+
+    // Export: writes the active library to a json file (templates + embedded
+    // base64 images), shareable independently of any map.
+    private async void ExportLibrary()
+    {
+        var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            SuggestedFileName = $"PawnLibrary_{Stamp()}.json",
+            DefaultExtension = "json",
+            FileTypeChoices = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
+        });
+        if (file is null) return;
+        var path = file.Path.LocalPath;
+        System.IO.File.WriteAllText(path, MapSerializer.LibraryToJson(ActiveLibrary, Canvas.PawnImagesDir));
+        StatusText.Text = $"exported {_libraries[_project].Pawns.Count} templates to {path}";
+    }
+
+    // Import: reads a library json file, then asks append vs overwrite.
+    // Append adds the imported templates to the end; overwrite deletes all
+    // current templates first. Colliding ids get a fresh id (imported template
+    // becomes a new entry; existing references are untouched).
+    private async void ImportLibrary()
+    {
+        var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            AllowMultiple = false,
+            FileTypeFilter = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
+        });
+        if (files.Count == 0) return;
+        List<PawnTemplate> templates;
+        try
+        {
+            templates = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(System.IO.File.ReadAllText(files[0].Path.LocalPath)));
+        }
+        catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; return; }
+        if (templates.Count == 0) { StatusText.Text = "nothing to import (empty library file)"; return; }
+
+        // base64 images keyed by the file's original ids: the merge re-issues
+        // colliding ids, so the image write looks up by old id, not by the
+        // (possibly new) live id.
+        var imgMap = new Dictionary<string, PawnTemplateDto>();
+        foreach (var d in MapSerializer.LibraryFromJson(System.IO.File.ReadAllText(files[0].Path.LocalPath)))
+            if (!string.IsNullOrEmpty(d.Id) && !string.IsNullOrEmpty(d.ImageB64)) imgMap[d.Id] = d;
+        void WriteImported(List<PawnTemplate> t, List<string> oldIds)
+        {
+            var pairs = new List<(PawnTemplateDto dto, PawnTemplate tpl)>();
+            for (int i = 0; i < t.Count; i++)
+                if (imgMap.TryGetValue(oldIds[i], out var d)) pairs.Add((d, t[i]));
+            WriteLibraryImages(pairs);
+        }
+
+        var overlay = new StackPanel { Spacing = 8 };
+        overlay.Children.Add(new TextBlock { Text = $"import {templates.Count} templates:", Foreground = Brushes.White, FontSize = 14 });
+        var appendBtn = new Button { Content = "append (add to the end)" };
+        var overBtn = new Button { Content = "overwrite (delete all current ones)" };
+        var cancelBtn = new Button { Content = "cancel" };
+        void Close() => ModalOverlay.IsVisible = false;
+        appendBtn.Click += (_, _) =>
+        {
+            Close();
+            var oldIds = templates.ConvertAll(t => t.Id);
+            ActiveLibrary.MergeAppend(templates);
+            WriteImported(templates, oldIds);
+            ActiveLibrary.Save();
+            Canvas.InvalidateImageCache();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            StatusText.Text = $"appended {templates.Count} pawns";
+        };
+        overBtn.Click += (_, _) =>
+        {
+            Close();
+            var oldIds = templates.ConvertAll(t => t.Id);
+            ActiveLibrary.MergeOverwrite(templates);
+            WriteImported(templates, oldIds);
+            ActiveLibrary.Save();
+            Canvas.InvalidateImageCache();
+            Canvas.Refresh();
+            BuildLibraryGrid();
+            StatusText.Text = $"overwrote library with {templates.Count} pawns";
+        };
+        cancelBtn.Click += (_, _) => Close();
+        overlay.Children.Add(appendBtn);
+        overlay.Children.Add(overBtn);
+        overlay.Children.Add(cancelBtn);
+        ModalOverlay.Child = overlay;
+        ModalOverlay.IsVisible = true;
+    }
+
     // Pawn management: a modal popup centered over the map. The library grid is
     // virtualized (VirtualizingStackPanel) so only visible rows render, keeping
     // large libraries fast. Opened from the pawn tool panel's "pawn menu" button.
@@ -1354,6 +1495,15 @@ public partial class MainWindow : Window
             BuildLibraryGrid();
         };
         ModalSortRow.Children.Add(sortCombo);
+
+        // dedicated import/export buttons for the pawn library (independent of
+        // the map file; the library is still saved inside the project file).
+        var importBtn = new Button { Content = "import" };
+        importBtn.Click += (_, _) => ImportLibrary();
+        ModalSortRow.Children.Add(importBtn);
+        var exportBtn = new Button { Content = "export" };
+        exportBtn.Click += (_, _) => ExportLibrary();
+        ModalSortRow.Children.Add(exportBtn);
 
         BuildLibraryGrid();
 
@@ -1563,7 +1713,7 @@ public partial class MainWindow : Window
     // duplicate - sharing normalized name + affiliation with another template.
     private List<PawnTemplate> SortedPawns(string mode)
     {
-        var list = new List<PawnTemplate>(_pawnLibrary.Pawns);
+        var list = new List<PawnTemplate>(ActiveLibrary.Pawns);
         switch (mode)
         {
             case "name":
@@ -1598,7 +1748,7 @@ public partial class MainWindow : Window
         if (!_settings.AffiliationColors.Any(a => a.Name == aff)) return true;
         var nm = (t.Name ?? "").Trim().ToLowerInvariant();
         int same = 0;
-        foreach (var o in _pawnLibrary.Pawns)
+        foreach (var o in ActiveLibrary.Pawns)
             if ((o.Name ?? "").Trim().ToLowerInvariant() == nm
                 && PawnTemplate.NormalizeAffiliation(o.Affiliation) == aff) same++;
         return same > 1;
