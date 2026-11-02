@@ -1786,7 +1786,31 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     var zreg = zdoc.FloodFillRegion(new CellKey(2, 0));
     Check(zreg is not null && zreg.Count == 1, "steep diagonal: below region is cell (2,0)");
     var zring = zdoc.BuildFloodRings(zreg!);
-    Check(zring.Count == 1 && zring[0].Count == 7, "steep diagonal: ring includes cut points (7 vertices)");
+    Check(zring.Count == 1 && zring[0].Count == 3, "steep diagonal: ring is the triangle (3 corners)");
+    var zpts = new HashSet<(double, double)>(zring[0]);
+    Check(zpts.Contains((0, 0)) && zpts.Contains((3, 0)) && zpts.Contains((3, 2)), "steep diagonal ring has the room corners");
+    // 3x4 right triangle: hypotenuse (0,3)-(4,0). Sliver cells (1,2),(2,1),(3,0)
+    // are cut by the diagonal; their region-side triangles must be inside the ring.
+    var tdoc = new MapDocument();
+    tdoc.AddLine(0, 0, 4, 0); tdoc.AddLine(0, 0, 0, 3); tdoc.AddLine(0, 3, 4, 0);
+    var treg = tdoc.FloodFillRegion(new CellKey(0, 0));
+    Check(treg is not null && treg.Count == 3, "3x4 triangle: 3 full cells below");
+    var tring = tdoc.BuildFloodRings(treg!);
+    Check(tring.Count == 1 && tring[0].Count == 3, "3x4 triangle: one ring, 3 corners");
+    var tpts = new HashSet<(double, double)>(tring[0]);
+    Check(tpts.Contains((0, 0)) && tpts.Contains((4, 0)) && tpts.Contains((0, 3)), "3x4 triangle ring has the room corners");
+    bool InRing(List<(double, double)> ring, double px, double py)
+    {
+        bool inside = false;
+        for (int i = 0, j = ring.Count - 1; i < ring.Count; j = i++)
+        {
+            var (xi, yi) = ring[i]; var (xj, yj) = ring[j];
+            if (((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+        }
+        return inside;
+    }
+    Check(InRing(tring[0], 1.1, 2.1) && InRing(tring[0], 2.5, 1.1) && InRing(tring[0], 3.5, 0.3),
+        "3x4 triangle: sliver cell interiors inside the ring");
     var cdoc = new MapDocument();
     Check(cdoc.FloodFillRegion(new CellKey(0, 0)) is null, "open field exceeds cap, returns null");
     // flood regions are whole objects: erase removes them, walls survive

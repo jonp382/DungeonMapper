@@ -982,20 +982,35 @@ public sealed class MapDocument
         foreach (var (cell, walls) in cutWalls)
         {
             if (region.Contains(cell)) continue; // cut cells are never region cells
-            // the region neighbor touching this cell defines the region side
-            (int x, int y) sample = default;
-            foreach (var r in region)
-                if (Math.Abs(r.X - cell.X) + Math.Abs(r.Y - cell.Y) == 1) { sample = (r.X, r.Y); break; }
-            if (sample == default) continue; // not adjacent to the region
+            // the region lies entirely on one side of every bounding wall, so any
+            // region cell defines the region side. A cut cell can be adjacent to
+            // other cut cells (not the region), so the old adjacency lookup found
+            // no sample and skipped the cell - its triangle never filled.
+            if (region.Count == 0) continue;
+            var sample = region.First();
             var poly = new List<(double, double)> { (cell.X, cell.Y), (cell.X + 1, cell.Y), (cell.X + 1, cell.Y + 1), (cell.X, cell.Y + 1) };
             foreach (var w in walls)
-                poly = ClipHalfPlane(poly, w.Ax, w.Ay, w.Bx, w.By, sample.x + 0.5, sample.y + 0.5);
+                poly = ClipHalfPlane(poly, w.Ax, w.Ay, w.Bx, w.By, sample.X + 0.5, sample.Y + 0.5);
             if (poly.Count >= 3) polys.Add(poly);
         }
 
-        // union boundary: shared interior edges cancel (each appears in
-        // opposite directions in the two polygons that share it)
+        // union boundary: collect all vertices, split every edge at vertices
+        // lying on it so shared edges become ATOMIC segments that cancel
+        // exactly. Diagonal cuts share PARTIAL edges with region cells (a cut
+        // cell's edge extends past the region cell's corner), so exact
+        // opposite-direction matching alone leaves the shared sub-segments in
+        // the boundary and fragments the ring walk - the cut triangles then
+        // render as EvenOdd holes and the slivers never fill.
+        var verts = new HashSet<(double, double)>();
+        foreach (var poly in polys) foreach (var v in poly) verts.Add(v);
+
         var edges = new HashSet<(double, double, double, double)>();
+        void AddEdge(double ax, double ay, double bx, double by)
+        {
+            if (ax == bx && ay == by) return;
+            if (edges.Contains((bx, by, ax, ay))) edges.Remove((bx, by, ax, ay));
+            else edges.Add((ax, ay, bx, by));
+        }
         foreach (var poly in polys)
         {
             int n = poly.Count;
@@ -1004,8 +1019,22 @@ public sealed class MapDocument
                 var (ax, ay) = poly[i];
                 var (bx, by) = poly[(i + 1) % n];
                 if (ax == bx && ay == by) continue;
-                if (edges.Contains((bx, by, ax, ay))) edges.Remove((bx, by, ax, ay));
-                else edges.Add((ax, ay, bx, by));
+                double dx = bx - ax, dy = by - ay;
+                double len2 = dx * dx + dy * dy;
+                var pts = new List<(double, double)> { (ax, ay) };
+                foreach (var v in verts)
+                {
+                    double vx = v.Item1, vy = v.Item2;
+                    if ((vx == ax && vy == ay) || (vx == bx && vy == by)) continue;
+                    if (Math.Abs(dx * (vy - ay) - dy * (vx - ax)) > 1e-9) continue;
+                    double t = (vx - ax) * dx + (vy - ay) * dy;
+                    if (t > 1e-9 && t < len2 - 1e-9) pts.Add(v);
+                }
+                pts.Add((bx, by));
+                pts.Sort((p, q) => (((p.Item1 - ax) * dx + (p.Item2 - ay) * dy))
+                    .CompareTo(((q.Item1 - ax) * dx + (q.Item2 - ay) * dy)));
+                for (int j = 0; j + 1 < pts.Count; j++)
+                    AddEdge(pts[j].Item1, pts[j].Item2, pts[j + 1].Item1, pts[j + 1].Item2);
             }
         }
 
@@ -1079,7 +1108,7 @@ public sealed class MapDocument
             if (in1 != in2)
             {
                 double t = c1 / (c1 - c2);
-                result.Add((cx + t * (dx - cx), cy + t * (dy - cy)));
+                result.Add((Math.Round(cx + t * (dx - cx), 10), Math.Round(cy + t * (dy - cy), 10)));
             }
         }
         return result;
