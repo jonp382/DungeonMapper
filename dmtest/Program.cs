@@ -1577,49 +1577,7 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(project.Maps[0].Doc.HasWall(k3), "per-map: surviving map keeps its state");
 }
 
-// --- wall drag commit batching: the old path committed (full-document JSON
-// snapshot) per edge per pointer move; now press commits once, moves mutate +
-// repaint only, release commits once. One drag = one undo step.
-using (var h = new CanvasHarness())
-{
-    h.Canvas.Mode = ToolMode.Wall;
-    // press on the edge midpoint world (2.5,2.0) = north edge of cell (2,2):
-    // screen ((2.5+1)*40, (2.0+1)*40) = (140,120). drag east along the y=2.0
-    // edge line; horizontal orientation is locked from the first edge.
-    h.PressAt(new Point(140, 120));
-    int afterPress = h.CommitCount;
-    int wallsAfterPress = h.Doc.Walls.Count;
-    for (int i = 1; i <= 4; i++) h.MoveToAt(new Point(140 + 40 * i, 120));
-    int duringDrag = h.CommitCount;
-    int wallsAfterDrag = h.Doc.Walls.Count;
-    h.ReleaseAt(new Point(300, 120));
-    Check(afterPress == 1, "wall add drag: press commits the first wall");
-    Check(duringDrag == 1, "wall add drag: drag moves commit zero times (batched)");
-    Check(h.CommitCount == 2, "wall add drag: release commits once");
-    Check(wallsAfterDrag > wallsAfterPress, "wall add drag: walls added along the drag line");
-    Check(h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North)), "wall add drag: pressed wall exists");
-    Check(h.Doc.HasWall(new EdgeKey(new CellKey(6, 2), Side.North)), "wall add drag: last dragged wall exists");
-}
-using (var h = new CanvasHarness())
-{
-    h.Doc.AddRoom(0, 0, 5, 0); // row of cells, north walls on cells 0..5
-    h.Canvas.Mode = ToolMode.Wall;
-    // press on the north wall of cell (0,0): world (0.5,0) -> screen (60,40)
-    h.PressAt(new Point(60, 40));
-    int afterPress = h.CommitCount;
-    for (int i = 1; i <= 4; i++) h.MoveToAt(new Point(60 + 40 * i, 40));
-    int duringDrag = h.CommitCount;
-    h.ReleaseAt(new Point(220, 40));
-    Check(afterPress == 1, "wall delete drag: press commits the first removal");
-    Check(duringDrag == 1, "wall delete drag: moves commit zero times (batched)");
-    Check(h.CommitCount == 2, "wall delete drag: release commits once");
-    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "wall delete drag: pressed wall removed");
-    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "wall delete drag: dragged wall removed (cell 1)");
-    Check(!h.Doc.HasWall(new EdgeKey(new CellKey(4, 0), Side.North)), "wall delete drag: dragged wall removed (cell 4)");
-    Check(h.Doc.HasWall(new EdgeKey(new CellKey(5, 0), Side.North)), "wall delete drag: wall past the drag end survives");
-}
-
-// ---------- line tool ----------
+// ---------- wall tool ----------
 // model: horizontal line (2,3)->(6,3) = North edges of cells (2,3)..(5,3)
 var ldoc = new MapDocument();
 ldoc.AddLine(2, 3, 6, 3);
@@ -1677,46 +1635,46 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
 // canvas: press-drag-release commits ONE line of walls
 {
     var h = new CanvasHarness();
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
-    Check(h.CommitCount == 1, "line drag commits exactly once");
+    Check(h.CommitCount == 1, "wall drag commits exactly once");
     Check(h.Doc.Walls.Count == 4
         && h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North))
         && h.Doc.HasWall(new EdgeKey(new CellKey(5, 2), Side.North)),
-        "line drag creates the wall series from start to end vertex");
+        "wall drag creates the wall series from start to end vertex");
     h.Dispose();
 }
 
 // snap: press at (2.4,2.4) snaps to (2,2), release at (5.6,2.4) snaps to (6,2)
 {
     var h = new CanvasHarness();
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(2.4, 2.4); h.MoveToAt(h.ScreenWorld(5.6, 2.4)); h.ReleaseW(5.6, 2.4);
     Check(h.Doc.Walls.Count == 4
         && h.Doc.HasWall(new EdgeKey(new CellKey(2, 2), Side.North))
         && h.Doc.HasWall(new EdgeKey(new CellKey(5, 2), Side.North)),
-        "line snaps press and release to the nearest lattice vertices");
+        "wall snaps press and release to the nearest lattice vertices");
     h.Dispose();
 }
 
 // zero-length drag: press and release on the same vertex commits nothing
 {
     var h = new CanvasHarness();
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(3, 3); h.ReleaseW(3, 3);
     Check(h.CommitCount == 0 && h.Doc.Walls.Count == 0,
-        "line zero-length drag commits nothing");
+        "wall zero-length drag commits nothing");
     h.Dispose();
 }
 
 // diagonal drag: one angled wall, one commit
 {
     var h = new CanvasHarness();
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(5, 4)); h.ReleaseW(5, 4);
     Check(h.CommitCount == 1 && h.Doc.AngledWalls.Count == 1
         && h.Doc.AngledWalls[0] == new AngledWall(2, 2, 5, 4),
-        "line diagonal drag creates one angled wall with one commit");
+        "wall diagonal drag creates one angled wall with one commit");
     h.Dispose();
 }
 
@@ -1726,22 +1684,22 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     var hist = new History();
     hist.Initialize(h.Doc);
     h.Canvas.ActionCompleted += () => hist.Commit(h.Doc);
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
     var restored = hist.Undo();
     Check(restored != null && restored.Walls.Count == 0,
-        "line drag undoes as a single history entry");
+        "wall drag undoes as a single history entry");
     h.Dispose();
 }
 
 // erase removes line walls
 {
     var h = new CanvasHarness();
-    h.Canvas.Mode = ToolMode.Line;
+    h.Canvas.Mode = ToolMode.Wall;
     h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
     h.Canvas.Mode = ToolMode.Erase;
     h.PressW(2, 2); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseW(6, 2);
-    Check(h.Doc.Walls.Count == 0, "erase drag removes line walls");
+    Check(h.Doc.Walls.Count == 0, "erase drag removes wall-line walls");
     h.Dispose();
 }
 
@@ -1852,7 +1810,7 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
 // --- floor flood fill (canvas) ---
 {
     var fc = new CanvasHarness();
-    fc.Canvas.Mode = ToolMode.Line;
+    fc.Canvas.Mode = ToolMode.Wall;
     fc.PressW(0, 0); fc.MoveToAt(fc.ScreenWorld(4, 0)); fc.ReleaseW(4, 0);
     fc.PressW(4, 0); fc.MoveToAt(fc.ScreenWorld(4, 4)); fc.ReleaseW(4, 4);
     fc.PressW(4, 4); fc.MoveToAt(fc.ScreenWorld(0, 4)); fc.ReleaseW(0, 4);
@@ -1914,7 +1872,7 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     Check(st2.PawnStatuses.Any(s2 => s2.Name == "stunned" && s2.Thickness == 4), "probe: pawn status survives settings disk round-trip");
     Check(st2.AffiliationColors.Any(a => a.Name == "Cult" && a.InnerB == 23), "probe: affiliation color survives settings disk round-trip");
     Check(st2.GridDrawSpacing == 2, "probe: scalar setting survives settings disk round-trip");
-    Check(st2.ToolHotkeys["Line"] == "I", "probe: hotkeys survive settings disk round-trip");
+    Check(st2.ToolHotkeys["Wall"] == "W", "probe: hotkeys survive settings disk round-trip");
     // legacy library (ids p1..pN, no counter): BumpNextId must not re-issue a live id
     var legacy = new PawnLibrary();
     legacy.Pawns.Add(new PawnTemplate { Id = "p1", Name = "old1" });

@@ -202,7 +202,6 @@ public sealed class AppSettings
             ["Erase"] = "E",
             ["Pawn"] = "P",
             ["Polygon"] = "N",
-            ["Line"] = "I",
         };
         // no "locked" door type: locked is a door STATE, a type is redundant.
         s.DoorTypes = new List<DoorType>

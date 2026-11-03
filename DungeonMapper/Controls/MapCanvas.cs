@@ -10,7 +10,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Line }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -911,15 +911,6 @@ public sealed class MapCanvas : Control
     private EdgeKey? _previewEdge;
     private (AngledWall wall, double t)? _previewAngled; // door ghost on hovered angled segment (t in cell units)
     private (int x, int y, bool horizontal)? _previewVertex; // door ghost snapped to a lattice vertex
-    private EdgeKey? _wallDragStart;
-    private bool? _wallDragHorizontal; // orientation locked from the first wall edge clicked
-    private bool _wallDragDelete;      // true = dragging removes walls, false = dragging adds walls
-    // wall drag commits are batched: the press commits the first wall, drag
-    // moves mutate the document with repaint-only invalidation, and the release
-    // commits once. Per-edge commits serialized the WHOLE document per pointer
-    // move (3.6 ms/commit on a 20k-cell doc), so a long wall-line drag froze the
-    // UI and burned 100 history snapshots. One commit per drag = one undo step.
-    private bool _wallDragDirty;
 
     // polygon tool: vertices are LATTICE points (integer grid intersections).
     // Click adds a snapped vertex; clicking the first vertex closes the polygon;
@@ -927,7 +918,7 @@ public sealed class MapCanvas : Control
     private readonly List<(int x, int y)> _polyVerts = new();
     private Point _polyCursor; // world cursor, for the closing preview segment
 
-    // line tool: press snaps the start LATTICE vertex (same snap rule as the
+    // wall tool: press snaps the start LATTICE vertex (same snap rule as the
     // polygon tool), the ghost line follows the snapped cursor, and release
     // snaps the end vertex and commits ONCE. Additive: existing walls merge,
     // doors on them survive; removal goes through the Erase tool.
@@ -984,7 +975,7 @@ public sealed class MapCanvas : Control
                 new Rect(tx - 3, ty - 1, rulerFt.Width + 6, rulerFt.Height + 2));
             ctx.DrawText(rulerFt, new Point(tx, ty));
         }
-        if (_previewEdge is EdgeKey pe && (Mode == ToolMode.Wall || Mode == ToolMode.Door))
+        if (_previewEdge is EdgeKey pe && Mode == ToolMode.Door)
         {
             var seg = EdgeSegment(pe);
             var a = WorldToScreen(seg.a.X, seg.a.Y);
@@ -1096,9 +1087,9 @@ public sealed class MapCanvas : Control
             }
         }
 
-        // line tool ghost: snapped start vertex -> snapped end vertex, fully
+        // wall tool ghost: snapped start vertex -> snapped end vertex, fully
         // grid-aligned, with dots on both endpoints.
-        if (Mode == ToolMode.Line && _lineStart is not null && _lineEnd is not null)
+        if (Mode == ToolMode.Wall && _lineStart is not null && _lineEnd is not null)
         {
             var (sx, sy) = _lineStart.Value;
             var (ex, ey) = _lineEnd.Value;
@@ -1437,31 +1428,6 @@ public sealed class MapCanvas : Control
                 e.Pointer.Capture(this);
                 break;
 
-            case ToolMode.Wall:
-                var we = HitEdge(world);
-                if (we is null) break;
-                var wallEdge = we.Value;
-                _wallDragStart = wallEdge;
-                _wallDragHorizontal = wallEdge.Side == Side.North || wallEdge.Side == Side.South;
-                if (Document.HasWall(wallEdge))
-                {
-                    // pressing an existing wall: start a DELETE drag so dragging
-                    // over existing walls removes them (Excel-style erase drag).
-                    _wallDragDelete = true;
-                    Document.SetWall(wallEdge, false);
-                    Commit();
-                }
-                else
-                {
-                    // pressing empty: start an ADD drag.
-                    _wallDragDelete = false;
-                    Document.SetWall(wallEdge, true);
-                    Commit();
-                }
-                _dragging = true;
-                e.Pointer.Capture(this);
-                break;
-
             case ToolMode.Door:
                 // angled walls take priority: a click near an angled wall places a
                 // door on it (or opens config for a door already near that spot).
@@ -1583,9 +1549,9 @@ public sealed class MapCanvas : Control
                 }
                 break;
 
-            case ToolMode.Line:
+            case ToolMode.Wall:
                 // snap the press to the nearest LATTICE vertex, same rule as the
-                // polygon tool. the drag previews the line; release commits.
+                // polygon tool. the drag previews the wall line; release commits.
                 int lsx = (int)Math.Round(world.X), lsy = (int)Math.Round(world.Y);
                 _lineStart = (lsx, lsy);
                 _lineEnd = (lsx, lsy);
@@ -1664,35 +1630,8 @@ public sealed class MapCanvas : Control
             {
                 if (cell != _dragEnd) { _dragEnd = cell; InvalidateVisual(); }
             }
-            else if (Mode == ToolMode.Wall)
-            {
-                var edge = HitEdge(world, _wallDragHorizontal);
-                if (edge is not null)
-                {
-                    var e2 = edge.Value;
-                    if (e2 != _wallDragStart)
-                    {
-                        _wallDragStart = e2;
-                        if (_wallDragDelete)
-                        {
-                            if (Document.HasWall(e2))
-                            {
-                                Document.SetWall(e2, false);
-                                _wallDragDirty = true;
-                                InvalidateVisual();
-                            }
-                        }
-                        else if (!Document.HasWall(e2))
-                        {
-                            Document.SetWall(e2, true);
-                            _wallDragDirty = true;
-                            InvalidateVisual();
-                        }
-                    }
-                }
-            }
         }
-        else if (Mode == ToolMode.Wall || Mode == ToolMode.Door)
+        else if (Mode == ToolMode.Door)
         {
             var edge = HitEdge(world);
             if (edge != _previewEdge) { _previewEdge = edge; InvalidateVisual(); }
@@ -1826,13 +1765,13 @@ public sealed class MapCanvas : Control
             if (lend == lstart)
             {
                 // zero-length line: press and release on the same vertex
-                StatusMessage?.Invoke("line cancelled: start and end are the same vertex");
+                StatusMessage?.Invoke("wall line cancelled: start and end are the same vertex");
             }
             else
             {
                 Document.AddLine(lstart.x, lstart.y, lend.x, lend.y);
                 Commit();
-                StatusMessage?.Invoke($"line ({lstart.x},{lstart.y}) -> ({lend.x},{lend.y})");
+                StatusMessage?.Invoke($"wall ({lstart.x},{lstart.y}) -> ({lend.x},{lend.y})");
             }
             InvalidateVisual();
             return;
@@ -1897,14 +1836,6 @@ public sealed class MapCanvas : Control
                 }
                 break;
             }
-            case ToolMode.Wall:
-                _wallDragStart = null;
-                if (_wallDragDirty)
-                {
-                    _wallDragDirty = false;
-                    Commit();
-                }
-                break;
             case ToolMode.Erase:
             {
                 var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);

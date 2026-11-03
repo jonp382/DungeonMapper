@@ -86,7 +86,6 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
-        LabelTool(ToolLine, "Line");
 
         // map list (item 8)
         RefreshMapList();
@@ -111,7 +110,6 @@ public partial class MainWindow : Window
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
-        ToolLine.Click += (_, _) => SetTool(ToolMode.Line);
 
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
@@ -213,7 +211,7 @@ public partial class MainWindow : Window
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Polygon && !IsTyping())
             { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
-            if (Canvas.Mode == ToolMode.Line && !IsTyping())
+            if (Canvas.Mode == ToolMode.Wall && !IsTyping())
             { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
         }
         else if (e.Key == Key.R && Canvas.CanRotate && !IsTyping())
@@ -285,7 +283,6 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
-        LabelTool(ToolLine, "Line");
     }
 
     private void SetTool(ToolMode mode)
@@ -305,13 +302,12 @@ public partial class MainWindow : Window
             ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
-            ToolMode.Wall => "wall: click an edge to add, click a wall to remove, drag to draw a line",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
             ToolMode.Label => "label: click a cell to place, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
-            ToolMode.Line => "line: click on your starting grid point and release on your end point to draw a line",
+            ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             _ => "",
         };
         PopulatePanel(mode);
@@ -442,8 +438,8 @@ public partial class MainWindow : Window
                 ToolPanel.AddButton("flood fill", () => { Canvas.FloorFloodFill = true; FocusCanvas(); });
                 break;
 
-            case ToolMode.Line:
-                ToolPanel.Clear("Line");
+            case ToolMode.Wall:
+                ToolPanel.Clear("Wall");
                 ToolPanel.AddHint("click on your starting grid point and release on your end point to draw a line");
                 break;
 
