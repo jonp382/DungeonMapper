@@ -199,7 +199,24 @@ public static class MapSerializer
             var loop = new List<(int x, int y)>();
             foreach (var s in d.Verts)
                 if (TryParseCell(s, out var c)) loop.Add((c.X, c.Y));
-            if (loop.Count >= 3) doc.Polygons.Add(new PolygonRoom { Verts = loop });
+            if (loop.Count < 3) continue;
+            var pr = new PolygonRoom { Verts = loop };
+            // the floor is derived from the loop at load time (rings are not
+            // serialized, so the JSON stays the vertex loop): the polygon's own
+            // diagonal edges, present in the loaded walls, clip the fill cells.
+            var own = new List<AngledWall>();
+            for (int i = 0; i < loop.Count; i++)
+            {
+                var (ax, ay) = loop[i];
+                var (bx, by) = loop[(i + 1) % loop.Count];
+                if (ax == bx || ay == by) continue;
+                foreach (var w in doc.AngledWalls)
+                    if ((w.Ax == ax && w.Ay == ay && w.Bx == bx && w.By == by) ||
+                        (w.Ax == bx && w.Ay == by && w.Bx == ax && w.By == ay))
+                    { own.Add(w); break; }
+            }
+            pr.Floor = new FloodRegion { Rings = doc.BuildFloodRings(doc.PolygonFillCells(loop), own) };
+            doc.Polygons.Add(pr);
         }
     }
 

@@ -1206,11 +1206,19 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     var h = new CanvasHarness();
     h.Doc.AddRoom(0, 0, 2, 2);
     h.Doc.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (3, 3) }, strict: true);
+    var bmpBefore = h.Render();
+    var polyFloor = h.PixelAt(bmpBefore, 208, 88); // world (4.2,1.2): inside the clipped fill cell (4,1)
+    Check(polyFloor.a > 0 && polyFloor.r + polyFloor.g + polyFloor.b > 0,
+        "canvas erase: polygon floor renders as floor pixels");
     h.Canvas.Mode = ToolMode.Erase;
     h.Canvas.EraseAdjustWalls = true; // the live app turns this on via the tool panel
     h.Drag(3, 0, 5, 2);
     Check(h.Doc.Polygons.Count == 0, "canvas erase tool: polygon removed whole");
     Check(h.Doc.AngledWalls.Count == 0, "canvas erase tool: angled walls removed with the polygon");
+    var bmpAfter = h.Render();
+    var gone = h.PixelAt(bmpAfter, 208, 88);
+    Check(!(gone.r == polyFloor.r && gone.g == polyFloor.g && gone.b == polyFloor.b && gone.a > 0),
+        "canvas erase: polygon floor pixels vanish with the polygon");
     Check(h.Doc.Cells.Contains(new CellKey(2, 0)) && h.Doc.HasWall(new EdgeKey(new CellKey(2, 0), Side.East)),
         "canvas erase tool: room east wall re-derived");
     h.Dispose();
@@ -1264,6 +1272,8 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(d.Cells.Contains(new CellKey(12, 10)) && d.Cells.Contains(new CellKey(10, 12)),
         "move: fill cells outside the selection re-derived at the destination");
     Check(!d.Cells.Contains(new CellKey(0, 0)), "move: source cleared");
+    Check(d.Polygons[0].Floor!.Rings[0].Contains((14, 10)),
+        "floor rings: paste rebuilds rings at the destination");
 }
 {
     var d = new MapDocument();
@@ -1272,6 +1282,10 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     var r = MapDocument.Rotate(snap, 1);
     Check(r.Polygons.Count == 1 && r.Polygons[0].Verts[1] == (0, -2) && r.Polygons[0].Verts[2] == (1, -2),
         "rotate: polygon verts rotate with the snapshot");
+    Check(r.Polygons[0].Floor!.Rings[0].Count == 3
+        && r.Polygons[0].Floor!.Rings[0].Contains((0, 0)) && r.Polygons[0].Floor!.Rings[0].Contains((0, -2))
+        && r.Polygons[0].Floor!.Rings[0].Contains((1, -2)),
+        "floor rings: rotate turns the exact triangle boundary with the loop");
 }
 {
     var d = new MapDocument();
@@ -1286,6 +1300,21 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     string v1 = mapJson.Replace("\"polygons\"", "\"polygons_x\"");
     var old = MapSerializer.FromJson(v1);
     Check(old.Polygons.Count == 0, "json: v1 file (no polygons field) loads with no polygons");
+    Check(back.Polygons[0].Floor is not null && back.Polygons[0].Floor.Rings.Count >= 1
+        && back.Polygons[0].Floor.Rings[0].Count == 3
+        && back.Polygons[0].Floor.Rings[0].Contains((2, 0)) && back.Polygons[0].Floor.Rings[0].Contains((5, 0))
+        && back.Polygons[0].Floor.Rings[0].Contains((2, 3)),
+        "floor rings: rebuilt from the loop on load, ring 0 follows the exact polygon boundary");
+    // an unrelated diagonal adjacent to the fill must NOT pull its triangle
+    // into the polygon floor: rectangle (0,0)-(4,3) + wall (4,2)-(5,3) cuts
+    // cell (4,2), adjacent to fill cell (3,2). Ring 0 stays the plain rectangle.
+    var ux = new MapDocument();
+    ux.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) }, false, true);
+    ux.AddLine(4, 2, 5, 3);
+    var uRing = ux.Polygons[0].Floor!.Rings[0];
+    Check(uRing.Count == 4 && uRing.Contains((0, 0)) && uRing.Contains((4, 0))
+        && uRing.Contains((4, 3)) && uRing.Contains((0, 3)),
+        "floor rings: unrelated diagonal excluded from polygon floor");
 
     // angled-wall merge: a polygon whose diagonal edge is shared with a room
     // opens that boundary when merge is on, keeps it when merge is off.

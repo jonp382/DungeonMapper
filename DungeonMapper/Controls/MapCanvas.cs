@@ -564,32 +564,40 @@ public sealed class MapCanvas : Control
     private Point ScreenToWorld(Point p)
         => new(p.X / _scale + _offset.X, p.Y / _scale + _offset.Y);
 
-    /// True when polygon edge i is shared with an existing room (merged): the
-    /// cells on both sides of the edge are room cells. The outline stroke skips
-    /// merged edges so the boundary disappears where the polygon meets a room.
-    private bool IsPolygonEdgeMerged(List<(int x, int y)> verts, int i)
+    /// Shared floor-ring painter: ring 0 outer, rings 1+ holes (EvenOdd fill),
+    /// stroked edge-by-edge with the floor color to close anti-aliasing seams
+    /// where an edge meets a room rect. Used by flood regions AND polygon
+    /// floors - one geometry pipeline for both. Culled by the ring bounds.
+    private void DrawFloorRings(DrawingContext ctx, FloodRegion? fr, Point topLeft, Point bottomRight)
     {
-        var (ax, ay) = verts[i];
-        var (bx, by) = verts[(i + 1) % verts.Count];
-        if (ax == bx)
+        if (fr is null || fr.Rings.Count == 0) return;
+        double fminX = double.MaxValue, fminY = double.MaxValue, fmaxX = double.MinValue, fmaxY = double.MinValue;
+        foreach (var ring in fr.Rings)
+            foreach (var (rx, ry) in ring)
+            {
+                if (rx < fminX) fminX = rx; if (rx > fmaxX) fmaxX = rx;
+                if (ry < fminY) fminY = ry; if (ry > fmaxY) fmaxY = ry;
+            }
+        if (fmaxX < topLeft.X || fminX > bottomRight.X + 1 || fmaxY < topLeft.Y || fminY > bottomRight.Y + 1) return;
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
         {
-            int y0 = Math.Min(ay, by), y1 = Math.Max(ay, by);
-            for (int y = y0; y < y1; y++)
-                if (Document.Cells.Contains(new CellKey(ax - 1, y)) && Document.Cells.Contains(new CellKey(ax, y)))
-                    return true;
-            return false;
+            foreach (var ring in fr.Rings)
+            {
+                g.BeginFigure(WorldToScreen(ring[0].Item1, ring[0].Item2), true);
+                for (int i = 1; i < ring.Count; i++)
+                    g.LineTo(WorldToScreen(ring[i].Item1, ring[i].Item2), true);
+            }
         }
-        if (ay == by)
-        {
-            int x0 = Math.Min(ax, bx), x1 = Math.Max(ax, bx);
-            for (int x = x0; x < x1; x++)
-                if (Document.Cells.Contains(new CellKey(x, ay - 1)) && Document.Cells.Contains(new CellKey(x, ay)))
-                    return true;
-            return false;
-        }
-        var w = new AngledWall(ax, ay, bx, by);
-        var (c1, c2) = MapDocument.DiagonalSideCells(w);
-        return Document.Cells.Contains(c1) && Document.Cells.Contains(c2);
+        ctx.DrawGeometry(CellFill, null, geo);
+        var pen = new Pen(CellFill, 1.2);
+        foreach (var ring in fr.Rings)
+            for (int i = 0; i < ring.Count; i++)
+            {
+                var (ax, ay) = ring[i];
+                var (bx, by) = ring[(i + 1) % ring.Count];
+                ctx.DrawLine(pen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
+            }
     }
 
     public override void Render(DrawingContext ctx)
@@ -707,61 +715,14 @@ public sealed class MapCanvas : Control
             int pminX = p.Verts.Min(v => v.x), pmaxX = p.Verts.Max(v => v.x);
             int pminY = p.Verts.Min(v => v.y), pmaxY = p.Verts.Max(v => v.y);
             if (pmaxX < topLeft.X || pminX > bottomRight.X + 1 || pmaxY < topLeft.Y || pminY > bottomRight.Y + 1) continue;
-            var geo = new StreamGeometry();
-            using (var g = geo.Open())
-            {
-                g.BeginFigure(WorldToScreen(p.Verts[0].x, p.Verts[0].y), true);
-                for (int i = 1; i < p.Verts.Count; i++)
-                    g.LineTo(WorldToScreen(p.Verts[i].x, p.Verts[i].y), true);
-            }
-            // fill the full geometry: the floor stays continuous even where an
-            // edge is merged. The outline is stroked edge-by-edge below, skipping
-            // merged edges (shared with a room) so the boundary disappears.
-            ctx.DrawGeometry(CellFill, null, geo);
-            var strokePen = new Pen(CellFill, 1.2);
-            for (int i = 0; i < p.Verts.Count; i++)
-            {
-                var (ax, ay) = p.Verts[i];
-                var (bx, by) = p.Verts[(i + 1) % p.Verts.Count];
-                if (IsPolygonEdgeMerged(p.Verts, i)) continue; // shared with a room
-                ctx.DrawLine(strokePen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
-            }
+            // the polygon floor is FloodRegion ring geometry, drawn by the same
+            // shared painter as the floor tool's flood fills
+            DrawFloorRings(ctx, p.Floor, topLeft, bottomRight);
         }
 
-        // flood region floors: exact geometry (ring 0 outer, rings 1+ holes via
-        // EvenOdd), so diagonal rooms show their triangular sections. Seam
-        // stroke closes the anti-aliasing gap where an edge meets a room rect.
+        // flood region floors: the same shared ring painter as polygon floors
         foreach (var fr in Document.FloodRegions)
-        {
-            if (fr.Rings.Count == 0) continue;
-            double fminX = double.MaxValue, fminY = double.MaxValue, fmaxX = double.MinValue, fmaxY = double.MinValue;
-            foreach (var ring in fr.Rings)
-                foreach (var (rx, ry) in ring)
-                {
-                    if (rx < fminX) fminX = rx; if (rx > fmaxX) fmaxX = rx;
-                    if (ry < fminY) fminY = ry; if (ry > fmaxY) fmaxY = ry;
-                }
-            if (fmaxX < topLeft.X || fminX > bottomRight.X + 1 || fmaxY < topLeft.Y || fminY > bottomRight.Y + 1) continue;
-            var fgeo = new StreamGeometry();
-            using (var g = fgeo.Open())
-            {
-                foreach (var ring in fr.Rings)
-                {
-                    g.BeginFigure(WorldToScreen(ring[0].Item1, ring[0].Item2), true);
-                    for (int i = 1; i < ring.Count; i++)
-                        g.LineTo(WorldToScreen(ring[i].Item1, ring[i].Item2), true);
-                }
-            }
-            ctx.DrawGeometry(CellFill, null, fgeo);
-            var fpen = new Pen(CellFill, 1.2);
-            foreach (var ring in fr.Rings)
-                for (int i = 0; i < ring.Count; i++)
-                {
-                    var (ax, ay) = ring[i];
-                    var (bx, by) = ring[(i + 1) % ring.Count];
-                    ctx.DrawLine(fpen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
-                }
-        }
+            DrawFloorRings(ctx, fr, topLeft, bottomRight);
 
         // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
         // so the grid is visible everywhere. Drawn after cell fills so lines show

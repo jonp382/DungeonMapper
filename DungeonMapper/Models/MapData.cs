@@ -20,7 +20,13 @@ public readonly record struct AngledWall(int Ax, int Ay, int Bx, int By);
 public sealed class PolygonRoom
 {
     public List<(int x, int y)> Verts { get; set; } = new();
-    public PolygonRoom Clone() => new PolygonRoom { Verts = new List<(int x, int y)>(Verts) };
+    /// The exact floor geometry, derived from the loop at commit/paste/load time
+    /// (BuildFloodRings over the fill cells, clipped by the polygon's OWN
+    /// diagonals). Runtime-only: never serialized, rebuilt deterministically on
+    /// load, so the JSON stays the vertex loop. Same pipeline as the floor
+    /// tool's flood fills - one render/erase/move path for both.
+    public FloodRegion? Floor { get; set; }
+    public PolygonRoom Clone() => new PolygonRoom { Verts = new List<(int x, int y)>(Verts), Floor = Floor?.Clone() };
 }
 
 public sealed class FloodRegion
@@ -601,9 +607,22 @@ public sealed class MapDocument
         foreach (var c in fill) Cells.Add(c);
 
         // the loop is stored as a first-class object: the exact floor shape.
-        Polygons.Add(new PolygonRoom { Verts = new List<(int x, int y)>(verts) });
+        var pr = new PolygonRoom { Verts = new List<(int x, int y)>(verts) };
+        Polygons.Add(pr);
 
         ApplyPolygonBoundary(verts, fill, existing, passageway, strict);
+
+        // the floor is the unified FloodRegion ring geometry: fill cells plus
+        // the triangles the polygon's OWN diagonals leave behind, clipped by
+        // those walls only. Same pipeline as the floor tool's flood fill.
+        var ownWalls = new List<AngledWall>();
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (ax != bx && ay != by) ownWalls.Add(new AngledWall(ax, ay, bx, by));
+        }
+        pr.Floor = new FloodRegion { Rings = BuildFloodRings(fill, ownWalls) };
 
         // interior walls removed so adjacent rooms merge, ONLY when the merge
         // checkbox is on (skipped in strict mode). Mirror AddRoom: remove walls
@@ -702,10 +721,11 @@ public sealed class MapDocument
         return cells;
     }
 
-    /// Decomposes a polygon loop's edges: axis-aligned unit segments get walls
-    /// (left open when passageway and the cell across the edge is an existing
-    /// room); diagonal edges become AngledWall segments. Shared by AddPolygon
-    /// and paste.
+    /// Decomposes a polygon loop's edges through AddLine (the Wall tool's
+    /// engine): axis-aligned unit segments get walls, diagonal edges become one
+    /// deduped AngledWall. The passageway/strict checks stay here: an axis edge
+    /// facing an existing room is skipped when passageway is on. Shared by
+    /// AddPolygon and paste.
     private void ApplyPolygonBoundary(List<(int x, int y)> verts, HashSet<CellKey> fill,
         HashSet<CellKey> existing, bool passageway, bool strict)
     {
@@ -724,7 +744,7 @@ public sealed class MapDocument
                     if (leftIn && rightIn) continue; // true interior edge, no boundary wall
                     var exterior = leftIn ? right : left; // side not in fill (or left when both out)
                     if (!strict && passageway && existing.Contains(exterior)) continue; // open passage
-                    SetWall(new EdgeKey(left, Side.East), true);
+                    AddLine(ax, y, ax, y + 1); // East wall of the left cell
                 }
             }
             else if (ay == by) // horizontal edge at y=ay
@@ -738,12 +758,12 @@ public sealed class MapDocument
                     if (topIn && bottomIn) continue; // true interior edge
                     var exterior = topIn ? bottom : top;
                     if (!strict && passageway && existing.Contains(exterior)) continue;
-                    SetWall(new EdgeKey(bottom, Side.North), true);
+                    AddLine(x, ay, x + 1, ay); // North wall of the bottom cell
                 }
             }
             else
             {
-                AngledWalls.Add(new AngledWall(ax, ay, bx, by));
+                AddLine(ax, ay, bx, by); // one deduped AngledWall
             }
         }
     }
@@ -972,13 +992,26 @@ public sealed class MapDocument
     /// The union's boundary is walked into closed rings: ring 0 outer, rings
     /// 1+ holes (interior wall islands). Same non-full-cell logic as the
     /// polygon tool's floor.
-    public List<List<(double x, double y)>> BuildFloodRings(HashSet<CellKey> region)
+    public List<List<(double x, double y)>> BuildFloodRings(HashSet<CellKey> region, List<AngledWall>? ownWalls = null)
     {
         var polys = new List<List<(double, double)>>();
+        // ownWalls restricts the cut-wall set to the polygon's own diagonals:
+        // an unrelated diagonal adjacent to the fill can never pull its
+        // triangle into this floor. The flood tool path passes null and gets
+        // every wall, exactly as before.
+        var cutWalls = ownWalls is null ? CutCellWalls(AngledWalls) : CutCellWalls(ownWalls);
         foreach (var c in region)
-            polys.Add(new List<(double, double)> { (c.X, c.Y), (c.X + 1, c.Y), (c.X + 1, c.Y + 1), (c.X, c.Y + 1) });
-
-        var cutWalls = CutCellWalls();
+        {
+            var poly = new List<(double, double)> { (c.X, c.Y), (c.X + 1, c.Y), (c.X + 1, c.Y + 1), (c.X, c.Y + 1) };
+            // a polygon fill cell can be cut by its own diagonal (center inside,
+            // the edge passes through the square): clip the square to the center
+            // side so the ring never extends past the polygon boundary. The flood
+            // BFS never puts a cut cell in the region, so this is polygon-only.
+            if (cutWalls.TryGetValue(c, out var cw))
+                foreach (var w in cw)
+                    poly = ClipHalfPlane(poly, w.Ax, w.Ay, w.Bx, w.By, c.X + 0.5, c.Y + 0.5);
+            if (poly.Count >= 3) polys.Add(poly);
+        }
         // bounding walls: the angled walls cutting the cut cells the region BFS
         // stopped at (cut cells adjacent to a region cell). A cut cell in a
         // disconnected feature is not adjacent to this region, so its wall is
@@ -1124,10 +1157,10 @@ public sealed class MapDocument
     }
 
     // cell -> the angled walls passing through its interior
-    private Dictionary<CellKey, List<AngledWall>> CutCellWalls()
+    private static Dictionary<CellKey, List<AngledWall>> CutCellWalls(List<AngledWall> walls)
     {
         var map = new Dictionary<CellKey, List<AngledWall>>();
-        foreach (var w in AngledWalls)
+        foreach (var w in walls)
         {
             int dx = w.Bx - w.Ax, dy = w.By - w.Ay;
             if (dx == 0 || dy == 0) continue;
@@ -1377,13 +1410,22 @@ public sealed class MapDocument
         {
             var loop = new List<(int x, int y)>();
             foreach (var (vx, vy) in p.Verts) loop.Add((vx + dx, vy + dy));
-            Polygons.Add(new PolygonRoom { Verts = loop });
+            var pr = new PolygonRoom { Verts = loop };
+            Polygons.Add(pr);
             // the polygon's fill cells and boundary walls can reach outside the
             // pasted rect, so they are re-derived from the translated loop
             // (strict: every boundary edge walled, no passageway merging).
             var fill = PolygonFillCells(loop);
             foreach (var c in fill) Cells.Add(c);
             ApplyPolygonBoundary(loop, fill, new HashSet<CellKey>(), false, true);
+            var own = new List<AngledWall>();
+            for (int i = 0; i < loop.Count; i++)
+            {
+                var (ax, ay) = loop[i];
+                var (bx, by) = loop[(i + 1) % loop.Count];
+                if (ax != bx && ay != by) own.Add(new AngledWall(ax, ay, bx, by));
+            }
+            pr.Floor = new FloodRegion { Rings = BuildFloodRings(fill, own) };
         }
         foreach (var fr in snap.FloodRegions)
         {
@@ -1491,6 +1533,12 @@ public sealed class MapDocument
             for (int i = 0; i < turns; i++) (dx, dy) = (dy, -dx);
             return (x0 + dx, y0 + dy);
         }
+        (double, double) RotD(double x, double y)
+        {
+            double ddx = x - x0, ddy = y - y0;
+            for (int i = 0; i < turns; i++) (ddx, ddy) = (ddy, -ddx);
+            return (x0 + ddx, y0 + ddy);
+        }
         (int, int) RotCell(int x, int y)
         {
             int dx = x - x0, dy = y - y0;
@@ -1582,7 +1630,21 @@ public sealed class MapDocument
         {
             var loop = new List<(int x, int y)>();
             foreach (var (vx, vy) in p.Verts) loop.Add(RotPoint(vx, vy));
-            s.Polygons.Add(new PolygonRoom { Verts = loop });
+            var pr = new PolygonRoom { Verts = loop };
+            if (p.Floor is not null)
+            {
+                // the floor rings turn with the loop (ring points are world
+                // doubles, the same quarter-turn around the snapshot origin)
+                var rings = new List<List<(double x, double y)>>();
+                foreach (var ring in p.Floor.Rings)
+                {
+                    var r = new List<(double, double)>();
+                    foreach (var (vx, vy) in ring) r.Add(RotD(vx, vy));
+                    rings.Add(r);
+                }
+                pr.Floor = new FloodRegion { Rings = rings };
+            }
+            s.Polygons.Add(pr);
         }
         return s;
     }
