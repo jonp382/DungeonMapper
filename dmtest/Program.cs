@@ -1999,5 +1999,37 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     }
 }
 
+// --- pawn image upload: every upload compresses to a 50x50 png ---
+// bitmap decode/encode needs the headless avalonia boot
+using var pawnHarness = new CanvasHarness();
+byte[] SourcePng(int w, int h)
+{
+    var wb = new Avalonia.Media.Imaging.WriteableBitmap(new PixelSize(w, h), new Vector(96, 96),
+        Avalonia.Platform.PixelFormat.Bgra8888, Avalonia.Platform.AlphaFormat.Opaque);
+    var px = new byte[w * h * 4];
+    for (int i = 0; i < px.Length; i += 4) { px[i] = 20; px[i + 1] = 20; px[i + 2] = 200; px[i + 3] = 255; }
+    using (var lk = wb.Lock())
+        System.Runtime.InteropServices.Marshal.Copy(px, 0, lk.Address, px.Length);
+    using var ms = new System.IO.MemoryStream();
+    wb.Save(ms);
+    wb.Dispose();
+    return ms.ToArray();
+}
+bool CompressIs50(byte[] png)
+{
+    using var ms = new System.IO.MemoryStream(png);
+    using var bmp = new Avalonia.Media.Imaging.Bitmap(ms);
+    return bmp.PixelSize.Width == 50 && bmp.PixelSize.Height == 50;
+}
+var c1 = DungeonMapper.Models.PawnImage.Compress(SourcePng(100, 60));
+Check(c1[0] == 0x89 && c1[1] == (byte)'P' && c1[2] == (byte)'N' && c1[3] == (byte)'G', "pawn compress: output is png bytes");
+Check(CompressIs50(c1), "pawn compress: 100x60 becomes 50x50");
+Check(CompressIs50(DungeonMapper.Models.PawnImage.Compress(SourcePng(20, 10))), "pawn compress: 20x10 upscales to 50x50");
+Check(CompressIs50(DungeonMapper.Models.PawnImage.Compress(SourcePng(80, 80))), "pawn compress: square source stays 50x50");
+// center crop: solid color survives the crop+scale pipeline
+using var skb = SkiaSharp.SKBitmap.Decode(c1);
+var sp = skb.GetPixel(25, 25);
+Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid color survives crop+scale");
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

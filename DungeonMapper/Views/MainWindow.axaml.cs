@@ -1126,6 +1126,7 @@ public partial class MainWindow : Window
 
         // unique pawn image: upload replaces the two-tone circles entirely, drawn
         // square (center-cropped) to fit the cell. PNG preferred, JPEG accepted.
+        // every upload is compressed to a 50x50 png (PawnImage.Compress).
         ToolPanel.AddButton("upload image (png/jpg)", async () =>
         {
             var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
@@ -1138,11 +1139,20 @@ public partial class MainWindow : Window
             });
             if (files.Count == 0) return;
             var src = files[0].Path.LocalPath;
-            t.ImageB64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes(src));
-            t.ImageExt = System.IO.Path.GetExtension(src).ToLowerInvariant();
-            Canvas.InvalidateImageCache();
-            Canvas.Refresh();
-            BuildLibraryGrid();
+            try
+            {
+                var png = PawnImage.Compress(System.IO.File.ReadAllBytes(src));
+                t.ImageB64 = System.Convert.ToBase64String(png);
+                t.ImageExt = ".png";
+                Canvas.InvalidateImageCache();
+                Canvas.Refresh();
+                BuildLibraryGrid();
+                StatusText.Text = $"image compressed to 50x50 png ({png.Length / 1024} KB)";
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"could not read image: {ex.Message}";
+            }
         });
         if (!string.IsNullOrEmpty(t.ImageB64))
         {
