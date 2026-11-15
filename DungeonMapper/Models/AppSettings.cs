@@ -329,6 +329,30 @@ public sealed class PawnLibrary
         return map;
     }
 
+    /// Map import: a template identical to one already in the library (same
+    /// name, look, status and image) is reused instead of copied, so exporting
+    /// a map and importing it back does not duplicate its pawns. Anything else
+    /// is appended like MergeAppend. Returns the id remap.
+    public Dictionary<string, string> MergeImport(List<PawnTemplate> templates)
+    {
+        var map = new Dictionary<string, string>();
+        var fresh = new List<PawnTemplate>();
+        foreach (var t in templates)
+        {
+            var same = Pawns.Find(p => SameLook(p, t));
+            if (same is not null) { if (!string.IsNullOrEmpty(t.Id)) map[t.Id] = same.Id; }
+            else fresh.Add(t);
+        }
+        foreach (var (k, v) in MergeAppend(fresh)) map[k] = v;
+        return map;
+    }
+
+    private static bool SameLook(PawnTemplate a, PawnTemplate b) =>
+        a.Name == b.Name && a.Affiliation == b.Affiliation && a.ColorOverride == b.ColorOverride
+        && a.InnerR == b.InnerR && a.InnerG == b.InnerG && a.InnerB == b.InnerB
+        && a.OuterR == b.OuterR && a.OuterG == b.OuterG && a.OuterB == b.OuterB
+        && a.Status == b.Status && a.ImageB64 == b.ImageB64 && a.ImageExt == b.ImageExt;
+
     /// Overwrites: deletes every current template, then appends the imported
     /// ones (fresh ids for collisions, same rule as append). Pawns pointing at
     /// deleted templates become broken references (X render) - the user accepted

@@ -55,9 +55,12 @@
                 <Border Background="#121218" BorderBrush="#2a2a34" BorderThickness="0,0,0,1">
                     <Menu x:Name="MainMenu" Padding="2,0">
                         <MenuItem Header="_File">
-                            <MenuItem x:Name="MenuSave" Header="_Save" InputGesture="Ctrl+S" />
-                            <MenuItem x:Name="MenuSaveAs" Header="Save _as..." />
-                            <MenuItem x:Name="MenuLoad" Header="_Load..." />
+                            <MenuItem x:Name="MenuSave" Header="_Save campaign" InputGesture="Ctrl+S" />
+                            <MenuItem x:Name="MenuSaveAs" Header="Save campaign _as..." />
+                            <MenuItem x:Name="MenuLoad" Header="_Open campaign..." />
+                            <Separator />
+                            <MenuItem x:Name="MenuImportMaps" Header="_Import maps..." />
+                            <MenuItem x:Name="MenuExportMap" Header="_Export current map..." />
                             <Separator />
                             <MenuItem x:Name="MenuSettings" Header="Se_ttings..." />
                         </MenuItem>
@@ -69,6 +72,7 @@
                             <MenuItem x:Name="MenuFit" Header="Zoom to _fit" />
                         </MenuItem>
                         <MenuItem Header="_Manage">
+                            <MenuItem x:Name="MenuMaps" Header="_Maps..." />
                             <MenuItem x:Name="MenuPawns" Header="_Pawns..." />
                             <MenuItem x:Name="MenuDoorPresets" Header="_Door presets..." />
                             <MenuItem x:Name="MenuHotkeys" Header="_Hotkeys..." />
@@ -114,13 +118,13 @@
             </Border>
         </ThemeVariantScope>
 
-        <!-- map strip: map switcher, add and rename, above the status bar -->
+        <!-- map strip above the status bar: switch maps from the dropdown, the
+             button opens the floating maps panel for everything else -->
         <ThemeVariantScope DockPanel.Dock="Bottom" RequestedThemeVariant="Dark">
-            <Border Background="#1a1a22" BorderBrush="#2a2a34" BorderThickness="0,1,0,0" Padding="8,4">
+            <Border Background="#1a1a22" BorderBrush="#2a2a34" BorderThickness="0,1,0,0" Padding="8,3">
                 <StackPanel Orientation="Horizontal" Spacing="4">
-                    <ComboBox x:Name="MapList" MinWidth="160" VerticalAlignment="Center" />
-                    <Button x:Name="BtnAddMap" Classes="hot" />
-                    <Button x:Name="BtnRenameMap" Classes="hot" />
+                    <Button x:Name="BtnManageMaps" Classes="hot" Width="30" Height="30" />
+                    <ComboBox x:Name="MapList" MinWidth="180" VerticalAlignment="Center" />
                 </StackPanel>
             </Border>
         </ThemeVariantScope>
@@ -202,6 +206,28 @@
                     </ScrollViewer>
                 </StackPanel>
             </Border>
+            <!-- floating maps panel over the bottom left of the map, opened from
+                 the map strip. not modal: the map stays usable behind it. rows
+                 are built in code (ShowMaps) into MapsRows. -->
+            <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,8">
+                <Border x:Name="MapsOverlay" IsVisible="False"
+                        Background="#22222c" BorderBrush="#444450" BorderThickness="1" CornerRadius="6"
+                        Width="420" Padding="10">
+                    <StackPanel Spacing="8">
+                        <DockPanel>
+                            <Button x:Name="MapsClose" Content="close" DockPanel.Dock="Right" />
+                            <TextBlock Text="Maps in this campaign" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380">
+                            <StackPanel x:Name="MapsRows" Spacing="2" />
+                        </ScrollViewer>
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <Button x:Name="MapsAdd" Content="+ new map" />
+                            <Button x:Name="MapsImport" Content="import maps..." />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </ThemeVariantScope>
             <!-- hotkeys modal: editable tool letters plus the fixed shortcuts.
                  built in code (ShowHotkeys) into HotkeysSections. -->
             <Border x:Name="HotkeysOverlay" IsVisible="False"

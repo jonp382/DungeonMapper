@@ -121,15 +121,41 @@ public sealed class PawnDto
     [JsonPropertyName("status")] public string Status { get; set; } = "";
 }
 
-/// Wire format for a multi-map project: a list of named maps plus the active index.
+/// Wire format for a campaign (full save): a list of named maps plus the
+/// active index and the pawn library. "kind" marks it as a campaign; files
+/// written before the field existed are told apart by their "maps" list.
 public sealed class ProjectFileDto
 {
+    [JsonPropertyName("kind")] public string Kind { get; set; } = MapSerializer.KindCampaign;
     [JsonPropertyName("version")] public int Version { get; set; } = 3;
     [JsonPropertyName("active")] public int Active { get; set; } = 0;
     [JsonPropertyName("maps")] public List<NamedMapDto> Maps { get; set; } = new();
     // the pawn library travels with the project file (v3). older project files
     // have no field and load with an empty embedded library.
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+}
+
+/// Wire format for one exported map: the map, its name and the pawn
+/// templates its pawns point at, so the file opens complete in any campaign.
+public sealed class MapExportDto
+{
+    [JsonPropertyName("kind")] public string Kind { get; set; } = MapSerializer.KindMap;
+    [JsonPropertyName("version")] public int Version { get; set; } = MapSerializer.MapSpecVersion;
+    [JsonPropertyName("name")] public string Name { get; set; } = "Map 1";
+    [JsonPropertyName("map")] public MapFileDto Map { get; set; } = new();
+    [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+}
+
+/// What a file holds, read from its "kind" field or, for older files, its shape.
+public enum SaveFileKind { Unknown, Campaign, Map, BareMap }
+
+/// Maps read from a campaign or map file for import, plus the pawn templates
+/// they reference (merged into the live library by the caller).
+public sealed class ImportedMaps
+{
+    public List<MapEntry> Maps { get; } = new();
+    public int Active { get; set; }
+    public List<PawnTemplateDto> Library { get; set; } = new();
 }
 
 public sealed class NamedMapDto
@@ -151,6 +177,12 @@ public static class MapSerializer
     // inside the project file. v2 files load with an empty embedded library.
     // v4: the maps inside follow map spec v4 (no "polygons" field).
     public const int ProjectSpecVersion = 4;
+
+    // "kind" values. a campaign is a full save (every map, the pawn library,
+    // the active map); a map file is one exported map with the templates its
+    // pawns use. older files have no kind and are told apart by shape.
+    public const string KindCampaign = "campaign";
+    public const string KindMap = "map";
 
     private static readonly JsonSerializerOptions Opts = new()
     {
@@ -417,6 +449,83 @@ public static class MapSerializer
         project.ActiveIndex = (dto.Active >= 0 && dto.Active < project.Maps.Count) ? dto.Active : 0;
         return project;
     }
+
+    /// Reads what a file holds. "kind" wins when present; otherwise a "maps"
+    /// list means a campaign, a "map" object a map file and a "cells" list a
+    /// bare map from before campaigns existed.
+    public static SaveFileKind DetectKind(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return SaveFileKind.Unknown;
+            if (root.TryGetProperty("kind", out var k) && k.ValueKind == JsonValueKind.String)
+            {
+                var kind = k.GetString();
+                if (string.Equals(kind, KindCampaign, StringComparison.OrdinalIgnoreCase)) return SaveFileKind.Campaign;
+                if (string.Equals(kind, KindMap, StringComparison.OrdinalIgnoreCase)) return SaveFileKind.Map;
+                return SaveFileKind.Unknown;
+            }
+            if (root.TryGetProperty("maps", out var ms) && ms.ValueKind == JsonValueKind.Array) return SaveFileKind.Campaign;
+            if (root.TryGetProperty("map", out var m) && m.ValueKind == JsonValueKind.Object) return SaveFileKind.Map;
+            if (root.TryGetProperty("cells", out var c) && c.ValueKind == JsonValueKind.Array) return SaveFileKind.BareMap;
+            return SaveFileKind.Unknown;
+        }
+        catch (JsonException) { return SaveFileKind.Unknown; }
+    }
+
+    /// One map as a map file. Only the templates its pawns point at are
+    /// embedded, so the file is complete without dragging the whole library.
+    public static string MapToJson(MapEntry entry, PawnLibrary? library = null)
+    {
+        var dto = new MapExportDto { Name = entry.Name, Map = ToDto(entry.Doc) };
+        if (library is not null)
+        {
+            var used = new HashSet<string>(entry.Doc.Pawns.Values.Select(p => p.TemplateId));
+            var lib = new PawnLibrary();
+            foreach (var t in library.Pawns)
+                if (used.Contains(t.Id)) lib.Pawns.Add(t);
+            dto.PawnLibrary = LibraryToDtos(lib);
+        }
+        return JsonSerializer.Serialize(dto, Opts);
+    }
+
+    /// Reads every map a file holds: all maps of a campaign, the one map of a
+    /// map file, or a bare map (named after fallbackName). Unknown files throw.
+    public static ImportedMaps ImportFromJson(string json, string fallbackName)
+    {
+        var result = new ImportedMaps();
+        switch (DetectKind(json))
+        {
+            case SaveFileKind.Campaign:
+            {
+                var project = ProjectFromJson(json);
+                result.Maps.AddRange(project.Maps);
+                result.Active = project.ActiveIndex;
+                result.Library = ExtractLibrary(json);
+                break;
+            }
+            case SaveFileKind.Map:
+            {
+                var dto = JsonSerializer.Deserialize<MapExportDto>(json)
+                    ?? throw new InvalidDataException("map file is empty");
+                var name = string.IsNullOrWhiteSpace(dto.Name) ? fallbackName : dto.Name;
+                result.Maps.Add(new MapEntry { Name = name, Doc = FromDto(dto.Map) });
+                result.Library = dto.PawnLibrary ?? new List<PawnTemplateDto>();
+                break;
+            }
+            case SaveFileKind.BareMap:
+                result.Maps.Add(new MapEntry { Name = fallbackName, Doc = FromJson(json) });
+                break;
+            default:
+                throw new InvalidDataException("not a campaign or map file");
+        }
+        return result;
+    }
+
+    public static void SaveMapFile(MapEntry entry, string path, PawnLibrary? library = null)
+        => File.WriteAllText(path, MapToJson(entry, library));
 
     // ---- pawn library wire format (shared by project embedding and import/export files) ----
 

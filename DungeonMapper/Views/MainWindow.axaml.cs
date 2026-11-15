@@ -86,10 +86,8 @@ public partial class MainWindow : Window
         SetIcon(ToolLabel, PngIcon("DMLabel"));
         SetIcon(ToolPawn, PathIcon("M15 6.5 A3 3 0 1 1 9 6.5 A3 3 0 1 1 15 6.5 Z M9.5 11 H14.5 M10.5 11 L9 18 M13.5 11 L15 18 M6.5 20.5 H17.5 L16.5 18 H7.5 Z"));
         SetIcon(ToolErase, PngIcon("DMErase"));
-        SetIcon(BtnAddMap, PathIcon("M12 5 V19 M5 12 H19"));
-        SetIcon(BtnRenameMap, PathIcon("M4 20 V16 L15.5 4.5 L19.5 8.5 L8 20 Z M12.5 7.5 L16.5 11.5"));
-        ToolTip.SetTip(BtnAddMap, "Add map");
-        ToolTip.SetTip(BtnRenameMap, "Rename map");
+        SetIcon(BtnManageMaps, PathIcon(IconLayers, 18));
+        ToolTip.SetTip(BtnManageMaps, "Manage maps");
         ToolTip.SetTip(MapList, "Switch map");
         RefreshToolLabels();
 
@@ -101,8 +99,10 @@ public partial class MainWindow : Window
             int idx = MapList.SelectedIndex;
             if (idx >= 0 && idx != _project.ActiveIndex) SwitchMap(idx);
         };
-        BtnAddMap.Click += (_, _) => AddMap();
-        BtnRenameMap.Click += (_, _) => RenameActiveMap();
+        BtnManageMaps.Click += (_, _) => ToggleMaps();
+        MapsClose.Click += (_, _) => { MapsOverlay.IsVisible = false; FocusCanvas(); };
+        MapsAdd.Click += (_, _) => { AddMap(); ShowMaps(); };
+        MapsImport.Click += (_, _) => ImportMaps();
 
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
@@ -132,6 +132,9 @@ public partial class MainWindow : Window
         MenuSave.Click += (_, _) => SaveCurrent();
         MenuSaveAs.Click += (_, _) => SaveMap();
         MenuLoad.Click += (_, _) => LoadMap();
+        MenuImportMaps.Click += (_, _) => ImportMaps();
+        MenuExportMap.Click += (_, _) => ExportMap(_project.Maps[_project.ActiveIndex]);
+        MenuMaps.Click += (_, _) => { CloseModals(); ShowMaps(); };
         MenuSettings.Click += (_, _) => { CloseModals(); ShowSettings(); };
         MenuPawns.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
         MenuDoorPresets.Click += (_, _) => { CloseModals(); ShowDoorPresets(); };
@@ -366,6 +369,7 @@ public partial class MainWindow : Window
         SettingsOverlay.IsVisible = false;
         DoorPresetsOverlay.IsVisible = false;
         HotkeysOverlay.IsVisible = false;
+        MapsOverlay.IsVisible = false;
     }
 
     private void SetTool(ToolMode mode)
@@ -561,6 +565,7 @@ public partial class MainWindow : Window
         // work: select on map1, switch to map2, click the destination.
         Canvas.AutoFit();
         RefreshMapList();
+        if (MapsOverlay.IsVisible) ShowMaps();
         StatusText.Text = $"switched to {_project.ActiveName}";
         Canvas.Refresh();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
@@ -568,7 +573,7 @@ public partial class MainWindow : Window
 
     private void AddMap()
     {
-        string name = $"Map {_project.Maps.Count + 1}";
+        string name = _project.UniqueName($"Map {_project.Maps.Count + 1}");
         _project.AddMap(name);
         Canvas.Document = _doc;
         HistoryFor(_project.Maps[^1]); // snapshot the new map at add time
@@ -581,19 +586,240 @@ public partial class MainWindow : Window
         FocusCanvas();
     }
 
-    private void RenameActiveMap()
+    // ---- maps panel: floating list of the campaign's maps ----
+
+    private const string IconLayers = "M12 4 L20 8 L12 12 L4 8 Z M4 12 L12 16 L20 12 M4 16 L12 20 L20 16";
+    private const string IconPencil = "M4 20 V16 L15.5 4.5 L19.5 8.5 L8 20 Z M12.5 7.5 L16.5 11.5";
+    private const string IconUp = "M6 15 L12 9 L18 15";
+    private const string IconDown = "M6 9 L12 15 L18 9";
+    private const string IconExport = "M12 15 V4 M7 9 L12 4 L17 9 M5 14 V20 H19 V14";
+    private const string IconDelete = "M6 6 L18 18 M18 6 L6 18";
+
+    // the map whose name is being edited inline, and the map waiting on a
+    // second click to delete. both reset when the panel rebuilds for another map.
+    private MapEntry? _renamingMap;
+    private MapEntry? _confirmDeleteMap;
+
+    private void ToggleMaps()
     {
-        var active = _project.Active;
-        int idx = _project.ActiveIndex;
-        string baseName = _project.Maps[idx].Name;
-        // rename via the floating panel: a text field prefilled with the current name
-        ToolPanel.Clear("Rename map");
-        ToolPanel.AddText("map name", baseName, v =>
+        if (MapsOverlay.IsVisible) { MapsOverlay.IsVisible = false; FocusCanvas(); return; }
+        CloseModals();
+        ShowMaps();
+    }
+
+    // rebuilds the rows. each row: the name (click to switch, the active map is
+    // highlighted), then rename, move up, move down, export and delete.
+    private void ShowMaps()
+    {
+        MapsOverlay.IsVisible = true;
+        MapsRows.Children.Clear();
+        for (int i = 0; i < _project.Maps.Count; i++)
         {
-            _project.Maps[idx].Name = string.IsNullOrWhiteSpace(v) ? baseName : v;
-            RefreshMapList();
-            StatusText.Text = $"renamed to {_project.Maps[idx].Name}";
+            int idx = i;
+            var entry = _project.Maps[i];
+            bool active = idx == _project.ActiveIndex;
+            var row = new Grid
+            {
+                ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto"),
+                ColumnSpacing = 2,
+            };
+
+            Control nameCell;
+            if (ReferenceEquals(_renamingMap, entry))
+            {
+                var box = new TextBox { Text = entry.Name, VerticalAlignment = VerticalAlignment.Center };
+                bool done = false;
+                void Finish(bool commit)
+                {
+                    if (done) return;
+                    done = true;
+                    _renamingMap = null;
+                    var v = box.Text?.Trim();
+                    if (commit && !string.IsNullOrEmpty(v) && v != entry.Name)
+                    {
+                        entry.Name = _project.UniqueName(v, idx);
+                        StatusText.Text = $"renamed to {entry.Name}";
+                        RefreshMapList();
+                    }
+                    ShowMaps();
+                }
+                box.KeyDown += (_, e) =>
+                {
+                    if (e.Key == Key.Enter) { Finish(true); FocusCanvas(); e.Handled = true; }
+                    else if (e.Key == Key.Escape) { Finish(false); FocusCanvas(); e.Handled = true; }
+                };
+                box.LostFocus += (_, _) => Finish(true);
+                box.AttachedToVisualTree += (_, _) => { box.Focus(); box.SelectAll(); };
+                nameCell = box;
+            }
+            else
+            {
+                var name = new Button
+                {
+                    Content = new TextBlock { Text = entry.Name, TextTrimming = TextTrimming.CharacterEllipsis },
+                    HorizontalAlignment = HorizontalAlignment.Stretch,
+                    HorizontalContentAlignment = HorizontalAlignment.Left,
+                    Background = active ? new SolidColorBrush(Color.Parse("#3a4a6a")) : Brushes.Transparent,
+                    FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal,
+                };
+                ToolTip.SetTip(name, active ? "Current map" : "Switch to this map");
+                name.Click += (_, _) => { if (idx != _project.ActiveIndex) SwitchMap(idx); };
+                name.DoubleTapped += (_, _) => { _renamingMap = entry; ShowMaps(); };
+                nameCell = name;
+            }
+            row.Children.Add(nameCell);
+
+            Button Small(int col, string icon, string tip, Action click, bool enabled = true)
+            {
+                var b = new Button
+                {
+                    Content = PathIcon(icon, 14),
+                    Width = 28, Height = 28, Padding = new Thickness(0),
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    IsEnabled = enabled,
+                };
+                ToolTip.SetTip(b, tip);
+                b.Click += (_, _) => click();
+                Grid.SetColumn(b, col);
+                row.Children.Add(b);
+                return b;
+            }
+
+            Small(1, IconPencil, "Rename", () => { _renamingMap = entry; _confirmDeleteMap = null; ShowMaps(); });
+            Small(2, IconUp, "Move up", () => { _project.MoveMap(idx, idx - 1); RefreshMapList(); ShowMaps(); }, idx > 0);
+            Small(3, IconDown, "Move down", () => { _project.MoveMap(idx, idx + 1); RefreshMapList(); ShowMaps(); }, idx < _project.Maps.Count - 1);
+            Small(4, IconExport, "Export this map to a file", () => ExportMap(entry));
+
+            if (ReferenceEquals(_confirmDeleteMap, entry))
+            {
+                // second step: an explicit red button, so a stray click never deletes
+                var confirm = new Button
+                {
+                    Content = "delete?",
+                    Height = 28, Padding = new Thickness(6, 0),
+                    Background = new SolidColorBrush(Color.Parse("#8a2a2a")),
+                    Foreground = Brushes.White,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                ToolTip.SetTip(confirm, "Click again to delete this map");
+                confirm.Click += (_, _) => DeleteMap(entry);
+                Grid.SetColumn(confirm, 5);
+                row.Children.Add(confirm);
+            }
+            else
+            {
+                Small(5, IconDelete, _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
+                    () => { _confirmDeleteMap = entry; _renamingMap = null; ShowMaps(); }, _project.Maps.Count > 1);
+            }
+
+            MapsRows.Children.Add(row);
+        }
+    }
+
+    private void DeleteMap(MapEntry entry)
+    {
+        int idx = _project.Maps.IndexOf(entry);
+        _confirmDeleteMap = null;
+        if (idx < 0 || _project.Maps.Count <= 1) { ShowMaps(); return; }
+        bool wasActive = idx == _project.ActiveIndex;
+        var keepActive = _project.Maps[_project.ActiveIndex];
+        _project.RemoveMap(idx);
+        if (!wasActive) _project.SetActive(_project.Maps.IndexOf(keepActive));
+        _histories.Remove(entry);
+        // the clipboard or selection may point into the deleted map
+        Canvas.ClearSelection();
+        Canvas.ResetClipboard();
+        Canvas.Document = _doc;
+        HistoryFor(_project.Maps[_project.ActiveIndex]);
+        if (wasActive) Canvas.AutoFit();
+        RefreshMapList();
+        StatusText.Text = $"deleted {entry.Name}";
+        Canvas.Refresh();
+        ShowMaps();
+    }
+
+    private static string MapsDir()
+    {
+        var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps");
+        System.IO.Directory.CreateDirectory(dir);
+        return dir;
+    }
+
+    // writes one map (and the pawn templates it uses) to its own file
+    private async void ExportMap(MapEntry entry)
+    {
+        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(MapsDir() + "/"));
+        var safe = string.Concat(entry.Name.Split(System.IO.Path.GetInvalidFileNameChars()));
+        var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export map",
+            SuggestedFileName = $"{(string.IsNullOrWhiteSpace(safe) ? "Map" : safe)}.json",
+            DefaultExtension = "json",
+            SuggestedStartLocation = startFolder,
+            FileTypeChoices = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
         });
+        if (file is null) return;
+        try
+        {
+            var path = file.Path.LocalPath;
+            MapSerializer.SaveMapFile(entry, path, ActiveLibrary);
+            StatusText.Text = $"exported {entry.Name} to {path}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"export failed: {ex.Message}";
+        }
+    }
+
+    // adds maps from map files or campaign files to the current campaign. a
+    // campaign file brings all of its maps. pawn templates that look the same
+    // as ones already in the library are reused instead of duplicated.
+    private async void ImportMaps()
+    {
+        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(MapsDir() + "/"));
+        var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import maps",
+            AllowMultiple = true,
+            SuggestedStartLocation = startFolder,
+            FileTypeFilter = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
+        });
+        if (files.Count == 0) return;
+        int added = 0, firstNew = _project.Maps.Count;
+        var failed = new List<string>();
+        foreach (var f in files)
+        {
+            var path = f.Path.LocalPath;
+            try
+            {
+                var text = System.IO.File.ReadAllText(path);
+                var imported = MapSerializer.ImportFromJson(text, System.IO.Path.GetFileNameWithoutExtension(path));
+                var idMap = ActiveLibrary.MergeImport(MapSerializer.LibraryFromDtos(imported.Library));
+                foreach (var m in imported.Maps)
+                {
+                    foreach (var p in m.Doc.Pawns.Values)
+                        if (idMap.TryGetValue(p.TemplateId, out var nid)) p.TemplateId = nid;
+                    m.Name = _project.UniqueName(m.Name);
+                    _project.Maps.Add(m);
+                    added++;
+                }
+            }
+            catch (Exception ex)
+            {
+                failed.Add($"{System.IO.Path.GetFileName(path)} ({ex.Message})");
+            }
+        }
+        if (added > 0)
+        {
+            Canvas.Library = ActiveLibrary;
+            Canvas.InvalidateImageCache();
+            SwitchMap(firstNew);
+        }
+        if (MapsOverlay.IsVisible || added > 0) ShowMaps();
+        StatusText.Text = failed.Count == 0
+            ? $"imported {added} map{(added == 1 ? "" : "s")}"
+            : $"imported {added}, failed: {string.Join(", ", failed)}";
     }
 
     private void DoUndo()
@@ -666,27 +892,27 @@ public partial class MainWindow : Window
             var backupName = $"{System.IO.Path.GetFileNameWithoutExtension(path)}_{Stamp()}.json";
             System.IO.File.WriteAllText(System.IO.Path.Combine(backupDir, backupName), text);
 
-            // accept both single-map files and multi-map projects
-            if (text.Contains("\"maps\""))
-            {
-                _project = MapSerializer.LoadProject(path);
-            }
-            else
-            {
-                _project = new MapProject();
-                _project.Maps[0].Doc = MapSerializer.Load(path);
-            }
-            // merge the project's embedded library (v3 files; v2 files have none):
-            // append with fresh ids for collisions, remap this project's pawn
-            // references through the id map. images travel as base64 on the
-            // templates, so nothing is written to disk.
-            var embeddedDtos = MapSerializer.ExtractLibrary(text);
-            var templates = MapSerializer.LibraryFromDtos(embeddedDtos);
+            // a campaign opens as is. a single map file (or an old bare map)
+            // opens as a new campaign holding just that map.
+            var kind = MapSerializer.DetectKind(text);
+            var imported = MapSerializer.ImportFromJson(text, System.IO.Path.GetFileNameWithoutExtension(path));
+            var project = new MapProject();
+            project.Maps.Clear();
+            project.Maps.AddRange(imported.Maps);
+            if (project.Maps.Count == 0) project.Maps.Add(new MapEntry());
+            project.ActiveIndex = Math.Clamp(imported.Active, 0, project.Maps.Count - 1);
+            _project = project;
+            // the embedded library goes into the new campaign's (empty) library,
+            // pawn references remapped through the id map. images travel as
+            // base64 on the templates, so nothing is written to disk.
+            var templates = MapSerializer.LibraryFromDtos(imported.Library);
             var idMap = ActiveLibrary.MergeAppend(templates);
             RemapPawns(_project, idMap);
             Canvas.Library = ActiveLibrary;
             Canvas.InvalidateImageCache();
-            _currentMapPath = path; // Ctrl+S saves over the user-selected json
+            // Ctrl+S saves over the opened campaign. a map file is not a
+            // campaign, so the first save asks where to put the new campaign.
+            _currentMapPath = kind == SaveFileKind.Campaign ? path : null;
             Canvas.Document = _doc;
             _histories.Clear(); // fresh project = fresh entries
             HistoryFor(_project.Maps[_project.ActiveIndex]); // snapshot loaded state
@@ -694,6 +920,7 @@ public partial class MainWindow : Window
             Canvas.ResetClipboard(); // loaded project replaces all maps; old cut sources are stale
             Canvas.AutoFit();
             RefreshMapList();
+            if (MapsOverlay.IsVisible) ShowMaps();
             StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
         }
         catch (Exception ex)

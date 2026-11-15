@@ -2194,5 +2194,67 @@ using var skb = SkiaSharp.SKBitmap.Decode(c1);
 var sp = skb.GetPixel(25, 25);
 Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid color survives crop+scale");
 
+// --- campaigns and map files: kind field, export/import, library dedupe ---
+{
+    var lib = new PawnLibrary();
+    var used = new PawnTemplate { Name = "Ghoul", Affiliation = "Enemy" }; used.ApplyAffiliationDefaults(); lib.Add(used);
+    var unused = new PawnTemplate { Name = "Elf", Affiliation = "Ally" }; unused.ApplyAffiliationDefaults(); lib.Add(unused);
+    var proj = new MapProject();
+    proj.Maps[0].Name = "Crypt";
+    AddRoom(proj.Maps[0].Doc, 0, 0, 3, 3);
+    proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = used.Id });
+    proj.AddMap("Tower");
+
+    var campaignJson = MapSerializer.ProjectToJson(proj, lib);
+    Check(campaignJson.Contains("\"kind\": \"campaign\""), "campaign file carries kind campaign");
+    Check(MapSerializer.DetectKind(campaignJson) == SaveFileKind.Campaign, "detect: campaign by kind");
+    Check(MapSerializer.DetectKind("{\"version\":3,\"maps\":[]}") == SaveFileKind.Campaign, "detect: old campaign by maps list");
+    Check(MapSerializer.DetectKind(MapSerializer.ToJson(new MapDocument())) == SaveFileKind.BareMap, "detect: bare map by cells");
+    Check(MapSerializer.DetectKind("{\"hello\":1}") == SaveFileKind.Unknown, "detect: unrelated json is unknown");
+    Check(MapSerializer.DetectKind("not json") == SaveFileKind.Unknown, "detect: garbage is unknown");
+
+    var mapJson = MapSerializer.MapToJson(proj.Maps[0], lib);
+    Check(MapSerializer.DetectKind(mapJson) == SaveFileKind.Map, "detect: exported map by kind");
+    var imp = MapSerializer.ImportFromJson(mapJson, "fallback");
+    Check(imp.Maps.Count == 1 && imp.Maps[0].Name == "Crypt", "map file import keeps its name");
+    Check(imp.Maps[0].Doc.Cells.Count == proj.Maps[0].Doc.Cells.Count, "map file import keeps the cells");
+    Check(imp.Library.Count == 1 && imp.Library[0].Name == "Ghoul", "map file embeds only the templates its pawns use");
+
+    // re-importing into the same library reuses the identical template
+    var idMap = lib.MergeImport(MapSerializer.LibraryFromDtos(imp.Library));
+    Check(lib.Pawns.Count == 2, "merge import: identical template is not duplicated");
+    Check(idMap.TryGetValue(used.Id, out var same) && same == used.Id, "merge import: id maps to the existing template");
+    // a changed template is added as a new one
+    var changed = MapSerializer.LibraryFromDtos(imp.Library);
+    changed[0].Name = "Ghoul king";
+    lib.MergeImport(changed);
+    Check(lib.Pawns.Count == 3, "merge import: a different template is added");
+    // importing into an empty library keeps the template
+    var fresh = new PawnLibrary();
+    fresh.MergeImport(MapSerializer.LibraryFromDtos(imp.Library));
+    Check(fresh.Pawns.Count == 1, "merge import: empty library gains the template");
+
+    var all = MapSerializer.ImportFromJson(campaignJson, "fallback");
+    Check(all.Maps.Count == 2 && all.Maps[1].Name == "Tower", "campaign import brings every map");
+    Check(all.Active == 1, "campaign import keeps the active index");
+    var bare = MapSerializer.ImportFromJson(MapSerializer.ToJson(proj.Maps[0].Doc), "old cave");
+    Check(bare.Maps.Count == 1 && bare.Maps[0].Name == "old cave", "bare map import is named after the file");
+    bool threw = false;
+    try { MapSerializer.ImportFromJson("{\"hello\":1}", "x"); } catch (System.IO.InvalidDataException) { threw = true; }
+    Check(threw, "import of an unknown file throws");
+
+    // names and order
+    Check(proj.UniqueName("Lair") == "Lair", "unique name: free name is kept");
+    Check(proj.UniqueName("crypt") == "crypt (2)", "unique name: case-insensitive clash gets a suffix");
+    proj.AddMap("Crypt (2)");
+    Check(proj.UniqueName("Crypt") == "Crypt (3)", "unique name: skips taken suffixes");
+    Check(proj.UniqueName("Crypt", 0) == "Crypt", "unique name: the renamed map does not clash with itself");
+    proj.SetActive(0);
+    proj.MoveMap(0, 2);
+    Check(proj.Maps[2].Name == "Crypt" && proj.ActiveIndex == 2, "move map: active map follows the move");
+    proj.MoveMap(2, 5);
+    Check(proj.Maps[2].Name == "Crypt", "move map: out of range is ignored");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

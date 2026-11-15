@@ -66,10 +66,12 @@ foreach (var f in files)
     catch (Exception e) { Console.WriteLine($"FAIL {f}: not valid json ({e.Message})"); failed++; continue; }
     if (root is not JsonObject obj) { Console.WriteLine($"SKIP {f}: root is not a json object"); skipped++; continue; }
 
-    // file kind: project files have "maps", map files have "cells"
-    bool isProject = obj.ContainsKey("maps");
-    bool isMap = obj.ContainsKey("cells");
-    if (!isProject && !isMap) { Console.WriteLine($"SKIP {f}: not a map or project file"); skipped++; continue; }
+    // file kind: a campaign (project) file, an exported map file (one named
+    // map plus its pawn templates) or a bare map from before campaigns
+    var kind = MapSerializer.DetectKind(json);
+    bool isProject = kind == SaveFileKind.Campaign;
+    bool isExport = kind == SaveFileKind.Map;
+    if (kind == SaveFileKind.Unknown) { Console.WriteLine($"SKIP {f}: not a campaign or map file"); skipped++; continue; }
 
     int current = 0;
     if (obj["version"] != null)
@@ -80,10 +82,10 @@ foreach (var f in files)
     int to = targetVersion ?? latestForKind;
     if (to > latestForKind)
     {
-        Console.WriteLine($"FAIL {f}: cannot port to version {to}, latest for {(isProject ? "project" : "map")} files is {latestForKind}");
+        Console.WriteLine($"FAIL {f}: cannot port to version {to}, latest for {(isProject ? "campaign" : "map")} files is {latestForKind}");
         failed++; continue;
     }
-    if (current == to) { Console.WriteLine($"SKIP {f}: already version {to} ({(isProject ? "project" : "map")})"); skipped++; continue; }
+    if (current == to) { Console.WriteLine($"SKIP {f}: already version {to} ({(isProject ? "campaign" : "map")})"); skipped++; continue; }
 
     // port: re-serialize through the current DTOs so every field lands in the
     // canonical latest shape, then stamp the target version.
@@ -97,6 +99,14 @@ foreach (var f in files)
             if (to >= 4)
                 foreach (var m in dto.Maps) m.Map = MapSerializer.PortPolygons(m.Map);
             dto.Version = to;
+            outJson = JsonSerializer.Serialize(dto, JsonOpts);
+        }
+        else if (isExport)
+        {
+            var dto = JsonSerializer.Deserialize<MapExportDto>(json)!;
+            if (to >= 4) dto.Map = MapSerializer.PortPolygons(dto.Map);
+            dto.Version = to;
+            dto.Map.Version = to;
             outJson = JsonSerializer.Serialize(dto, JsonOpts);
         }
         else
