@@ -22,7 +22,11 @@ public sealed class MapFileDto
     [JsonPropertyName("pawns")] public List<PawnDto> Pawns { get; set; } = new();
     [JsonPropertyName("angled_walls")] public List<string> AngledWalls { get; set; } = new();
     [JsonPropertyName("angled_doors")] public List<AngledDoorDto> AngledDoors { get; set; } = new();
-    [JsonPropertyName("polygons")] public List<PolygonDto> Polygons { get; set; } = new();
+    // v3 only: polygons became plain walls plus a flood region in v4, so this
+    // is read for old files and never written
+    [JsonPropertyName("polygons")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PolygonDto>? Polygons { get; set; }
     [JsonPropertyName("flood_regions")] public List<FloodRegionDto> FloodRegions { get; set; } = new();
     [JsonPropertyName("vertex_doors")] public List<VertexDoorDto> VertexDoors { get; set; } = new();
 }
@@ -141,10 +145,12 @@ public static class MapSerializer
     // as-is; app-only additive changes with backwards-compatible defaults do NOT
     // increment (the map porter app ports old files to the latest spec).
     // v2 adds the "polygons" field (polygon rooms stored as vertex loops).
-    public const int MapSpecVersion = 3;
+    // v4 drops it: a polygon is saved as walls, cells and a flood region.
+    public const int MapSpecVersion = 4;
     // v3 adds the "pawn_library" field: the project's pawn library travels
     // inside the project file. v2 files load with an empty embedded library.
-    public const int ProjectSpecVersion = 3;
+    // v4: the maps inside follow map spec v4 (no "polygons" field).
+    public const int ProjectSpecVersion = 4;
 
     private static readonly JsonSerializerOptions Opts = new()
     {
@@ -189,34 +195,17 @@ public static class MapSerializer
         }
     }
 
-    // shared loader for polygon rooms. v1 files have no polygons field (the
-    // list stays empty), so an old file loads with no polygons; the map porter
-    // app ports v1 files to the v2 shape.
+    // legacy loader for v3 polygon rooms. each loop becomes a flood region
+    // floor and its cut cells leave Cells, see MapDocument.AddLegacyPolygon.
     private static void AddPolygons(MapFileDto dto, MapDocument doc)
     {
+        if (dto.Polygons is null) return;
         foreach (var d in dto.Polygons)
         {
             var loop = new List<(int x, int y)>();
             foreach (var s in d.Verts)
                 if (TryParseCell(s, out var c)) loop.Add((c.X, c.Y));
-            if (loop.Count < 3) continue;
-            var pr = new PolygonRoom { Verts = loop };
-            // the floor is derived from the loop at load time (rings are not
-            // serialized, so the JSON stays the vertex loop): the polygon's own
-            // diagonal edges, present in the loaded walls, clip the fill cells.
-            var own = new List<AngledWall>();
-            for (int i = 0; i < loop.Count; i++)
-            {
-                var (ax, ay) = loop[i];
-                var (bx, by) = loop[(i + 1) % loop.Count];
-                if (ax == bx || ay == by) continue;
-                foreach (var w in doc.AngledWalls)
-                    if ((w.Ax == ax && w.Ay == ay && w.Bx == bx && w.By == by) ||
-                        (w.Ax == bx && w.Ay == by && w.Bx == ax && w.By == ay))
-                    { own.Add(w); break; }
-            }
-            pr.Floor = new FloodRegion { Rings = doc.BuildFloodRings(doc.PolygonFillCells(loop), own) };
-            doc.Polygons.Add(pr);
+            doc.AddLegacyPolygon(loop);
         }
     }
 
@@ -314,12 +303,6 @@ public static class MapSerializer
             foreach (var d in doc.GetAngledDoors(w))
                 dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
         }
-        foreach (var p in doc.Polygons)
-        {
-            var pd = new PolygonDto();
-            foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
-            dto.Polygons.Add(pd);
-        }
         foreach (var fr in doc.FloodRegions)
         {
             var fd = new FloodRegionDto();
@@ -390,6 +373,15 @@ public static class MapSerializer
         AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
         return doc;
+    }
+
+    // map porter helper: a map with a "polygons" field goes through the
+    // document once so its polygons come out as walls, cells and flood
+    // regions. a map without one is returned unchanged.
+    public static MapFileDto PortPolygons(MapFileDto dto)
+    {
+        if (dto.Polygons is null) return dto;
+        return ToDto(FromDto(dto));
     }
 
     public static void Save(MapDocument doc, string path) => File.WriteAllText(path, ToJson(doc));
@@ -503,12 +495,6 @@ public static class MapSerializer
             dto.AngledWalls.Add(Key(w));
             foreach (var d in doc.GetAngledDoors(w))
                 dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
-        }
-        foreach (var p in doc.Polygons)
-        {
-            var pd = new PolygonDto();
-            foreach (var (vx, vy) in p.Verts) pd.Verts.Add($"{vx},{vy}");
-            dto.Polygons.Add(pd);
         }
         foreach (var fr in doc.FloodRegions)
         {

@@ -619,12 +619,12 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
 // --- polygon tool: cell-center fill, edge decomposition, capture/paste, erase, round-trip ---
 {
     var p = new MapDocument();
-    // 2x1 triangle: (0,0),(2,0),(0,1). cell (0,0) center (0.5,0.5) inside,
-    // cell (1,0) center (1.5,0.5) outside -> room = cell (0,0).
+    // 2x1 triangle: (0,0),(2,0),(0,1). the diagonal cuts both cells, so
+    // neither is a plain cell and the flood floor covers the triangle.
     p.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 1) });
-    Check(p.Cells.Contains(new CellKey(0, 0)), "polygon fill: cell (0,0) center inside triangle");
-    Check(!p.Cells.Contains(new CellKey(1, 0)), "polygon fill: cell (1,0) center outside triangle");
-    Check(p.Cells.Count == 1, "polygon fill: exactly 1 cell");
+    Check(p.Cells.Count == 0, "polygon fill: cut cells are not plain cells");
+    Check(p.FloorAt(0.5, 0.5) && p.FloorAt(1.2, 0.2), "polygon fill: floor covers the triangle");
+    Check(!p.FloorAt(1.5, 0.8), "polygon fill: no floor past the diagonal");
     // edges: (0,0)->(2,0) horizontal at y=0 -> North walls of cells (0,0),(1,0)
     Check(p.HasWall(new EdgeKey(new CellKey(0, 0), Side.North)), "polygon: horizontal edge -> North wall cell (0,0)");
     Check(p.HasWall(new EdgeKey(new CellKey(1, 0), Side.North)), "polygon: horizontal edge -> North wall cell (1,0)");
@@ -711,14 +711,17 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     s.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 2), (0, 2) }, false, true); // strict
     Check(s.HasWall(new EdgeKey(new CellKey(0, 0), Side.East)), "strict: interior wall x=1 kept in strict mode");
 
-    // polygon edges are owned by the polygon object: a room grown over a
-    // polygon does NOT remove the polygon's diagonal, so the trapezoid walls
-    // survive every room, far away or connected.
+    // polygon edges are plain walls: a room grown over a polygon merges
+    // with it like any other diagonal, a strict room keeps it
     var rp = new MapDocument();
     rp.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // triangle, diagonal (2,0)->(0,2)
     Check(rp.AngledWalls.Count == 1, "room over polygon: diagonal present before union");
     rp.AddRoom(0, 0, 2, 2); // 3x3 room covering the triangle fully
-    Check(rp.AngledWalls.Count == 1, "room over polygon: polygon diagonal survives the room union");
+    Check(rp.AngledWalls.Count == 0, "room over polygon: diagonal merged into the room");
+    var rps = new MapDocument();
+    rps.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) });
+    rps.AddRoom(0, 0, 2, 2, strict: true);
+    Check(rps.AngledWalls.Count == 1, "room over polygon: strict room keeps the diagonal");
 
     // room grown over a polygon keeps a diagonal that is NOT fully interior
     var rp2 = new MapDocument();
@@ -733,7 +736,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     string pj = MapSerializer.ToJson(p5);
     var pl = MapSerializer.FromJson(pj);
     Check(pl.AngledWalls.Count == 1 && pl.AngledWalls[0] == new AngledWall(2, 0, 0, 1), "polygon round-trip: angled wall preserved");
-    Check(pl.Cells.Contains(new CellKey(0, 0)), "polygon round-trip: filled cell preserved");
+    Check(pl.FloorAt(0.5, 0.5) && !pl.FloorAt(1.5, 0.8), "polygon round-trip: floor preserved");
 
     // ContentBounds includes angled wall endpoints
     var p6 = new MapDocument();
@@ -816,16 +819,18 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(ad7.AngledWalls.Count == 0 && ad7.AngledDoors.Count == 0,
           "angled door: door removed with wall by clear region");
 
-    // polygon edges are owned by the polygon: a room union over a polygon
-    // keeps the diagonal, and its door stays with the wall.
+    // a strict room drawn over a polygon keeps the diagonal and its door
     var ad8 = new MapDocument();
     ad8.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (0, 2) }); // diagonal (2,0)->(0,2)
     ad8.TryPlaceAngledDoor(new AngledWall(2, 0, 0, 2), 1.4, "standard", "closed", out _);
     Check(ad8.GetAngledDoors(new AngledWall(2, 0, 0, 2)).Count == 1,
           "angled door: placed on polygon diagonal");
-    ad8.AddRoom(0, 0, 2, 2);
+    ad8.AddRoom(0, 0, 2, 2, strict: true);
     Check(ad8.AngledWalls.Count == 1 && ad8.AngledDoors.Count == 1,
-          "angled door: polygon diagonal and its door survive the room union");
+          "angled door: polygon diagonal and its door survive a strict room");
+    ad8.AddRoom(0, 0, 2, 2);
+    Check(ad8.AngledWalls.Count == 0 && ad8.AngledDoors.Count == 0,
+          "angled door: door goes with the diagonal when a room merges over it");
 
     // ApplyFrom copies doors
     var ad9 = new MapDocument();
@@ -1125,14 +1130,13 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     h2.Dispose();
 }
 
-// --- polygon rooms: first-class object, exact floor geometry, erase, move, rotate, json ---
+// --- polygon rooms: plain walls, cells and a flood floor. exact floor geometry, erase, move, rotate, json ---
 {
     var d = new MapDocument();
     d.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (3, 3), (0, 3) });
-    Check(d.Polygons.Count == 1, "polygon: vertex loop stored as first-class object");
-    Check(d.Polygons[0].Verts.Count == 4 && d.Polygons[0].Verts[0] == (0, 0),
-        "polygon: verts stored verbatim");
     Check(d.Cells.Count == 9, "polygon: fill cells derived from the loop");
+    Check(d.FloodRegions.Count == 1 && d.FloodRegions[0].Rings[0].Contains((3, 3)),
+        "polygon: floor stored as a flood region");
 }
 {
     // the sliver test: triangle (0,0)-(4,0)-(0,4). Cell (3,0) has its center
@@ -1192,10 +1196,9 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     var d = new MapDocument();
     d.AddRoom(0, 0, 2, 2);
     d.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (3, 3) }, strict: true);
-    Check(MapDocument.PolygonTouchesRect(d.Polygons[0], 3, 0, 5, 2),
-        "polygon: touches the erase rect (hypotenuse crosses it)");
     d.ClearRegion(3, 0, 5, 2);
-    Check(d.Polygons.Count == 0, "erase: polygon object removed whole");
+    d.RebuildRoomBoundaryWalls(3, 0, 5, 2);
+    Check(d.FloodRegions.Count == 0, "erase: polygon floor clipped away");
     Check(!d.Cells.Contains(new CellKey(4, 0)) && !d.Cells.Contains(new CellKey(3, 2)),
         "erase: polygon fill cells removed");
     Check(d.AngledWalls.Count == 0, "erase: polygon angled walls removed");
@@ -1213,7 +1216,7 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     h.Canvas.Mode = ToolMode.Erase;
     h.Canvas.EraseAdjustWalls = true; // the live app turns this on via the tool panel
     h.Drag(3, 0, 5, 2);
-    Check(h.Doc.Polygons.Count == 0, "canvas erase tool: polygon removed whole");
+    Check(h.Doc.FloodRegions.Count == 0, "canvas erase tool: polygon floor clipped away");
     Check(h.Doc.AngledWalls.Count == 0, "canvas erase tool: angled walls removed with the polygon");
     var bmpAfter = h.Render();
     var gone = h.PixelAt(bmpAfter, 208, 88);
@@ -1263,55 +1266,60 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
 {
     var d = new MapDocument();
     d.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) });
-    var snap = d.CaptureRegion(0, 0, 1, 1); // selection clips the polygon corner
-    Check(snap.Polygons.Count == 1, "move: whole polygon captured when the selection touches it");
-    d.ClearRegion(0, 0, 1, 1);
+    var snap = d.CaptureRegion(0, 0, 3, 3);
+    Check(snap.FloodRegions.Count == 1, "move: polygon floor captured");
+    d.ClearRegion(0, 0, 3, 3);
     d.PasteRegion(snap, 10, 10);
-    Check(d.Polygons.Count == 1 && d.Polygons[0].Verts[0] == (10, 10) && d.Polygons[0].Verts[1] == (14, 10),
-        "move: whole polygon translated to the destination");
+    Check(d.FloodRegions.Count == 1 && d.FloodRegions[0].Rings[0].Contains((14, 10))
+        && d.FloodRegions[0].Rings[0].Contains((10, 14)),
+        "move: polygon floor translated to the destination");
     Check(d.Cells.Contains(new CellKey(12, 10)) && d.Cells.Contains(new CellKey(10, 12)),
-        "move: fill cells outside the selection re-derived at the destination");
+        "move: fill cells land at the destination");
+    Check(d.AngledWalls.Count == 1 && d.AngledWalls[0].Ax == 14 && d.AngledWalls[0].By == 14,
+        "move: diagonal wall translated");
     Check(!d.Cells.Contains(new CellKey(0, 0)), "move: source cleared");
-    Check(d.Polygons[0].Floor!.Rings[0].Contains((14, 10)),
-        "floor rings: paste rebuilds rings at the destination");
+
+    // a selection over part of the polygon takes part of the floor
+    var pd = new MapDocument();
+    pd.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) });
+    var part = pd.CaptureRegion(0, 0, 1, 1);
+    pd.ClearRegion(0, 0, 1, 1);
+    Check(pd.FloodRegions.Count == 1 && !pd.FloorAt(0.5, 0.5) && pd.FloorAt(2.5, 0.5),
+        "erase: partial selection clips the polygon floor, the rest stays");
+    pd.PasteRegion(part, 10, 10);
+    Check(pd.FloorAt(10.5, 10.5) && pd.FloorAt(11.5, 11.5) && !pd.FloorAt(12.5, 10.5),
+        "move: clipped piece of the polygon floor lands at the destination");
 }
 {
     var d = new MapDocument();
     d.AddPolygon(new List<(int, int)> { (0, 0), (2, 0), (2, 1) });
     var snap = d.CaptureRegion(0, 0, 2, 1);
     var r = MapDocument.Rotate(snap, 1);
-    Check(r.Polygons.Count == 1 && r.Polygons[0].Verts[1] == (0, -2) && r.Polygons[0].Verts[2] == (1, -2),
-        "rotate: polygon verts rotate with the snapshot");
-    Check(r.Polygons[0].Floor!.Rings[0].Count == 3
-        && r.Polygons[0].Floor!.Rings[0].Contains((0, 0)) && r.Polygons[0].Floor!.Rings[0].Contains((0, -2))
-        && r.Polygons[0].Floor!.Rings[0].Contains((1, -2)),
-        "floor rings: rotate turns the exact triangle boundary with the loop");
+    Check(r.FloodRegions.Count == 1 && r.FloodRegions[0].Rings[0].Count == 3
+        && r.FloodRegions[0].Rings[0].Contains((0, 0)) && r.FloodRegions[0].Rings[0].Contains((0, -2))
+        && r.FloodRegions[0].Rings[0].Contains((1, -2)),
+        "floor rings: rotate turns the exact triangle boundary");
 }
 {
     var d = new MapDocument();
     d.AddRoom(0, 0, 1, 1);
     d.AddPolygon(new List<(int, int)> { (2, 0), (5, 0), (2, 3) });
     string mapJson = MapSerializer.ToJson(d);
-    Check(mapJson.Contains("polygons") && mapJson.Contains("\"version\": 3"),
-        "json: polygons saved with version 3");
+    Check(!mapJson.Contains("polygons") && mapJson.Contains("\"version\": 4"),
+        "json: saved as version 4 with no polygons field");
     var back = MapSerializer.FromJson(mapJson);
-    Check(back.Polygons.Count == 1 && back.Polygons[0].Verts.Count == 3 && back.Polygons[0].Verts[1] == (5, 0),
-        "json: polygons round-trip");
-    string v1 = mapJson.Replace("\"polygons\"", "\"polygons_x\"");
-    var old = MapSerializer.FromJson(v1);
-    Check(old.Polygons.Count == 0, "json: v1 file (no polygons field) loads with no polygons");
-    Check(back.Polygons[0].Floor is not null && back.Polygons[0].Floor.Rings.Count >= 1
-        && back.Polygons[0].Floor.Rings[0].Count == 3
-        && back.Polygons[0].Floor.Rings[0].Contains((2, 0)) && back.Polygons[0].Floor.Rings[0].Contains((5, 0))
-        && back.Polygons[0].Floor.Rings[0].Contains((2, 3)),
-        "floor rings: rebuilt from the loop on load, ring 0 follows the exact polygon boundary");
+    Check(back.FloodRegions.Count == 1 && back.FloodRegions[0].Rings[0].Count == 3
+        && back.FloodRegions[0].Rings[0].Contains((2, 0)) && back.FloodRegions[0].Rings[0].Contains((5, 0))
+        && back.FloodRegions[0].Rings[0].Contains((2, 3)),
+        "json: polygon floor round-trips as a flood region");
+    Check(back.AngledWalls.Count == 1 && back.Cells.SetEquals(d.Cells), "json: walls and cells round-trip");
     // an unrelated diagonal adjacent to the fill must NOT pull its triangle
     // into the polygon floor: rectangle (0,0)-(4,3) + wall (4,2)-(5,3) cuts
     // cell (4,2), adjacent to fill cell (3,2). Ring 0 stays the plain rectangle.
     var ux = new MapDocument();
     ux.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (4, 3), (0, 3) }, false, true);
     ux.AddLine(4, 2, 5, 3);
-    var uRing = ux.Polygons[0].Floor!.Rings[0];
+    var uRing = ux.FloodRegions[0].Rings[0];
     Check(uRing.Count == 4 && uRing.Contains((0, 0)) && uRing.Contains((4, 0))
         && uRing.Contains((4, 3)) && uRing.Contains((0, 3)),
         "floor rings: unrelated diagonal excluded from polygon floor");
@@ -1371,6 +1379,115 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     nm.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
     nm.AddPolygon(new List<(int, int)> { (4, 0), (4, 4), (0, 4) }, false, false, false);
     Check(nm.AngledWalls.Count == 1, "polygon merge off: shared diagonal kept");
+
+    // the opened diagonal stays open through paste, rotate, undo and save/load.
+    // two merged triangles make one open 4x4 block at (bx,by).
+    MapDocument MergedPair()
+    {
+        var m = new MapDocument();
+        m.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
+        m.AddPolygon(new List<(int, int)> { (4, 0), (4, 4), (0, 4) }, false, false, true);
+        return m;
+    }
+    bool OpenBlock(MapDocument m, int bx, int by)
+    {
+        if (m.AngledWalls.Count != 0) return false;
+        for (int x = bx; x < bx + 4; x++)
+            for (int y = by; y < by + 4; y++)
+            {
+                if (!m.Cells.Contains(new CellKey(x, y)) || !m.FloorAt(x + 0.5, y + 0.5)) return false;
+                if (x < bx + 3 && m.HasWall(new EdgeKey(new CellKey(x, y), Side.East))) return false;
+                if (y < by + 3 && m.HasWall(new EdgeKey(new CellKey(x, y), Side.South))) return false;
+            }
+        return true;
+    }
+    var mp = MergedPair();
+    Check(OpenBlock(mp, 0, 0), "merged pair: diagonal cells are floor with no wall");
+    var mpSnap = mp.CaptureRegion(0, 0, 3, 3);
+    mp.ClearRegion(0, 0, 3, 3);
+    mp.PasteRegion(mpSnap, 10, 10);
+    Check(OpenBlock(mp, 10, 10) && mp.Cells.Count == 16, "merged pair: shared wall stays gone after move");
+    var mpCopy = MergedPair();
+    mpCopy.PasteRegion(mpCopy.CaptureRegion(0, 0, 3, 3), 10, 0);
+    Check(OpenBlock(mpCopy, 0, 0) && OpenBlock(mpCopy, 10, 0), "merged pair: shared wall stays gone after paste");
+    var mr = MergedPair();
+    var mrSnap = MapDocument.Rotate(mr.CaptureRegion(0, 0, 3, 3), 1);
+    mr.ClearRegion(0, 0, 3, 3);
+    mr.PasteRegion(mrSnap, 20, 20);
+    Check(OpenBlock(mr, 20, 16) && mr.Cells.Count == 16, "merged pair: shared wall stays gone after rotate");
+    var mu = new MapDocument();
+    var muHist = new History();
+    muHist.Initialize(mu);
+    mu.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
+    muHist.Commit(mu);
+    mu.AddPolygon(new List<(int, int)> { (4, 0), (4, 4), (0, 4) }, false, false, true);
+    muHist.Commit(mu);
+    mu.AddRoom(10, 10, 11, 11);
+    muHist.Commit(mu);
+    mu.ApplyFrom(muHist.Undo()!);
+    Check(OpenBlock(mu, 0, 0) && !mu.Cells.Contains(new CellKey(10, 10)),
+        "merged pair: shared wall stays gone after undo");
+    mu.ApplyFrom(muHist.Undo()!);
+    Check(mu.AngledWalls.Count == 1, "merged pair: undoing the second polygon brings the diagonal back");
+    mu.ApplyFrom(muHist.Redo()!);
+    Check(OpenBlock(mu, 0, 0), "merged pair: redo opens it again");
+    var ml = MapSerializer.FromJson(MapSerializer.ToJson(MergedPair()));
+    Check(OpenBlock(ml, 0, 0), "merged pair: shared wall stays gone after save and load");
+
+    // erasing one of two merged polygons gives the other its wall back
+    var e2 = new MapDocument();
+    e2.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
+    e2.AddPolygon(new List<(int, int)> { (4, 0), (8, 0), (8, 4), (0, 4) }, false, false, true);
+    Check(e2.AngledWalls.Count == 0, "erase merged: setup diagonal opened");
+    var eh = new CanvasHarness();
+    eh.Doc.ApplyFrom(e2);
+    eh.Canvas.Mode = ToolMode.Erase;
+    eh.Canvas.EraseAdjustWalls = true;
+    eh.Drag(0, 0, 3, 3);
+    var ed = eh.Doc;
+    Check(!ed.FloorAt(0.5, 0.5) && !ed.FloorAt(3.5, 0.5) && !ed.FloorAt(2.5, 3.5),
+        "erase merged: erased polygon's floor gone");
+    Check(ed.FloorAt(4.5, 0.5) && ed.FloorAt(7.5, 3.5) && ed.FloodRegions.Count == 1,
+        "erase merged: other polygon keeps the floor outside the erase");
+    bool westWalls = true;
+    for (int y = 0; y < 4; y++) westWalls &= ed.HasWall(new EdgeKey(new CellKey(4, y), Side.West));
+    Check(westWalls, "erase merged: other polygon gets a wall along the erase edge");
+    Check(ed.AngledWalls.Count == 0, "erase merged: no angled walls left behind");
+    eh.Dispose();
+}
+{
+    // legacy v3 file: polygons stored as a vertex loop next to their walls
+    // and fill cells, with cut cells in the cell list and no flood region
+    var src = new MapDocument();
+    src.AddRoom(0, 0, 1, 1);
+    src.AddPolygon(new List<(int, int)> { (2, 0), (5, 0), (2, 3) });
+    var node = System.Text.Json.Nodes.JsonNode.Parse(MapSerializer.ToJson(src))!.AsObject();
+    node["version"] = 3;
+    node["flood_regions"] = new System.Text.Json.Nodes.JsonArray();
+    var cellArr = node["cells"]!.AsArray();
+    foreach (var cut in new[] { "4,0", "3,1", "2,2" }) cellArr.Add(cut);
+    node["polygons"] = System.Text.Json.Nodes.JsonNode.Parse("[{\"verts\":[\"2,0\",\"5,0\",\"2,3\"]}]");
+    string v3 = node.ToJsonString();
+    var lg = MapSerializer.FromJson(v3);
+    Check(lg.FloodRegions.Count == 1 && lg.FloodRegions[0].Rings[0].Count == 3
+        && lg.FloodRegions[0].Rings[0].Contains((2, 0)) && lg.FloodRegions[0].Rings[0].Contains((5, 0))
+        && lg.FloodRegions[0].Rings[0].Contains((2, 3)),
+        "legacy v3: polygon loads as a flood region on the exact boundary");
+    Check(!lg.Cells.Contains(new CellKey(4, 0)) && !lg.Cells.Contains(new CellKey(3, 1))
+        && !lg.Cells.Contains(new CellKey(2, 2)) && lg.Cells.Contains(new CellKey(2, 0)),
+        "legacy v3: cut cells dropped, fill cells kept");
+    Check(lg.AngledWalls.Count == 1 && lg.Cells.Contains(new CellKey(0, 0)), "legacy v3: walls and room intact");
+    Check(!MapSerializer.ToJson(lg).Contains("polygons"), "legacy v3: saving writes no polygons field");
+
+    // mapporter helper
+    var dto = System.Text.Json.JsonSerializer.Deserialize<MapFileDto>(v3)!;
+    Check(dto.Polygons is { Count: 1 }, "port polygons: v3 dto reads the polygons field");
+    var ported = MapSerializer.PortPolygons(dto);
+    Check(ported.Polygons is null && ported.FloodRegions.Count == 1 && ported.AngledWalls.Count == 1
+        && !ported.Cells.Contains("4,0"),
+        "port polygons: polygons become walls, cells and a flood region");
+    var plain = System.Text.Json.JsonSerializer.Deserialize<MapFileDto>(MapSerializer.ToJson(src))!;
+    Check(ReferenceEquals(MapSerializer.PortPolygons(plain), plain), "port polygons: map without polygons unchanged");
 
     // base-edge merge: a triangle whose base is mated to a room face opens the
     // WHOLE shared face, not just the rows that pass the center-point fill test.
@@ -1854,13 +1971,15 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     Check(!tpts2.Contains((6, 0)) && !tpts2.Contains((10, 0)) && !tpts2.Contains((6, 3)), "disconnected triangles ring excludes triangle B corners");
     var cdoc = new MapDocument();
     Check(cdoc.FloodFillRegion(new CellKey(0, 0)) is null, "open field exceeds cap, returns null");
-    // flood regions are whole objects: erase removes them, walls survive
+    // erase cuts a hole in a flood region, walls survive
     var edoc = new MapDocument();
     edoc.AddLine(0, 0, 4, 0); edoc.AddLine(4, 0, 4, 4); edoc.AddLine(4, 4, 0, 4); edoc.AddLine(0, 4, 0, 0);
     edoc.AddFloodRegion(new FloodRegion { Rings = edoc.BuildFloodRings(edoc.FloodFillRegion(new CellKey(1, 1))!) });
     Check(edoc.FloodRegions.Count == 1, "AddFloodRegion adds the region");
     edoc.ClearRegion(1, 1, 2, 2);
-    Check(edoc.FloodRegions.Count == 0 && edoc.Walls.Count == 16, "erase removes flood region, walls survive");
+    Check(edoc.FloodRegions.Count == 1 && !edoc.FloorAt(1.5, 1.5) && !edoc.FloorAt(2.5, 2.5)
+        && edoc.FloorAt(0.5, 0.5) && edoc.FloorAt(3.5, 3.5) && edoc.Walls.Count == 16,
+        "erase clips a hole in the flood region, walls survive");
     // move carries the flood region as a whole object
     var mdoc = new MapDocument();
     mdoc.AddLine(0, 0, 4, 0); mdoc.AddLine(4, 0, 4, 4); mdoc.AddLine(4, 4, 0, 4); mdoc.AddLine(0, 4, 0, 0);

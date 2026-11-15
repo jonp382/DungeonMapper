@@ -13,7 +13,7 @@ public static class Bench
     {
         d.Cells.Clear(); d.Walls.Clear(); d.Doors.Clear(); d.Stairs.Clear();
         d.Labels.Clear(); d.Pawns.Clear(); d.AngledWalls.Clear();
-        d.AngledDoors.Clear(); d.Polygons.Clear(); d.VertexDoors.Clear();
+        d.AngledDoors.Clear(); d.VertexDoors.Clear();
     }
 
     static double TimeRender(CanvasHarness h, int frames)

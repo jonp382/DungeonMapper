@@ -566,8 +566,8 @@ public sealed class MapCanvas : Control
 
     /// Shared floor-ring painter: ring 0 outer, rings 1+ holes (EvenOdd fill),
     /// stroked edge-by-edge with the floor color to close anti-aliasing seams
-    /// where an edge meets a room rect. Used by flood regions AND polygon
-    /// floors - one geometry pipeline for both. Culled by the ring bounds.
+    /// where an edge meets a room rect. polygon floors are flood regions too,
+    /// so this is the one painter for both. culled by the ring bounds.
     private void DrawFloorRings(DrawingContext ctx, FloodRegion? fr, Point topLeft, Point bottomRight)
     {
         if (fr is null || fr.Rings.Count == 0) return;
@@ -629,28 +629,10 @@ public sealed class MapCanvas : Control
         //    lets the background bleed through as a faint line. Same-color
         //    overlap is invisible; overlap only happens where the neighbor is
         //    filled, so rooms never overhang their boundary.
-        // polygon-covered cells get their floor from the polygon geometry path
-        // below, NOT from cell rectangles. A cell whose center is inside the
-        // polygon is a fill cell, and drawing it as a full-cell rect would
-        // paint the whole square even where a polygon edge cuts the cell (the
-        // base-corner cells of a triangle). Remove fill cells from the
-        // merged-rect pass, and keep the half-pixel pad from bleeding room
-        // floor into a polygon cell across the polygon edge.
-        // culled to the visible window: off-screen polygons cost nothing. Fill
-        // cells are computed only for polygons whose bounds intersect the
-        // window, clamped to the window range, so a huge polygon enclosing the
-        // viewport costs O(window area), not O(polygon area).
+        // cells cut by a diagonal are never in Cells, the flood region rings
+        // below paint their floor, so every cell here is a full square.
         int cx0 = (int)Math.Floor(topLeft.X), cx1 = (int)Math.Ceiling(bottomRight.X);
         int cy0 = (int)Math.Floor(topLeft.Y), cy1 = (int)Math.Ceiling(bottomRight.Y);
-        var polyCells = new HashSet<CellKey>();
-        foreach (var p in Document.Polygons)
-        {
-            if (p.Verts.Count < 3) continue;
-            int pminX = p.Verts.Min(v => v.x), pmaxX = p.Verts.Max(v => v.x);
-            int pminY = p.Verts.Min(v => v.y), pmaxY = p.Verts.Max(v => v.y);
-            if (pmaxX < topLeft.X || pminX > bottomRight.X + 1 || pmaxY < topLeft.Y || pminY > bottomRight.Y + 1) continue;
-            polyCells.UnionWith(Document.PolygonFillCells(p.Verts, cx0, cx1, cy0, cy1));
-        }
 
         // Visible cells only. The greedy pass below needs top-left-first order;
         // iterating the viewport area row-by-row gives that for free (no LINQ
@@ -666,7 +648,7 @@ public sealed class MapCanvas : Control
                 for (int x = cx0; x <= cx1; x++)
                 {
                     var k = new CellKey(x, y);
-                    if (Document.Cells.Contains(k) && !polyCells.Contains(k))
+                    if (Document.Cells.Contains(k))
                     { visibleCells.Add(k); remaining.Add(k); }
                 }
         }
@@ -674,10 +656,7 @@ public sealed class MapCanvas : Control
         {
             foreach (var c in Document.Cells.Where(c => c.X >= cx0 && c.X <= cx1 && c.Y >= cy0 && c.Y <= cy1)
                                              .OrderBy(c => c.Y).ThenBy(c => c.X))
-            {
-                if (!polyCells.Contains(c))
-                { visibleCells.Add(c); remaining.Add(c); }
-            }
+            { visibleCells.Add(c); remaining.Add(c); }
         }
         foreach (var c in visibleCells)
         {
@@ -698,29 +677,13 @@ public sealed class MapCanvas : Control
                     remaining.Remove(new CellKey(c.X + dx, c.Y + dy));
             if (c.X + w < topLeft.X || c.X > bottomRight.X || c.Y + h < topLeft.Y || c.Y > bottomRight.Y) continue;
             double pad = 0.6;
-            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) && (!polyCells.Contains(new CellKey(c.X + w, c.Y)) || !Document.HasWall(new EdgeKey(new CellKey(c.X + w - 1, c.Y), Side.East))) ? pad : 0);
-            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) && (!polyCells.Contains(new CellKey(c.X, c.Y + h)) || !Document.HasWall(new EdgeKey(new CellKey(c.X, c.Y + h - 1), Side.South))) ? pad : 0);
+            double rw = w * _scale + (Document.Cells.Contains(new CellKey(c.X + w, c.Y)) ? pad : 0);
+            double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
             ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
         }
 
-        // polygon floors: the exact polygon shape, not the cell squares. The
-        // loop is filled as geometry, then stroked with the same brush: half the
-        // stroke width expands the fill outward, closing the anti-aliasing seam
-        // where a polygon edge meets a neighboring room rectangle (the same
-        // trick as the 0.6px rect overlap above). Grid lines draw on top.
-        foreach (var p in Document.Polygons)
-        {
-            if (p.Verts.Count < 3) continue;
-            int pminX = p.Verts.Min(v => v.x), pmaxX = p.Verts.Max(v => v.x);
-            int pminY = p.Verts.Min(v => v.y), pmaxY = p.Verts.Max(v => v.y);
-            if (pmaxX < topLeft.X || pminX > bottomRight.X + 1 || pmaxY < topLeft.Y || pminY > bottomRight.Y + 1) continue;
-            // the polygon floor is FloodRegion ring geometry, drawn by the same
-            // shared painter as the floor tool's flood fills
-            DrawFloorRings(ctx, p.Floor, topLeft, bottomRight);
-        }
-
-        // flood region floors: the same shared ring painter as polygon floors
+        // flood region floors, polygon floors included
         foreach (var fr in Document.FloodRegions)
             DrawFloorRings(ctx, fr, topLeft, bottomRight);
 
@@ -1823,26 +1786,13 @@ public sealed class MapCanvas : Control
                         Document.AngledDoors.Remove(w);
                     Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
                 }
-                // polygons touching the erase rect are removed as whole objects
-                // (loop, fill cells, boundary walls, angled walls, doors). The
-                // Cells filter gates them: a polygon's floor is cell geometry,
-                // and its walls go with the object - the rebuild below re-derives
-                // the surviving rooms' boundaries, so no wall lines are left
-                // floating over empty space.
-                if (f.Cells)
-                    foreach (var p in Document.Polygons
-                                 .Where(p => MapDocument.PolygonTouchesRect(p, x0, y0, x1, y1)).ToList())
-                        Document.RemovePolygon(p);
-                // flood region floors touching the erase rect are removed as
-                // whole objects (they own no walls - the lines survive)
-                if (f.Cells)
-                    foreach (var fr in Document.FloodRegions
-                                 .Where(fr => MapDocument.FloodRegionTouchesRect(fr, x0, y0, x1, y1)).ToList())
-                        Document.FloodRegions.Remove(fr);
+                // flood region floors (polygon and floor tool fills) lose the
+                // erased rect, the rest of each floor stays
+                if (f.Cells) Document.SubtractFloorRect(x0, y0, x1, y1);
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
-                // outer edge gets fresh walls. Scoped to the erase region: a
-                // global pass repaints polygon diagonals into staircases.
+                // outer edge gets fresh walls, including along a clipped floor.
+                // scoped to the erase region.
                 if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
                 Commit();
                 break;

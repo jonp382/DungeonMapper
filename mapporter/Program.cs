@@ -93,12 +93,17 @@ foreach (var f in files)
         if (isProject)
         {
             var dto = JsonSerializer.Deserialize<ProjectFileDto>(json)!;
+            // v4 drops polygon objects, the maps inside are ported with it
+            if (to >= 4)
+                foreach (var m in dto.Maps) m.Map = MapSerializer.PortPolygons(m.Map);
             dto.Version = to;
             outJson = JsonSerializer.Serialize(dto, JsonOpts);
         }
         else
         {
             var dto = JsonSerializer.Deserialize<MapFileDto>(json)!;
+            // v4 drops polygon objects: walls, cells and a flood region instead
+            if (to >= 4) dto = MapSerializer.PortPolygons(dto);
             dto.Version = to;
             outJson = JsonSerializer.Serialize(dto, JsonOpts);
         }
