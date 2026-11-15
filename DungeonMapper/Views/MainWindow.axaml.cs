@@ -68,6 +68,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        AddHandler(PointerPressedEvent, DisarmDeleteOnPress, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
         Canvas.Document = _doc;
         Canvas.Settings = _settings;
@@ -370,6 +371,7 @@ public partial class MainWindow : Window
         DoorPresetsOverlay.IsVisible = false;
         HotkeysOverlay.IsVisible = false;
         MapsOverlay.IsVisible = false;
+        DisarmDelete();
     }
 
     private void SetTool(ToolMode mode)
@@ -595,10 +597,52 @@ public partial class MainWindow : Window
     private const string IconExport = "M12 15 V4 M7 9 L12 4 L17 9 M5 14 V20 H19 V14";
     private const string IconDelete = "M6 6 L18 18 M18 6 L6 18";
 
-    // the map whose name is being edited inline, and the map waiting on a
-    // second click to delete. both reset when the panel rebuilds for another map.
+    // the map whose name is being edited inline
     private MapEntry? _renamingMap;
+
+    // delete takes two clicks: x arms a red "delete?" button in its place. it
+    // disarms after 10 seconds, on a click anywhere else, or when the panel
+    // rebuilds or reopens. disarming flips visibility in place instead of
+    // rebuilding, so the click that disarmed it still lands on its target.
     private MapEntry? _confirmDeleteMap;
+    private Button? _confirmDeleteButton, _deleteArmButton;
+    private Avalonia.Threading.DispatcherTimer? _confirmDeleteTimer;
+
+    private void ArmDelete(MapEntry entry, Button arm, Button confirm)
+    {
+        DisarmDelete();
+        _confirmDeleteMap = entry;
+        _deleteArmButton = arm;
+        _confirmDeleteButton = confirm;
+        arm.IsVisible = false;
+        confirm.IsVisible = true;
+        if (_confirmDeleteTimer is null)
+        {
+            _confirmDeleteTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+            _confirmDeleteTimer.Tick += (_, _) => DisarmDelete();
+        }
+        _confirmDeleteTimer.Stop();
+        _confirmDeleteTimer.Start();
+    }
+
+    private void DisarmDelete()
+    {
+        _confirmDeleteTimer?.Stop();
+        if (_deleteArmButton is not null) _deleteArmButton.IsVisible = true;
+        if (_confirmDeleteButton is not null) _confirmDeleteButton.IsVisible = false;
+        _confirmDeleteMap = null;
+        _deleteArmButton = _confirmDeleteButton = null;
+    }
+
+    // tunnels ahead of every control: a press anywhere but the armed "delete?"
+    // button disarms it
+    private void DisarmDeleteOnPress(object? sender, PointerPressedEventArgs e)
+    {
+        if (_confirmDeleteButton is null) return;
+        for (var v = e.Source as Avalonia.Visual; v is not null; v = Avalonia.VisualTree.VisualExtensions.GetVisualParent(v))
+            if (ReferenceEquals(v, _confirmDeleteButton)) return;
+        DisarmDelete();
+    }
 
     private void ToggleMaps()
     {
@@ -612,6 +656,7 @@ public partial class MainWindow : Window
     private void ShowMaps()
     {
         MapsOverlay.IsVisible = true;
+        DisarmDelete();
         MapsRows.Children.Clear();
         for (int i = 0; i < _project.Maps.Count; i++)
         {
@@ -686,32 +731,28 @@ public partial class MainWindow : Window
                 return b;
             }
 
-            Small(1, IconPencil, "Rename", () => { _renamingMap = entry; _confirmDeleteMap = null; ShowMaps(); });
+            Small(1, IconPencil, "Rename", () => { _renamingMap = entry; ShowMaps(); });
             Small(2, IconUp, "Move up", () => { _project.MoveMap(idx, idx - 1); RefreshMapList(); ShowMaps(); }, idx > 0);
             Small(3, IconDown, "Move down", () => { _project.MoveMap(idx, idx + 1); RefreshMapList(); ShowMaps(); }, idx < _project.Maps.Count - 1);
             Small(4, IconExport, "Export this map to a file", () => ExportMap(entry));
 
-            if (ReferenceEquals(_confirmDeleteMap, entry))
+            // second step: an explicit red button, so a stray click never deletes
+            var confirm = new Button
             {
-                // second step: an explicit red button, so a stray click never deletes
-                var confirm = new Button
-                {
-                    Content = "delete?",
-                    Height = 28, Padding = new Thickness(6, 0),
-                    Background = new SolidColorBrush(Color.Parse("#8a2a2a")),
-                    Foreground = Brushes.White,
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                };
-                ToolTip.SetTip(confirm, "Click again to delete this map");
-                confirm.Click += (_, _) => DeleteMap(entry);
-                Grid.SetColumn(confirm, 5);
-                row.Children.Add(confirm);
-            }
-            else
-            {
-                Small(5, IconDelete, _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
-                    () => { _confirmDeleteMap = entry; _renamingMap = null; ShowMaps(); }, _project.Maps.Count > 1);
-            }
+                Content = "delete?",
+                Height = 28, Padding = new Thickness(6, 0),
+                Background = new SolidColorBrush(Color.Parse("#8a2a2a")),
+                Foreground = Brushes.White,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                IsVisible = false,
+            };
+            ToolTip.SetTip(confirm, "Click again to delete this map");
+            confirm.Click += (_, _) => DeleteMap(entry);
+            Grid.SetColumn(confirm, 5);
+            row.Children.Add(confirm);
+            Button? arm = null;
+            arm = Small(5, IconDelete, _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
+                () => ArmDelete(entry, arm!, confirm), _project.Maps.Count > 1);
 
             MapsRows.Children.Add(row);
         }
