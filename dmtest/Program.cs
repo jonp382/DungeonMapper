@@ -1454,6 +1454,29 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     Check(westWalls, "erase merged: other polygon gets a wall along the erase edge");
     Check(ed.AngledWalls.Count == 0, "erase merged: no angled walls left behind");
     eh.Dispose();
+
+    // room with merged polygons attached, erased in pieces. the strips around
+    // an erase can overlap along a line, which used to leave the ring walk
+    // with a dead end and throw.
+    var rm = new MapDocument();
+    rm.AddRoom(0, 0, 9, 5);
+    rm.AddPolygon(new List<(int, int)> { (10, 0), (14, 0), (10, 4) }, false, false, true);
+    rm.AddPolygon(new List<(int, int)> { (14, 0), (14, 4), (10, 4) }, false, false, true);
+    bool threw = false;
+    try
+    {
+        foreach (var (x0, y0, x1, y1) in new[] { (13, 1, 14, 3), (8, 1, 11, 2), (8, 3, 11, 4) })
+        {
+            rm.ClearRegion(x0, y0, x1, y1);
+            rm.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
+        }
+    }
+    catch (Exception) { threw = true; }
+    Check(!threw, "room plus merged polygons: erasing in pieces does not throw");
+    Check(!rm.FloorAt(10.5, 1.5) && !rm.FloorAt(11.5, 4.5) && !rm.FloorAt(13.5, 2.5),
+        "room plus merged polygons: erased floor gone");
+    Check(rm.FloorAt(12.5, 0.5) && rm.FloorAt(10.5, 0.5) && rm.FloorAt(12.5, 3.5),
+        "room plus merged polygons: floor outside the erases kept");
 }
 {
     // legacy v3 file: polygons stored as a vertex loop next to their walls

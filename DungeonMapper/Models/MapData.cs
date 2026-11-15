@@ -1086,12 +1086,19 @@ public sealed class MapDocument
         var verts = new HashSet<(double, double)>();
         foreach (var poly in polys) foreach (var v in poly) verts.Add(v);
 
-        var edges = new HashSet<(double, double, double, double)>();
+        // net count per directed edge: an edge added twice (strips or rings
+        // that overlap along a line) has to cancel twice, a plain set would
+        // drop the second copy and leave a vertex with no way out
+        var edges = new Dictionary<(double, double, double, double), int>();
         void AddEdge(double ax, double ay, double bx, double by)
         {
             if (ax == bx && ay == by) return;
-            if (edges.Contains((bx, by, ax, ay))) edges.Remove((bx, by, ax, ay));
-            else edges.Add((ax, ay, bx, by));
+            if (edges.TryGetValue((bx, by, ax, ay), out int back))
+            {
+                if (back == 1) edges.Remove((bx, by, ax, ay));
+                else edges[(bx, by, ax, ay)] = back - 1;
+            }
+            else edges[(ax, ay, bx, by)] = edges.GetValueOrDefault((ax, ay, bx, by)) + 1;
         }
         foreach (var poly in polys)
         {
@@ -1120,35 +1127,35 @@ public sealed class MapDocument
             }
         }
 
-        // walk rings: every boundary vertex has one in-edge and one out-edge
+        // walk rings: every boundary vertex has as many out-edges as in-edges.
+        // each walk pops the out-edges it uses.
         var outMap = new Dictionary<(double, double), List<(double, double)>>();
-        foreach (var (ax, ay, bx, by) in edges)
+        foreach (var ((ax, ay, bx, by), count) in edges)
         {
             if (!outMap.TryGetValue((ax, ay), out var l)) outMap[(ax, ay)] = l = new List<(double, double)>();
-            l.Add((bx, by));
+            for (int k = 0; k < count; k++) l.Add((bx, by));
         }
-        var used = new HashSet<(double, double, double, double)>();
         var rings = new List<List<(double, double)>>();
-        foreach (var (ax, ay, bx, by) in edges)
+        foreach (var startKey in outMap.Keys.ToList())
         {
-            if (used.Contains((ax, ay, bx, by))) continue;
-            var ring = new List<(double, double)> { (ax, ay) };
-            var start = (ax, ay);
-            var cur = (bx, by);
-            used.Add((ax, ay, bx, by));
-            while (cur != start)
+            while (outMap[startKey].Count > 0)
             {
-                ring.Add(cur);
-                // nullable sentinel: (0,0) is a legitimate boundary vertex, so a
-                // plain default tuple would read as "no next edge" and break the
-                // walk on any region touching the origin
-                (double, double)? nxt = null;
-                foreach (var n2 in outMap[cur])
-                    if (!used.Contains((cur.Item1, cur.Item2, n2.Item1, n2.Item2))) { nxt = n2; used.Add((cur.Item1, cur.Item2, n2.Item1, n2.Item2)); break; }
-                if (nxt is null) break; // open boundary: unclosed region
-                cur = nxt.Value;
+                var start = startKey;
+                var ring = new List<(double, double)> { start };
+                var cur = outMap[start][^1];
+                outMap[start].RemoveAt(outMap[start].Count - 1);
+                while (cur != start)
+                {
+                    ring.Add(cur);
+                    // a vertex with no way out only happens on bad input, the
+                    // open piece is dropped instead of throwing
+                    if (!outMap.TryGetValue(cur, out var outs) || outs.Count == 0) { ring.Clear(); break; }
+                    var nxt = outs[^1];
+                    outs.RemoveAt(outs.Count - 1);
+                    cur = nxt;
+                }
+                if (ring.Count >= 3) rings.Add(MergeCollinear(ring));
             }
-            if (ring.Count >= 3) rings.Add(MergeCollinear(ring));
         }
         return rings;
     }
