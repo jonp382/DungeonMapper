@@ -61,9 +61,17 @@
                             <Separator />
                             <MenuItem x:Name="MenuSettings" Header="Se_ttings..." />
                         </MenuItem>
+                        <MenuItem Header="_Edit">
+                            <MenuItem x:Name="MenuUndo" Header="_Undo" InputGesture="Ctrl+Z" />
+                            <MenuItem x:Name="MenuRedo" Header="_Redo" InputGesture="Ctrl+Y" />
+                        </MenuItem>
+                        <MenuItem Header="_View">
+                            <MenuItem x:Name="MenuFit" Header="Zoom to _fit" />
+                        </MenuItem>
                         <MenuItem Header="_Manage">
                             <MenuItem x:Name="MenuPawns" Header="_Pawns..." />
                             <MenuItem x:Name="MenuDoorPresets" Header="_Door presets..." />
+                            <MenuItem x:Name="MenuHotkeys" Header="_Hotkeys..." />
                         </MenuItem>
                     </Menu>
                 </Border>
@@ -72,11 +80,6 @@
                 <Border Background="#1a1a22" BorderBrush="#2a2a34" BorderThickness="0,0,0,1" Padding="8,5">
                     <DockPanel>
                         <!-- map switching sits at the right end of the bar -->
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
-                            <ComboBox x:Name="MapList" MinWidth="140" VerticalAlignment="Center" />
-                            <Button x:Name="BtnAddMap" Classes="hot" />
-                            <Button x:Name="BtnRenameMap" Classes="hot" />
-                        </StackPanel>
                         <WrapPanel ItemSpacing="2" LineSpacing="4" VerticalAlignment="Center">
                             <Button x:Name="ToolSelect" Classes="hot" />
                             <Button x:Name="ToolMove" Classes="hot" />
@@ -92,14 +95,21 @@
                             <Button x:Name="ToolPawn" Classes="hot" />
                             <Border Classes="sep" />
                             <Button x:Name="ToolErase" Classes="hot" />
-                            <Border Classes="sep" />
-                            <Button x:Name="BtnUndo" Classes="hot" />
-                            <Button x:Name="BtnRedo" Classes="hot" />
-                            <Button x:Name="BtnFit" Classes="hot" />
                         </WrapPanel>
                     </DockPanel>
                 </Border>
             </StackPanel>
+        </ThemeVariantScope>
+
+        <!-- bottom strip: map switcher, add and rename -->
+        <ThemeVariantScope DockPanel.Dock="Bottom" RequestedThemeVariant="Dark">
+            <Border Background="#1a1a22" BorderBrush="#2a2a34" BorderThickness="0,1,0,0" Padding="8,4">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <ComboBox x:Name="MapList" MinWidth="160" VerticalAlignment="Center" />
+                    <Button x:Name="BtnAddMap" Classes="hot" />
+                    <Button x:Name="BtnRenameMap" Classes="hot" />
+                </StackPanel>
+            </Border>
         </ThemeVariantScope>
 
         <Panel>
@@ -176,6 +186,22 @@
                     </StackPanel>
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
                         <StackPanel x:Name="DoorPresetsSections" Spacing="10" />
+                    </ScrollViewer>
+                </StackPanel>
+            </Border>
+            <!-- hotkeys modal: editable tool letters plus the fixed shortcuts.
+                 built in code (ShowHotkeys) into HotkeysSections. -->
+            <Border x:Name="HotkeysOverlay" IsVisible="False"
+                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
+                    Width="440" MaxHeight="640" Padding="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center">
+                <StackPanel Spacing="8">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Hotkeys" FontSize="15" Foreground="White" VerticalAlignment="Center" />
+                        <Button x:Name="HotkeysClose" Content="close" Margin="8,0,0,0" />
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="560">
+                        <StackPanel x:Name="HotkeysSections" Spacing="10" />
                     </ScrollViewer>
                 </StackPanel>
             </Border>

@@ -86,14 +86,8 @@ public partial class MainWindow : Window
         SetIcon(ToolLabel, PngIcon("DMLabel"));
         SetIcon(ToolPawn, PathIcon("M15 6.5 A3 3 0 1 1 9 6.5 A3 3 0 1 1 15 6.5 Z M9.5 11 H14.5 M10.5 11 L9 18 M13.5 11 L15 18 M6.5 20.5 H17.5 L16.5 18 H7.5 Z"));
         SetIcon(ToolErase, PngIcon("DMErase"));
-        SetIcon(BtnUndo, PathIcon("M9 14 L4 9 L9 4 M4 9 H15 A5 5 0 0 1 15 19 H11"));
-        SetIcon(BtnRedo, PathIcon("M15 14 L20 9 L15 4 M20 9 H9 A5 5 0 0 0 9 19 H13"));
-        SetIcon(BtnFit, PngIcon("DMFit"));
         SetIcon(BtnAddMap, PathIcon("M12 5 V19 M5 12 H19"));
         SetIcon(BtnRenameMap, PathIcon("M4 20 V16 L15.5 4.5 L19.5 8.5 L8 20 Z M12.5 7.5 L16.5 11.5"));
-        ToolTip.SetTip(BtnUndo, "Undo (Ctrl+Z)");
-        ToolTip.SetTip(BtnRedo, "Redo (Ctrl+Y)");
-        ToolTip.SetTip(BtnFit, "Fit map to view");
         ToolTip.SetTip(BtnAddMap, "Add map");
         ToolTip.SetTip(BtnRenameMap, "Rename map");
         ToolTip.SetTip(MapList, "Switch map");
@@ -123,21 +117,26 @@ public partial class MainWindow : Window
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
 
-        BtnUndo.Click += (_, _) => DoUndo();
-        BtnRedo.Click += (_, _) => DoRedo();
-        BtnFit.Click += (_, _) => Canvas.AutoFit();
 
         // file and manage menus
         MenuSave.Icon = MenuIcon("DMSave");
         MenuLoad.Icon = MenuIcon("DMOpen");
         MenuSettings.Icon = MenuIcon("DMSettings");
         MenuDoorPresets.Icon = MenuIcon("DMDoor");
+        MenuUndo.Icon = MenuPathIcon("M9 14 L4 9 L9 4 M4 9 H15 A5 5 0 0 1 15 19 H11");
+        MenuRedo.Icon = MenuPathIcon("M15 14 L20 9 L15 4 M20 9 H9 A5 5 0 0 0 9 19 H13");
+        MenuFit.Icon = MenuIcon("DMFit");
+        MenuUndo.Click += (_, _) => DoUndo();
+        MenuRedo.Click += (_, _) => DoRedo();
+        MenuFit.Click += (_, _) => Canvas.AutoFit();
         MenuSave.Click += (_, _) => SaveCurrent();
         MenuSaveAs.Click += (_, _) => SaveMap();
         MenuLoad.Click += (_, _) => LoadMap();
         MenuSettings.Click += (_, _) => { CloseModals(); ShowSettings(); };
         MenuPawns.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
         MenuDoorPresets.Click += (_, _) => { CloseModals(); ShowDoorPresets(); };
+        MenuHotkeys.Click += (_, _) => { CloseModals(); ShowHotkeys(); };
+        HotkeysClose.Click += (_, _) => { FlushSettings(); HotkeysOverlay.IsVisible = false; };
 
         // settings + door presets modal popups
         SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
@@ -355,6 +354,7 @@ public partial class MainWindow : Window
     }
 
     private static Control MenuIcon(string name) => PngIcon(name, 16);
+    private static Control MenuPathIcon(string data) => PathIcon(data, 16);
 
     private static void SetIcon(Button b, Control icon) => b.Content = icon;
 
@@ -365,6 +365,7 @@ public partial class MainWindow : Window
         ModalOverlay.IsVisible = false;
         SettingsOverlay.IsVisible = false;
         DoorPresetsOverlay.IsVisible = false;
+        HotkeysOverlay.IsVisible = false;
     }
 
     private void SetTool(ToolMode mode)
@@ -808,9 +809,20 @@ public partial class MainWindow : Window
             MarkSetting();
         });
 
-        // tool hotkeys editor (item 7): grid of small single-letter boxes with a
-        // label above each, like the pawn status styles. Reset restores the
-        // hardcoded defaults.
+        SettingsOverlay.IsVisible = true;
+        ToolPanel.SetTarget(null);
+    }
+
+    // hotkeys: editable single letter per tool, then the fixed shortcuts.
+    // edits apply live to the tooltips and flush like settings.
+    private void ShowHotkeys()
+    {
+        FlushSettings();
+        ToolPanel.SetTarget(HotkeysSections);
+        HotkeysSections.Children.Clear();
+
+        // grid of small single-letter boxes with a label above each. reset
+        // restores the hardcoded defaults.
         ToolPanel.AddHint("tool hotkeys (single letter):");
         var hotkeyGrid = new WrapPanel { MaxWidth = 420 };
         foreach (var modeName in _settings.ToolHotkeys.Keys)
@@ -838,11 +850,37 @@ public partial class MainWindow : Window
             _settings.ToolHotkeys = AppSettings.Default().ToolHotkeys;
             MarkSetting();
             FlushSettings();
-            ShowSettings(); // rebuild the grid with the restored defaults
+            ShowHotkeys(); // rebuild the grid with the restored defaults
             RefreshToolLabels();
         });
 
-        SettingsOverlay.IsVisible = true;
+
+        // fixed shortcuts, listed for reference only
+        ToolPanel.AddHint("fixed shortcuts:");
+        var fixedGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(2, 0, 0, 0) };
+        (string keys, string what)[] fixedKeys =
+        {
+            ("Ctrl+S", "save"),
+            ("Ctrl+Z / Ctrl+Y", "undo / redo"),
+            ("Ctrl+C / X / V", "copy / cut / paste at cursor"),
+            ("Delete", "erase the selection"),
+            ("R / Shift+R", "rotate a picked up selection"),
+            ("Enter", "close the polygon"),
+            ("Esc", "cancel a move, polygon or wall line"),
+            ("Right drag", "pan"),
+            ("Wheel", "zoom"),
+        };
+        for (int i = 0; i < fixedKeys.Length; i++)
+        {
+            fixedGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            var k = new TextBlock { Text = fixedKeys[i].keys, Foreground = Brushes.White, FontSize = 12, Margin = new Thickness(0, 2, 16, 2) };
+            var w = new TextBlock { Text = fixedKeys[i].what, Foreground = new SolidColorBrush(Color.FromRgb(0xaa, 0xaa, 0xb4)), FontSize = 12, Margin = new Thickness(0, 2) };
+            Grid.SetRow(k, i); Grid.SetRow(w, i); Grid.SetColumn(w, 1);
+            fixedGrid.Children.Add(k); fixedGrid.Children.Add(w);
+        }
+        ToolPanel.Target.Children.Add(fixedGrid);
+
+        HotkeysOverlay.IsVisible = true;
         ToolPanel.SetTarget(null);
     }
 
