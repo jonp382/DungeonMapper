@@ -3,41 +3,104 @@
         xmlns:controls="using:DungeonMapper.Controls"
         xmlns:views="using:DungeonMapper.Views"
         x:Class="DungeonMapper.Views.MainWindow"
-        Icon="/Assets/avalonia-logo.ico"
+        Icon="/Assets/DMRoom2.png"
         Title="Dungeon Mapper"
         Width="1100" Height="700">
 
+    <Window.Styles>
+        <!-- hotbar buttons: flat squares, a soft fill on hover and an accent
+             fill on the active tool -->
+        <Style Selector="Button.hot">
+            <Setter Property="Width" Value="38" />
+            <Setter Property="Height" Value="38" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.hot:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2c2c38" />
+            <Setter Property="BorderBrush" Value="#3a3a48" />
+        </Style>
+        <Style Selector="Button.hot:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#3a3a4a" />
+        </Style>
+        <Style Selector="Button.hot.active /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#2f4a6e" />
+            <Setter Property="BorderBrush" Value="#5d8ac4" />
+        </Style>
+        <Style Selector="Button.hot:disabled /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Opacity" Value="0.35" />
+        </Style>
+        <!-- thin divider between hotbar groups -->
+        <Style Selector="Border.sep">
+            <Setter Property="Width" Value="1" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Margin" Value="6,0" />
+            <Setter Property="Background" Value="#34343f" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Styles>
+
     <DockPanel>
-        <!-- toolbar wraps to multiple rows on narrow windows (no horizontal scroll
-             needed below 2560x1440); padding trimmed to keep the bar compact -->
-        <Border DockPanel.Dock="Top" Background="#1a1a22" Padding="6,4">
-            <WrapPanel ItemSpacing="6" LineSpacing="4">
-                <Button x:Name="ToolSelect" Content="Select" />
-                <Button x:Name="ToolMove" Content="Move" />
-                <Button x:Name="ToolRoom" Content="Room" />
-                <Button x:Name="ToolFloor" Content="Floor" />
-                <Button x:Name="ToolWall" Content="Wall" />
-                <Button x:Name="ToolDoor" Content="Door" />
-                <Button x:Name="ToolStair" Content="Stair" />
-                <Button x:Name="ToolLabel" Content="Label" />
-                <Button x:Name="ToolErase" Content="Erase" />
-                <Button x:Name="ToolPawn" Content="Pawn" />
-                <Button x:Name="ToolPolygon" Content="Polygon" />
-                <Separator/>
-                <ComboBox x:Name="MapList" MinWidth="120" />
-                <Button x:Name="BtnAddMap" Content="+Map" />
-                <Button x:Name="BtnRenameMap" Content="Rename" />
-                <Separator />
-                <Button x:Name="BtnUndo" Content="Undo" />
-                <Button x:Name="BtnRedo" Content="Redo" />
-                <Separator />
-                <Button x:Name="BtnSave" Content="Save" />
-                <Button x:Name="BtnLoad" Content="Load" />
-                <Button x:Name="BtnFit" Content="Fit" />
-                <Separator />
-                <Button x:Name="BtnSettings" Content="Settings" />
-            </WrapPanel>
-        </Border>
+        <!-- top area: a thin menu strip (file, manage) over the icon hotbar.
+             both are forced dark so they match the canvas chrome whatever the
+             system theme is. -->
+        <ThemeVariantScope DockPanel.Dock="Top" RequestedThemeVariant="Dark">
+            <StackPanel>
+                <Border Background="#121218" BorderBrush="#2a2a34" BorderThickness="0,0,0,1">
+                    <Menu x:Name="MainMenu" Padding="2,0">
+                        <MenuItem Header="_File">
+                            <MenuItem x:Name="MenuSave" Header="_Save" InputGesture="Ctrl+S" />
+                            <MenuItem x:Name="MenuSaveAs" Header="Save _as..." />
+                            <MenuItem x:Name="MenuLoad" Header="_Load..." />
+                            <Separator />
+                            <MenuItem x:Name="MenuSettings" Header="Se_ttings..." />
+                        </MenuItem>
+                        <MenuItem Header="_Manage">
+                            <MenuItem x:Name="MenuPawns" Header="_Pawns..." />
+                            <MenuItem x:Name="MenuDoorPresets" Header="_Door presets..." />
+                        </MenuItem>
+                    </Menu>
+                </Border>
+                <!-- hotbar: icon only buttons, grouped, tooltips carry the names
+                     and hotkeys. wraps on narrow windows. -->
+                <Border Background="#1a1a22" BorderBrush="#2a2a34" BorderThickness="0,0,0,1" Padding="8,5">
+                    <DockPanel>
+                        <!-- map switching sits at the right end of the bar -->
+                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                            <ComboBox x:Name="MapList" MinWidth="140" VerticalAlignment="Center" />
+                            <Button x:Name="BtnAddMap" Classes="hot" />
+                            <Button x:Name="BtnRenameMap" Classes="hot" />
+                        </StackPanel>
+                        <WrapPanel ItemSpacing="2" LineSpacing="4" VerticalAlignment="Center">
+                            <Button x:Name="ToolSelect" Classes="hot" />
+                            <Button x:Name="ToolMove" Classes="hot" />
+                            <Border Classes="sep" />
+                            <Button x:Name="ToolRoom" Classes="hot" />
+                            <Button x:Name="ToolFloor" Classes="hot" />
+                            <Button x:Name="ToolWall" Classes="hot" />
+                            <Button x:Name="ToolPolygon" Classes="hot" />
+                            <Border Classes="sep" />
+                            <Button x:Name="ToolDoor" Classes="hot" />
+                            <Button x:Name="ToolStair" Classes="hot" />
+                            <Button x:Name="ToolLabel" Classes="hot" />
+                            <Button x:Name="ToolPawn" Classes="hot" />
+                            <Border Classes="sep" />
+                            <Button x:Name="ToolErase" Classes="hot" />
+                            <Border Classes="sep" />
+                            <Button x:Name="BtnUndo" Classes="hot" />
+                            <Button x:Name="BtnRedo" Classes="hot" />
+                            <Button x:Name="BtnFit" Classes="hot" />
+                        </WrapPanel>
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </ThemeVariantScope>
 
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />

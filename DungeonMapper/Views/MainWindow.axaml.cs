@@ -74,18 +74,30 @@ public partial class MainWindow : Window
         Canvas.Library = ActiveLibrary;
         HistoryFor(_project.Maps[0]); // snapshot the starting map at startup
 
-        // hotkey labels on tool buttons (item: show hotkeys in tool text)
-        LabelTool(ToolSelect, "Select");
-        LabelTool(ToolMove, "Move");
-        LabelTool(ToolRoom, "Room");
-        LabelTool(ToolFloor, "Floor");
-        LabelTool(ToolWall, "Wall");
-        LabelTool(ToolDoor, "Door");
-        LabelTool(ToolStair, "Stair");
-        LabelTool(ToolLabel, "Label");
-        LabelTool(ToolErase, "Erase");
-        LabelTool(ToolPawn, "Pawn");
-        LabelTool(ToolPolygon, "Polygon");
+        // hotbar icons. tools without a png yet get a drawn placeholder.
+        SetIcon(ToolSelect, PngIcon("DMSelect"));
+        SetIcon(ToolMove, PngIcon("DMMove"));
+        SetIcon(ToolRoom, PngIcon("DMRoom2"));
+        SetIcon(ToolFloor, PngIcon("DMFloor"));
+        SetIcon(ToolWall, PngIcon("DMWall"));
+        SetIcon(ToolPolygon, PathIcon("M12 3 L21 10 L17.5 21 L6.5 21 L3 10 Z"));
+        SetIcon(ToolDoor, PngIcon("DMDoor"));
+        SetIcon(ToolStair, PngIcon("DMStairs"));
+        SetIcon(ToolLabel, PngIcon("DMLabel"));
+        SetIcon(ToolPawn, PathIcon("M15 6.5 A3 3 0 1 1 9 6.5 A3 3 0 1 1 15 6.5 Z M9.5 11 H14.5 M10.5 11 L9 18 M13.5 11 L15 18 M6.5 20.5 H17.5 L16.5 18 H7.5 Z"));
+        SetIcon(ToolErase, PngIcon("DMErase"));
+        SetIcon(BtnUndo, PathIcon("M9 14 L4 9 L9 4 M4 9 H15 A5 5 0 0 1 15 19 H11"));
+        SetIcon(BtnRedo, PathIcon("M15 14 L20 9 L15 4 M20 9 H9 A5 5 0 0 0 9 19 H13"));
+        SetIcon(BtnFit, PngIcon("DMFit"));
+        SetIcon(BtnAddMap, PathIcon("M12 5 V19 M5 12 H19"));
+        SetIcon(BtnRenameMap, PathIcon("M4 20 V16 L15.5 4.5 L19.5 8.5 L8 20 Z M12.5 7.5 L16.5 11.5"));
+        ToolTip.SetTip(BtnUndo, "Undo (Ctrl+Z)");
+        ToolTip.SetTip(BtnRedo, "Redo (Ctrl+Y)");
+        ToolTip.SetTip(BtnFit, "Fit map to view");
+        ToolTip.SetTip(BtnAddMap, "Add map");
+        ToolTip.SetTip(BtnRenameMap, "Rename map");
+        ToolTip.SetTip(MapList, "Switch map");
+        RefreshToolLabels();
 
         // map list (item 8)
         RefreshMapList();
@@ -114,9 +126,18 @@ public partial class MainWindow : Window
         BtnUndo.Click += (_, _) => DoUndo();
         BtnRedo.Click += (_, _) => DoRedo();
         BtnFit.Click += (_, _) => Canvas.AutoFit();
-        BtnSave.Click += (_, _) => SaveMap();
-        BtnLoad.Click += (_, _) => LoadMap();
-        BtnSettings.Click += (_, _) => ShowSettings();
+
+        // file and manage menus
+        MenuSave.Icon = MenuIcon("DMSave");
+        MenuLoad.Icon = MenuIcon("DMOpen");
+        MenuSettings.Icon = MenuIcon("DMSettings");
+        MenuDoorPresets.Icon = MenuIcon("DMDoor");
+        MenuSave.Click += (_, _) => SaveCurrent();
+        MenuSaveAs.Click += (_, _) => SaveMap();
+        MenuLoad.Click += (_, _) => LoadMap();
+        MenuSettings.Click += (_, _) => { CloseModals(); ShowSettings(); };
+        MenuPawns.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
+        MenuDoorPresets.Click += (_, _) => { CloseModals(); ShowDoorPresets(); };
 
         // settings + door presets modal popups
         SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
@@ -261,14 +282,14 @@ public partial class MainWindow : Window
         Canvas.Focus();
     }
 
-    // "Tool (K)" button label from the configurable hotkey table.
+    // "Tool (K)" tooltip from the configurable hotkey table
     private void LabelTool(Button b, string modeName)
     {
         string key = _settings.ToolHotkeys.TryGetValue(modeName, out var k) ? k : "";
-        b.Content = string.IsNullOrEmpty(key) ? modeName : $"{modeName} ({key})";
+        ToolTip.SetTip(b, string.IsNullOrEmpty(key) ? modeName : $"{modeName} ({key})");
     }
 
-    // Re-label all tool buttons after a hotkey edit.
+    // re-tooltip all tool buttons, also after a hotkey edit
     private void RefreshToolLabels()
     {
         LabelTool(ToolSelect, "Select");
@@ -284,6 +305,68 @@ public partial class MainWindow : Window
         LabelTool(ToolPolygon, "Polygon");
     }
 
+    private Button ToolButton(ToolMode mode) => mode switch
+    {
+        ToolMode.Select => ToolSelect,
+        ToolMode.Move => ToolMove,
+        ToolMode.Room => ToolRoom,
+        ToolMode.Floor => ToolFloor,
+        ToolMode.Wall => ToolWall,
+        ToolMode.Door => ToolDoor,
+        ToolMode.Stair => ToolStair,
+        ToolMode.Label => ToolLabel,
+        ToolMode.Erase => ToolErase,
+        ToolMode.Pawn => ToolPawn,
+        _ => ToolPolygon,
+    };
+
+    // the asset pngs are 1080px, decode them small once and share them
+    private static readonly Dictionary<string, Avalonia.Media.Imaging.Bitmap> _iconCache = new();
+    private static Avalonia.Media.Imaging.Bitmap IconBitmap(string name)
+    {
+        if (_iconCache.TryGetValue(name, out var bmp)) return bmp;
+        using var stream = Avalonia.Platform.AssetLoader.Open(new Uri($"avares://DungeonMapper/Assets/{name}.png"));
+        bmp = Avalonia.Media.Imaging.Bitmap.DecodeToWidth(stream, 64, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        _iconCache[name] = bmp;
+        return bmp;
+    }
+
+    private static Control PngIcon(string name, double size = 22)
+    {
+        var img = new Image { Source = IconBitmap(name), Width = size, Height = size };
+        RenderOptions.SetBitmapInterpolationMode(img, Avalonia.Media.Imaging.BitmapInterpolationMode.HighQuality);
+        return img;
+    }
+
+    // stand-in line icon on a 24x24 grid for buttons that have no png yet
+    private static Control PathIcon(string data, double size = 22)
+    {
+        var path = new Path
+        {
+            Data = Geometry.Parse(data),
+            Stroke = Brushes.White,
+            StrokeThickness = 2,
+            StrokeLineCap = PenLineCap.Round,
+            StrokeJoin = PenLineJoin.Round,
+        };
+        var box = new Canvas { Width = 24, Height = 24 };
+        box.Children.Add(path);
+        return new Viewbox { Width = size, Height = size, Child = box };
+    }
+
+    private static Control MenuIcon(string name) => PngIcon(name, 16);
+
+    private static void SetIcon(Button b, Control icon) => b.Content = icon;
+
+    // the popups share the space over the map, only one shows at a time
+    private void CloseModals()
+    {
+        FlushSettings();
+        ModalOverlay.IsVisible = false;
+        SettingsOverlay.IsVisible = false;
+        DoorPresetsOverlay.IsVisible = false;
+    }
+
     private void SetTool(ToolMode mode)
     {
         FlushSettings(); // switching tools flushes pending settings changes
@@ -291,6 +374,8 @@ public partial class MainWindow : Window
         // disarmed, rotation resets, and hotkeys are restored.
         Canvas.CancelMove();
         Canvas.Mode = mode;
+        foreach (var m in Enum.GetValues<ToolMode>())
+            ToolButton(m).Classes.Set("active", m == mode);
         // re-selecting a tool resets the armed pawn template: the user expects
         // clicking the pawn tool again to clear a stale selection.
         Canvas.ArmedPawn = null;
