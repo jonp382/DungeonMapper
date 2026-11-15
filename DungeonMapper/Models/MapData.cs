@@ -669,10 +669,10 @@ public sealed class MapDocument
 
         ApplyPolygonBoundary(verts, fill, existing, passageway, strict);
 
-        // the floor: fill cells plus the triangles the polygon's own diagonals
-        // leave behind, clipped by those walls only. it is added after the
+        // the floor: the polygon itself, as full fill cells plus each cell a
+        // diagonal crosses clipped to the polygon. it is added after the
         // merge pass so FloorAcross never finds the polygon's own floor.
-        var floor = new FloodRegion { Rings = BuildFloodRings(fill, ownWalls) };
+        var floor = new FloodRegion { Rings = BuildPolygonFloorRings(verts) };
         var opened = new List<(int ax, int ay, int bx, int by)>();
 
         // interior walls removed so adjacent rooms merge, ONLY when the merge
@@ -784,7 +784,7 @@ public sealed class MapDocument
                 { own.Add(w); break; }
         }
         foreach (var c in CutCellWalls(own).Keys) Cells.Remove(c);
-        FloodRegions.Add(new FloodRegion { Rings = BuildFloodRings(fill, own) });
+        FloodRegions.Add(new FloodRegion { Rings = BuildPolygonFloorRings(verts) });
     }
 
     /// The cells whose CENTER (x+0.5, y+0.5) lies inside the closed polygon.
@@ -1069,6 +1069,57 @@ public sealed class MapDocument
         return UnionRings(polys);
     }
 
+    /// the exact floor of a polygon: full squares for the fill cells no
+    /// diagonal crosses, and for every cell a diagonal edge crosses, the part
+    /// of that square inside the polygon. axis edges run along grid lines, so
+    /// any cell the polygon only partly covers is crossed by a diagonal.
+    /// clipping the polygon to the square handles every case the per-wall
+    /// half-plane clip got wrong: a center sitting exactly on a diagonal, a
+    /// concave corner, and a cell crossed by two edges.
+    public List<List<(double x, double y)>> BuildPolygonFloorRings(List<(int x, int y)> verts)
+    {
+        var polys = new List<List<(double, double)>>();
+        if (verts.Count < 3) return polys;
+        // the pieces have to wind the same way as the full squares or their
+        // shared edges would not cancel in the union
+        var shape = verts.Select(v => ((double)v.x, (double)v.y)).ToList();
+        if (SignedArea(shape) < 0) shape.Reverse();
+
+        var diag = new List<AngledWall>();
+        for (int i = 0; i < verts.Count; i++)
+        {
+            var (ax, ay) = verts[i];
+            var (bx, by) = verts[(i + 1) % verts.Count];
+            if (ax != bx && ay != by) diag.Add(new AngledWall(ax, ay, bx, by));
+        }
+        var cut = CutCellWalls(diag);
+        foreach (var c in PolygonFillCells(verts))
+            if (!cut.ContainsKey(c))
+                polys.Add(new List<(double, double)> { (c.X, c.Y), (c.X + 1, c.Y), (c.X + 1, c.Y + 1), (c.X, c.Y + 1) });
+        foreach (var c in cut.Keys)
+        {
+            double cx = c.X + 0.5, cy = c.Y + 0.5;
+            var piece = ClipHalfPlane(shape, c.X, c.Y, c.X, c.Y + 1, cx, cy);
+            piece = ClipHalfPlane(piece, c.X + 1, c.Y, c.X + 1, c.Y + 1, cx, cy);
+            piece = ClipHalfPlane(piece, c.X, c.Y, c.X + 1, c.Y, cx, cy);
+            piece = ClipHalfPlane(piece, c.X, c.Y + 1, c.X + 1, c.Y + 1, cx, cy);
+            if (piece.Count >= 3 && Math.Abs(SignedArea(piece)) > 1e-9) polys.Add(piece);
+        }
+        return UnionRings(polys);
+    }
+
+    private static double SignedArea(List<(double, double)> poly)
+    {
+        double a = 0;
+        for (int i = 0; i < poly.Count; i++)
+        {
+            var (ax, ay) = poly[i];
+            var (bx, by) = poly[(i + 1) % poly.Count];
+            a += ax * by - bx * ay;
+        }
+        return a / 2;
+    }
+
     // outline of the union of non-overlapping polygons that share edges: the
     // shared edges cancel and the rest is walked into closed rings. holes come
     // out with the opposite winding, so a hole ring passed back in still
@@ -1154,7 +1205,9 @@ public sealed class MapDocument
                     outs.RemoveAt(outs.Count - 1);
                     cur = nxt;
                 }
-                if (ring.Count >= 3) rings.Add(MergeCollinear(ring));
+                // a ring that folds back on itself merges down to nothing
+                if (ring.Count >= 3) ring = MergeCollinear(ring);
+                if (ring.Count >= 3) rings.Add(ring);
             }
         }
         return rings;

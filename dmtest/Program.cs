@@ -2256,5 +2256,31 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(proj.Maps[2].Name == "Crypt", "move map: out of range is ignored");
 }
 
+// a polygon floor covers exactly the polygon: cells whose center sits on a
+// diagonal, cells on the wrong side of a concave edge, and cells crossed by two
+// edges are all cut down to the inside part. a hole ring winds the other way,
+// so the areas are summed signed.
+{
+    double Area(List<(double x, double y)> r)
+    {
+        double a = 0;
+        for (int i = 0; i < r.Count; i++) { var (ax, ay) = r[i]; var (bx, by) = r[(i + 1) % r.Count]; a += ax * by - bx * ay; }
+        return a / 2;
+    }
+    void Same(List<(int, int)> v, string what)
+    {
+        var d = new MapDocument();
+        d.AddPolygon(v);
+        double want = Math.Abs(Area(v.Select(p => ((double)p.Item1, (double)p.Item2)).ToList()));
+        double got = Math.Abs(d.FloodRegions.Sum(fr => fr.Rings.Sum(Area)));
+        Check(d.FloodRegions.Count == 1 && d.FloodRegions[0].Rings.All(r => r.Count >= 3) && Math.Abs(got - want) < 1e-6, $"polygon floor matches the polygon: {what} ({got} vs {want})");
+    }
+    Same(new List<(int, int)> { (-1, 0), (4, 0), (8, 9), (2, 7) }, "centers on the diagonal");
+    Same(new List<(int, int)> { (0, 0), (2, 0), (2, 2) }, "45 degree edge through centers");
+    Same(new List<(int, int)> { (0, 0), (6, 0), (6, 6), (3, 2), (0, 6) }, "concave");
+    Same(new List<(int, int)> { (16, 10), (11, 14), (11, 21), (7, 19) }, "cells crossed by two edges");
+    Same(new List<(int, int)> { (8, 10), (6, 10), (4, 4), (9, 9), (8, 2), (18, 6) }, "reflex spike pinched at a corner");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
