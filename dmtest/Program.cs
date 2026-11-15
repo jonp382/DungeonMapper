@@ -1329,6 +1329,49 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
     am2.AddPolygon(new List<(int, int)> { (0, 0), (2, 2), (0, 2) }, false, false, false);
     Check(am2.AngledWalls.Count == 1, "angled default: shared diagonal wall kept");
 
+    // polygon to polygon merge: the shared diagonal goes whichever way each
+    // loop was wound, at any slope, and only along the part actually shared
+    bool WallCovers(MapDocument d, double px, double py) => d.AngledWalls.Any(w =>
+        Math.Abs((w.Bx - w.Ax) * (py - w.Ay) - (w.By - w.Ay) * (px - w.Ax)) < 1e-9
+        && px >= Math.Min(w.Ax, w.Bx) && px <= Math.Max(w.Ax, w.Bx)
+        && py >= Math.Min(w.Ay, w.By) && py <= Math.Max(w.Ay, w.By));
+    foreach (var (bverts, label) in new[]
+    {
+        (new List<(int, int)> { (4, 0), (4, 4), (0, 4) }, "cw"),
+        (new List<(int, int)> { (4, 0), (0, 4), (4, 4) }, "ccw"),
+    })
+    {
+        var pw = new MapDocument();
+        pw.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
+        pw.AddPolygon(bverts, false, false, true);
+        Check(pw.AngledWalls.Count == 0, $"polygon merge: shared diagonal removed ({label} winding)");
+    }
+    var pg = new MapDocument();
+    pg.AddPolygon(new List<(int, int)> { (0, 0), (3, 0), (5, 2), (2, 2) }, false, false, true);
+    pg.AddPolygon(new List<(int, int)> { (3, 0), (6, 0), (8, 2), (5, 2) }, false, false, true);
+    Check(pg.AngledWalls.Count == 2 && !WallCovers(pg, 4, 1), "polygon merge: parallelograms open the shared slope");
+    var sh = new MapDocument();
+    sh.AddPolygon(new List<(int, int)> { (0, 0), (6, 1), (6, 4), (0, 4) }, false, false, true);
+    sh.AddPolygon(new List<(int, int)> { (0, -3), (6, -3), (6, 1), (0, 0) }, false, false, true);
+    Check(sh.AngledWalls.Count == 0, "polygon merge: shallow 1 in 6 slope opens");
+    var po = new MapDocument();
+    po.AddPolygon(new List<(int, int)> { (0, 0), (6, 0), (0, 6) }, false, false, true);
+    po.TryPlaceAngledDoor(po.AngledWalls[0], 1.0, "standard", "closed", out _);
+    po.AddPolygon(new List<(int, int)> { (2, 4), (4, 2), (4, 4) }, false, false, true);
+    Check(!WallCovers(po, 3, 3), "polygon merge: partial overlap opens the shared part");
+    Check(WallCovers(po, 5, 1) && WallCovers(po, 1, 5), "polygon merge: partial overlap keeps the unshared ends");
+    Check(po.AngledWalls.Count == 2, "polygon merge: partial overlap leaves two diagonal pieces");
+    Check(po.AngledDoors.Values.Sum(l => l.Count) == 1, "polygon merge: door on a kept piece survives the split");
+    var po2 = new MapDocument();
+    po2.AddPolygon(new List<(int, int)> { (2, 4), (4, 2), (4, 4) }, false, false, true);
+    po2.AddPolygon(new List<(int, int)> { (0, 0), (6, 0), (0, 6) }, false, false, true);
+    Check(!WallCovers(po2, 3, 3) && WallCovers(po2, 5, 1) && WallCovers(po2, 1, 5),
+        "polygon merge: partial overlap opens when the big polygon comes second");
+    var nm = new MapDocument();
+    nm.AddPolygon(new List<(int, int)> { (0, 0), (4, 0), (0, 4) }, false, false, true);
+    nm.AddPolygon(new List<(int, int)> { (4, 0), (4, 4), (0, 4) }, false, false, false);
+    Check(nm.AngledWalls.Count == 1, "polygon merge off: shared diagonal kept");
+
     // base-edge merge: a triangle whose base is mated to a room face opens the
     // WHOLE shared face, not just the rows that pass the center-point fill test.
     // 5x4 room, triangle base 4 at x=5 (rows 0-3), apex at (6,2): the top and

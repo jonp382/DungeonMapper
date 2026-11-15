@@ -530,22 +530,28 @@ public sealed class MapDocument
     }
 
     /// True when the diagonal segment is interior to the filled region: the
-    /// cells on BOTH sides of the segment (sampled at the midpoint offset along
-    /// the normal) are room cells. A polygon's outer diagonal has empty space
-    /// on one side, so it is a boundary wall and must survive.
-    /// The two cells on either side of a diagonal segment: sample the midpoint
-    /// offset +/- 0.25 along the segment normal. Shared by DiagonalInterior and
-    /// the polygon merge (which runs the same test against the merged region).
+    /// cells on BOTH sides of the segment are room cells. A polygon's outer
+    /// diagonal has empty space on one side, so it is a boundary wall and must
+    /// survive.
+    /// The two cells on either side of a diagonal segment: the midpoint pushed a
+    /// tiny distance along the normal each way. A fixed 0.25 offset jumped past
+    /// the neighbouring cell on shallow slopes, a tiny one lands in the cell the
+    /// segment actually touches at any slope.
     public static (CellKey, CellKey) DiagonalSideCells(AngledWall w)
     {
-        double dx = w.Bx - w.Ax, dy = w.By - w.Ay;
+        var (o1, o2) = SidePoints(w.Ax, w.Ay, w.Bx, w.By);
+        return (new CellKey((int)Math.Floor(o1.x), (int)Math.Floor(o1.y)),
+                new CellKey((int)Math.Floor(o2.x), (int)Math.Floor(o2.y)));
+    }
+
+    /// the segment midpoint pushed 1e-3 along the normal, one point each side
+    private static ((double x, double y), (double x, double y)) SidePoints(int ax, int ay, int bx, int by)
+    {
+        double dx = bx - ax, dy = by - ay;
         double len = Math.Sqrt(dx * dx + dy * dy);
-        double mx = (w.Ax + w.Bx) / 2.0, my = (w.Ay + w.By) / 2.0;
-        double nx = -dy / len, ny = dx / len;
-        double off = 0.25;
-        var c1 = new CellKey((int)Math.Floor(mx + nx * off), (int)Math.Floor(my + ny * off));
-        var c2 = new CellKey((int)Math.Floor(mx - nx * off), (int)Math.Floor(my - ny * off));
-        return (c1, c2);
+        double mx = (ax + bx) / 2.0, my = (ay + by) / 2.0;
+        double nx = -dy / len * 1e-3, ny = dx / len * 1e-3;
+        return ((mx + nx, my + ny), (mx - nx, my - ny));
     }
 
     public bool DiagonalInterior(AngledWall w)
@@ -554,6 +560,114 @@ public sealed class MapDocument
         if (Math.Sqrt(dx * dx + dy * dy) < 1e-9) return false;
         var (c1, c2) = DiagonalSideCells(w);
         return Cells.Contains(c1) && Cells.Contains(c2);
+    }
+
+    /// Splits the diagonal a-b at the end points of every collinear angled wall
+    /// that lies on it, so each piece is either fully shared with a neighbour
+    /// wall or not shared at all.
+    private List<(int ax, int ay, int bx, int by)> DiagonalPieces(int ax, int ay, int bx, int by)
+    {
+        long dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+        var stops = new SortedDictionary<long, (int x, int y)> { [0] = (ax, ay), [len2] = (bx, by) };
+        foreach (var w in AngledWalls)
+            foreach (var (px, py) in new[] { (w.Ax, w.Ay), (w.Bx, w.By) })
+            {
+                long rx = px - ax, ry = py - ay;
+                if (rx * dy - ry * dx != 0) continue; // not on the line
+                long s = rx * dx + ry * dy;
+                if (s > 0 && s < len2) stops[s] = (px, py);
+            }
+        var pieces = new List<(int, int, int, int)>();
+        (int x, int y)? prev = null;
+        foreach (var p in stops.Values)
+        {
+            if (prev is { } q) pieces.Add((q.x, q.y, p.x, p.y));
+            prev = p;
+        }
+        return pieces;
+    }
+
+    /// True when there is floor on the side of segment a-b facing away from
+    /// the polygon `verts`: inside another polygon, inside a flood region, or
+    /// in a room cell whose center is on that side (a cell cut by the segment
+    /// with its center on the polygon side belongs to the polygon).
+    private bool FloorAcross(int ax, int ay, int bx, int by, List<(int x, int y)> verts, PolygonRoom? self)
+    {
+        var (o1, o2) = SidePoints(ax, ay, bx, by);
+        bool in1 = PointInPolygon(o1.x, o1.y, verts), in2 = PointInPolygon(o2.x, o2.y, verts);
+        if (in1 == in2) return false;
+        var far = in1 ? o2 : o1;
+        foreach (var p in Polygons)
+            if (p != self && PointInPolygon(far.x, far.y, p.Verts)) return true;
+        foreach (var fr in FloodRegions)
+            if (PointInRings(far.x, far.y, fr.Rings)) return true;
+        var cell = new CellKey((int)Math.Floor(far.x), (int)Math.Floor(far.y));
+        if (!Cells.Contains(cell)) return false;
+        double dx = bx - ax, dy = by - ay;
+        double sideFar = dx * (far.y - ay) - dy * (far.x - ax);
+        double sideCenter = dx * (cell.Y + 0.5 - ay) - dy * (cell.X + 0.5 - ax);
+        return sideFar * sideCenter > 0;
+    }
+
+    /// even-odd point test against floor rings (outer ring plus holes)
+    private static bool PointInRings(double px, double py, List<List<(double x, double y)>> rings)
+    {
+        bool inside = false;
+        foreach (var ring in rings)
+        {
+            int n = ring.Count;
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                var (xi, yi) = ring[i];
+                var (xj, yj) = ring[j];
+                if (((yi > py) != (yj > py)) &&
+                    (px < (xj - xi) * (py - yi) / (yj - yi) + xi))
+                    inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    /// Removes the span a-b from every angled wall collinear with it, in either
+    /// direction. A wall only partly inside the span is cut back to the part
+    /// outside it. Doors inside the span go with it, doors on a kept part move
+    /// onto that part.
+    public void RemoveAngledSpan(int ax, int ay, int bx, int by)
+    {
+        long dx = bx - ax, dy = by - ay;
+        foreach (var w in AngledWalls.ToList())
+        {
+            long wx = w.Bx - w.Ax, wy = w.By - w.Ay, wl2 = wx * wx + wy * wy;
+            if ((w.Ax - ax) * dy - (w.Ay - ay) * dx != 0) continue;
+            if ((w.Bx - ax) * dy - (w.By - ay) * dx != 0) continue;
+            // span ends along the wall, in units of the wall's squared length
+            long sa = (ax - w.Ax) * wx + (ay - w.Ay) * wy;
+            long sb = (bx - w.Ax) * wx + (by - w.Ay) * wy;
+            var (lo, loPt) = sa < sb ? (sa, (ax, ay)) : (sb, (bx, by));
+            var (hi, hiPt) = sa < sb ? (sb, (bx, by)) : (sa, (ax, ay));
+            long u0 = Math.Max(0, lo), u1 = Math.Min(wl2, hi);
+            if (u1 <= u0) continue; // no shared length
+            double wlen = Math.Sqrt(wl2);
+            AngledWalls.Remove(w);
+            AngledDoors.Remove(w, out var doors);
+            if (u0 > 0) // kept part from the wall's start to the span
+            {
+                var piece = new AngledWall(w.Ax, w.Ay, loPt.Item1, loPt.Item2);
+                AngledWalls.Add(piece);
+                double end = wlen * u0 / wl2;
+                var keep = doors?.Where(d => d.T + 0.5 <= end + 1e-9).ToList();
+                if (keep is { Count: > 0 }) AngledDoors[piece] = keep;
+            }
+            if (u1 < wl2) // kept part from the span to the wall's end
+            {
+                var piece = new AngledWall(hiPt.Item1, hiPt.Item2, w.Bx, w.By);
+                AngledWalls.Add(piece);
+                double start = wlen * u1 / wl2;
+                var keep = doors?.Where(d => d.T - 0.5 >= start - 1e-9)
+                    .Select(d => new AngledDoor { T = d.T - start, Type = d.Type, State = d.State }).ToList();
+                if (keep is { Count: > 0 }) AngledDoors[piece] = keep;
+            }
+        }
     }
 
     /// Enumerates the cells whose INTERIOR a lattice segment passes through, via
@@ -681,13 +795,13 @@ public sealed class MapDocument
                 }
                 else
                 {
-                    var w = new AngledWall(ax, ay, bx, by);
-                    var sides = DiagonalSideCells(w);
-                    if (merged.Contains(sides.Item1) && merged.Contains(sides.Item2))
-                    {
-                        AngledDoors.Remove(w);
-                        AngledWalls.RemoveAll(x => x.Ax == ax && x.Ay == ay && x.Bx == bx && x.By == by);
-                    }
+                    // a diagonal edge opens where there is floor on the far side.
+                    // it is split at the ends of any collinear wall on it first,
+                    // so a neighbour sharing only part of the edge opens only
+                    // that part. walls are matched in either direction.
+                    foreach (var (px, py, qx, qy) in DiagonalPieces(ax, ay, bx, by))
+                        if (FloorAcross(px, py, qx, qy, verts, pr))
+                            RemoveAngledSpan(px, py, qx, qy);
                 }
             }
         }
