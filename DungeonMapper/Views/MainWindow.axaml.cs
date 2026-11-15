@@ -81,13 +81,13 @@ public partial class MainWindow : Window
         SetIcon(ToolRoom, PngIcon("DMRoom2"));
         SetIcon(ToolFloor, PngIcon("DMFloor"));
         SetIcon(ToolWall, PngIcon("DMWall"));
-        SetIcon(ToolPolygon, PathIcon("M12 3 L21 10 L17.5 21 L6.5 21 L3 10 Z"));
+        SetIcon(ToolPolygon, PngIcon("DMPolygon"));
         SetIcon(ToolDoor, PngIcon("DMDoor"));
         SetIcon(ToolStair, PngIcon("DMStairs"));
         SetIcon(ToolLabel, PngIcon("DMLabel"));
-        SetIcon(ToolPawn, PathIcon("M15 6.5 A3 3 0 1 1 9 6.5 A3 3 0 1 1 15 6.5 Z M9.5 11 H14.5 M10.5 11 L9 18 M13.5 11 L15 18 M6.5 20.5 H17.5 L16.5 18 H7.5 Z"));
+        SetIcon(ToolPawn, PngIcon("DMPawn"));
         SetIcon(ToolErase, PngIcon("DMErase"));
-        SetIcon(BtnManageMaps, PathIcon(IconLayers, 18));
+        SetIcon(BtnManageMaps, PngIcon("DMMaps", 18));
         ToolTip.SetTip(BtnManageMaps, "Manage maps");
         ToolTip.SetTip(MapList, "Switch map");
         RefreshToolLabels();
@@ -124,9 +124,12 @@ public partial class MainWindow : Window
         MenuLoad.Icon = MenuIcon("DMOpen");
         MenuSettings.Icon = MenuIcon("DMSettings");
         MenuDoorPresets.Icon = MenuIcon("DMDoor");
-        MenuUndo.Icon = MenuPathIcon("M9 14 L4 9 L9 4 M4 9 H15 A5 5 0 0 1 15 19 H11");
-        MenuRedo.Icon = MenuPathIcon("M15 14 L20 9 L15 4 M20 9 H9 A5 5 0 0 0 9 19 H13");
+        MenuUndo.Icon = MenuIcon("DMUndo");
+        MenuRedo.Icon = MenuIcon("DMRedo");
         MenuFit.Icon = MenuIcon("DMFit");
+        MenuMaps.Icon = MenuIcon("DMMaps");
+        MenuPawns.Icon = MenuIcon("DMPawn");
+        MenuHotkeys.Icon = MenuIcon("DMHotkeys");
         MenuUndo.Click += (_, _) => DoUndo();
         MenuRedo.Click += (_, _) => DoRedo();
         MenuFit.Click += (_, _) => Canvas.AutoFit();
@@ -341,24 +344,7 @@ public partial class MainWindow : Window
         return img;
     }
 
-    // stand-in line icon on a 24x24 grid for buttons that have no png yet
-    private static Control PathIcon(string data, double size = 22)
-    {
-        var path = new Path
-        {
-            Data = Geometry.Parse(data),
-            Stroke = Brushes.White,
-            StrokeThickness = 2,
-            StrokeLineCap = PenLineCap.Round,
-            StrokeJoin = PenLineJoin.Round,
-        };
-        var box = new Canvas { Width = 24, Height = 24 };
-        box.Children.Add(path);
-        return new Viewbox { Width = size, Height = size, Child = box };
-    }
-
     private static Control MenuIcon(string name) => PngIcon(name, 16);
-    private static Control MenuPathIcon(string data) => PathIcon(data, 16);
 
     private static void SetIcon(Button b, Control icon) => b.Content = icon;
 
@@ -590,12 +576,6 @@ public partial class MainWindow : Window
 
     // ---- maps panel: floating list of the campaign's maps ----
 
-    private const string IconLayers = "M12 4 L20 8 L12 12 L4 8 Z M4 12 L12 16 L20 12 M4 16 L12 20 L20 16";
-    private const string IconPencil = "M4 20 V16 L15.5 4.5 L19.5 8.5 L8 20 Z M12.5 7.5 L16.5 11.5";
-    private const string IconUp = "M6 15 L12 9 L18 15";
-    private const string IconDown = "M6 9 L12 15 L18 9";
-    private const string IconExport = "M12 15 V4 M7 9 L12 4 L17 9 M5 14 V20 H19 V14";
-    private const string IconDelete = "M6 6 L18 18 M18 6 L6 18";
 
     // the map whose name is being edited inline
     private MapEntry? _renamingMap;
@@ -718,7 +698,7 @@ public partial class MainWindow : Window
             {
                 var b = new Button
                 {
-                    Content = PathIcon(icon, 14),
+                    Content = PngIcon(icon, 14),
                     Width = 28, Height = 28, Padding = new Thickness(0),
                     HorizontalContentAlignment = HorizontalAlignment.Center,
                     VerticalContentAlignment = VerticalAlignment.Center,
@@ -731,10 +711,10 @@ public partial class MainWindow : Window
                 return b;
             }
 
-            Small(1, IconPencil, "Rename", () => { _renamingMap = entry; ShowMaps(); });
-            Small(2, IconUp, "Move up", () => { _project.MoveMap(idx, idx - 1); RefreshMapList(); ShowMaps(); }, idx > 0);
-            Small(3, IconDown, "Move down", () => { _project.MoveMap(idx, idx + 1); RefreshMapList(); ShowMaps(); }, idx < _project.Maps.Count - 1);
-            Small(4, IconExport, "Export this map to a file", () => ExportMap(entry));
+            Small(1, "DMRename", "Rename", () => { _renamingMap = entry; ShowMaps(); });
+            Small(2, "DMUp", "Move up", () => { _project.MoveMap(idx, idx - 1); RefreshMapList(); ShowMaps(); }, idx > 0);
+            Small(3, "DMDown", "Move down", () => { _project.MoveMap(idx, idx + 1); RefreshMapList(); ShowMaps(); }, idx < _project.Maps.Count - 1);
+            Small(4, "DMExport", "Export this map to a file", () => ExportMap(entry));
 
             // second step: an explicit red button, so a stray click never deletes
             var confirm = new Button
@@ -751,7 +731,7 @@ public partial class MainWindow : Window
             Grid.SetColumn(confirm, 5);
             row.Children.Add(confirm);
             Button? arm = null;
-            arm = Small(5, IconDelete, _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
+            arm = Small(5, "DMDelete", _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
                 () => ArmDelete(entry, arm!, confirm), _project.Maps.Count > 1);
 
             MapsRows.Children.Add(row);
