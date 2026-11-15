@@ -1909,19 +1909,10 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     legacy.BumpNextId();
     Check(legacy.NewId() == "p8", "probe: BumpNextId skips legacy live ids");
 
-    // base64 size probe: real pawn glyph PNGs generated in scratch
-    foreach (var f in new[] { "flat256", "circle256", "circle512" })
-    {
-        var p = System.IO.Path.Combine("/tmp/scratch", f + ".png");
-        if (!System.IO.File.Exists(p)) continue;
-        byte[] raw = System.IO.File.ReadAllBytes(p);
-        int b64 = System.Convert.ToBase64String(raw).Length;
-        Console.WriteLine($"PROBE {f}.png: {raw.Length} bytes raw, base64 {b64} chars, ratio {(double)b64 / raw.Length:0.00}");
-    }
-
     // --- library embedding probes (task 1: library travels inside the project file) ---
     {
-        var probeB64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes("/tmp/scratch/circle256.png"));
+        // any bytes will do for the round-trip checks below
+        var probeB64 = System.Convert.ToBase64String(Enumerable.Range(0, 256).Select(i => (byte)i).ToArray());
 
         var probeLib = new PawnLibrary();
         probeLib.Pawns.Add(new PawnTemplate { Id = "p1", Name = "Skeleton", Affiliation = "Skeleton", ImageB64 = probeB64, ImageExt = ".png", Status = "stunned" });
