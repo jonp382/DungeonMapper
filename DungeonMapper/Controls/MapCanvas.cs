@@ -385,7 +385,7 @@ public sealed class MapCanvas : Control
         // shared boundary stays open so the polygon connects as a passageway.
         bool strict = PolygonStrict;
         bool passageway = !strict && Document.Cells.Contains(new CellKey(first.x, first.y));
-        Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby);
+        Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby, new CellKey(first.x, first.y));
         _polyVerts.Clear();
         Commit();
     }
@@ -1461,7 +1461,7 @@ public sealed class MapCanvas : Control
                     if (_polyVerts[^1] != (vx, vy)) _polyVerts.Add((vx, vy));
                     bool strict = PolygonStrict;
                     bool passageway = !strict && Document.Cells.Contains(new CellKey(vx, vy));
-                    Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby);
+                    Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby, new CellKey(vx, vy));
                     _polyVerts.Clear();
                     Commit();
                     StatusMessage?.Invoke("polygon closed");
@@ -1713,11 +1713,11 @@ public sealed class MapCanvas : Control
                 // strict: draw walls on the outer border regardless of existing
                 // cells, keep interior walls (sub-room inside a room gets walls).
                 // passageway: if the drag started inside an existing room, the
-                // shared boundary stays open so the new region connects as a
-                // passageway instead of being sealed off.
+                // boundary shared with that room stays open so the new region
+                // connects as a passageway. other rooms it touches stay walled.
                 bool strict = RoomStrict;
                 bool passageway = !strict && Document.Cells.Contains(_dragStart);
-                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby);
+                Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby, _dragStart);
                 Commit();
                 break;
             }

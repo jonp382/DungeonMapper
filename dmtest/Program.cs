@@ -905,6 +905,24 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(!sr.HasWall(new EdgeKey(new CellKey(2, 2), Side.South)), "sub-room merge off: far edges open too");
     Check(!sr.HasWall(new EdgeKey(new CellKey(2, 1), Side.East)), "sub-room merge off: east edge open");
 
+    // user-reported bug: a hallway grown out of a small room with merge off
+    // also merged into a big room it ran alongside, and opened the wall
+    // between the two rooms. passageway only opens to the drag-start room.
+    var hw = new MapDocument();
+    hw.AddRoom(0, 0, 2, 5);                       // big room
+    hw.AddRoom(3, 0, 4, 1, false, true, false);   // small room, walled off
+    hw.AddRoom(3, 0, 4, 5, true, false, false, new CellKey(3, 0));
+    for (int y = 0; y <= 5; y++)
+        Check(hw.HasWall(new EdgeKey(new CellKey(3, y), Side.West)), $"hallway merge off: wall to big room kept at y={y}");
+    Check(!hw.HasWall(new EdgeKey(new CellKey(3, 2), Side.North)), "hallway merge off: opens into the room it grew from");
+    Check(hw.HasWall(new EdgeKey(new CellKey(4, 3), Side.East)), "hallway merge off: outer wall drawn");
+    // same drag with merge on joins the big room too
+    var hm = new MapDocument();
+    hm.AddRoom(0, 0, 2, 5);
+    hm.AddRoom(3, 0, 4, 1, false, true, false);
+    hm.AddRoom(3, 0, 4, 5, true, false, true, new CellKey(3, 0));
+    Check(!hm.HasWall(new EdgeKey(new CellKey(3, 4), Side.West)), "hallway merge on: joins the big room");
+
     // user-reported bug: sub-room inside a room with merge ON must NOT create
     // walls. Every edge of the sub-room faces an existing room cell, so every
     // edge opens - the sub-room is invisible, no new wall set appears.

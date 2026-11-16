@@ -399,14 +399,22 @@ public sealed class MapDocument
     /// When strict is true, every outer boundary edge gets a wall regardless of
     /// existing cells, and interior walls are NOT removed - so a sub-room drawn
     /// inside an existing room gets its own visible walls.
-    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false)
+    /// passageFrom is the cell the drag started in. when given, passageway only
+    /// opens to the room around that cell, so a hallway grown out of one room
+    /// stays walled off from other rooms it happens to touch. mergeNearby still
+    /// opens to every adjacent room.
+    public void AddRoom(int x0, int y0, int x1, int y1, bool passageway = false, bool strict = false, bool mergeNearby = false,
+        CellKey? passageFrom = null)
     {
         // existing cells outside the new region, captured before we add new cells
         var existing = new HashSet<CellKey>();
         if ((passageway || mergeNearby) && !strict)
+        {
+            var reach = !mergeNearby && passageFrom is { } from ? RoomAround(from) : null;
             foreach (var c in Cells)
-                if (c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1)
+                if ((c.X < x0 || c.X > x1 || c.Y < y0 || c.Y > y1) && (reach is null || reach.Contains(c)))
                     existing.Add(c);
+        }
 
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
@@ -644,17 +652,22 @@ public sealed class MapDocument
     /// the polygon leaves no object behind: it becomes plain walls, room cells
     /// and a flood region floor. cells cut by its own diagonals stay out of
     /// Cells, the floor rings cover them, the same as the floor tool.
-    public void AddPolygon(List<(int x, int y)> verts, bool passageway = false, bool strict = false, bool mergeNearby = false)
+    public void AddPolygon(List<(int x, int y)> verts, bool passageway = false, bool strict = false, bool mergeNearby = false,
+        CellKey? passageFrom = null)
     {
         if (verts.Count < 3) return;
         var fill = PolygonFillCells(verts);
         if (fill.Count == 0) return;
 
-        // existing cells outside the fill, captured before we add new cells
+        // existing cells outside the fill, captured before we add new cells.
+        // with passageFrom only the room around that cell counts, like AddRoom.
         var existing = new HashSet<CellKey>();
         if (passageway && !strict)
+        {
+            var reach = passageFrom is { } from ? RoomAround(from) : null;
             foreach (var c in Cells)
-                if (!fill.Contains(c)) existing.Add(c);
+                if (!fill.Contains(c) && (reach is null || reach.Contains(c))) existing.Add(c);
+        }
 
         var ownWalls = new List<AngledWall>();
         for (int i = 0; i < verts.Count; i++)
@@ -979,6 +992,30 @@ public sealed class MapDocument
     /// level). Returns null when the region exceeds MAX_CELLS - the clicked
     /// region is not enclosed (open field, gap in the walls), so the caller
     /// fills nothing.
+    /// The room cells reachable from start without crossing a wall: the room
+    /// the cell belongs to. empty when start is not a room cell.
+    public HashSet<CellKey> RoomAround(CellKey start)
+    {
+        var room = new HashSet<CellKey>();
+        if (!Cells.Contains(start)) return room;
+        var queue = new Queue<CellKey>();
+        room.Add(start);
+        queue.Enqueue(start);
+        while (queue.Count > 0)
+        {
+            var c = queue.Dequeue();
+            foreach (var (dx, dy, side) in new[] { (1, 0, Side.East), (-1, 0, Side.West), (0, 1, Side.South), (0, -1, Side.North) })
+            {
+                var n = new CellKey(c.X + dx, c.Y + dy);
+                if (room.Contains(n) || !Cells.Contains(n)) continue;
+                if (HasWall(new EdgeKey(c, side))) continue;
+                room.Add(n);
+                queue.Enqueue(n);
+            }
+        }
+        return room;
+    }
+
     public HashSet<CellKey>? FloodFillRegion(CellKey start, int maxCells = 10000)
     {
         var cut = BuildCutCells();
