@@ -2543,7 +2543,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
 {
     var lib = new PawnLibrary();
     var sk = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" }; sk.ApplyAffiliationDefaults(); lib.Add(sk);
-    var wo = new PawnTemplate { Name = "Wolf", Affiliation = "Enemy", Favorite = true }; wo.ApplyAffiliationDefaults(); lib.Add(wo);
+    var wo = new PawnTemplate { Name = "Wolf", Affiliation = "Enemy", Favorite = true, Hero = true }; wo.ApplyAffiliationDefaults(); lib.Add(wo);
     var ga = new PawnTemplate { Name = "Gareth", Affiliation = "Player" }; ga.ApplyAffiliationDefaults(); lib.Add(ga);
 
     var same = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" }; same.ApplyAffiliationDefaults();
@@ -2560,6 +2560,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
 
     var full = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(MapSerializer.LibraryToJson(lib)));
     Check(full.Single(x => x.Name == "Wolf").Favorite && !full.Single(x => x.Name == "Skeleton").Favorite, "pawns: favorite survives library json");
+    Check(full.Single(x => x.Name == "Wolf").Hero && !full.Single(x => x.Name == "Skeleton").Hero, "pawns: hero survives library json");
     var proj = new MapProject();
     var pjson = MapSerializer.ProjectToJson(proj, lib);
     var fromProj = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(pjson));

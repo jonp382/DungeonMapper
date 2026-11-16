@@ -59,6 +59,9 @@ public sealed class PawnTemplate
     [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
     // starred in the pawn panel: favorites get their own group at the top
     [JsonPropertyName("favorite")] public bool Favorite { get; set; }
+    // a hero is one of a kind across the campaign: placing it again moves the
+    // existing copy instead of adding a second one
+    [JsonPropertyName("hero")] public bool Hero { get; set; }
 
     /// Affiliation default colors: outer bright, inner dark accent.
     public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch

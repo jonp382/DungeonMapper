@@ -761,6 +761,7 @@ public partial class MainWindow
         var nameSp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
         nameSp.Children.Add(new TextBlock { Text = PawnName(t), FontSize = 12, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
         if (t.Favorite) nameSp.Children.Add(Txt("★", 10, "#ffcc33"));
+        if (t.Hero) nameSp.Children.Add(Txt("hero", 9, "#9ab8ff"));
         if (IsInvalid(t))
         {
             var warn = new TextBlock { Text = "!", FontSize = 12, FontWeight = FontWeight.Bold, Foreground = Hx("#ffcc33"), VerticalAlignment = VerticalAlignment.Center };
@@ -918,6 +919,32 @@ public partial class MainWindow
         AddCell(pair, stCol, 1);
         sp.Children.Add(pair);
 
+        // hero: one copy across the whole campaign. refused while more than one
+        // copy is placed, since it could not say which one to keep
+        var hero = new CheckBox { Content = Txt("hero (only one can exist, placing it again moves it)"), IsChecked = t.Hero, Margin = new Thickness(0, 6, 0, 0) };
+        var heroMsg = new TextBlock { FontSize = 11, Foreground = Hx("#ffb0b0"), TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        hero.IsCheckedChanged += (_, _) =>
+        {
+            bool on = hero.IsChecked == true;
+            if (on == t.Hero) return;
+            if (on)
+            {
+                int placed = _project.Maps.Sum(m => m.Doc.Pawns.Values.Count(p => p.TemplateId == t.Id));
+                if (placed > 1)
+                {
+                    hero.IsChecked = false;
+                    heroMsg.Text = $"there are {placed} of this pawn in the campaign. a hero can only have one, so remove the extras first.";
+                    heroMsg.IsVisible = true;
+                    return;
+                }
+            }
+            heroMsg.IsVisible = false;
+            t.Hero = on;
+            PawnsChanged();
+        };
+        sp.Children.Add(hero);
+        sp.Children.Add(heroMsg);
+
         sp.Children.Add(FieldLabel("colors"));
         var useAff = new CheckBox { Content = Txt("use affiliation colors"), IsChecked = !t.ColorOverride };
         sp.Children.Add(useAff);
@@ -1018,6 +1045,7 @@ public partial class MainWindow
                 ImageB64 = t.ImageB64,
                 ImageExt = t.ImageExt,
                 Favorite = t.Favorite,
+                Hero = t.Hero,
             };
             ActiveLibrary.Add(c);
             _manageEditId = c.Id;

@@ -98,6 +98,10 @@ public sealed class MapCanvas : Control
     public event Action<string>? StatusMessage;
     // a pawn was placed with the pawn tool (template id), for the recent strip
     public event Action<string>? PawnPlaced;
+    /// hero pawns are one per campaign. called for each hero placed on this map:
+    /// the window removes that hero from every other map and returns the pawn it
+    /// removed (null when the hero was not on another map).
+    public Func<string, Pawn?>? TakeHeroFromOtherMaps;
 
     public void Refresh() => InvalidateVisual();
 
@@ -192,6 +196,7 @@ public sealed class MapCanvas : Control
         {
             Document.PasteRegion(_clipboard, target.X, target.Y);
         }
+        KeepHeroesUnique(_clipboard, target);
         Commit();
     }
 
@@ -239,6 +244,7 @@ public sealed class MapCanvas : Control
             count = _clipboard.Cells.Count;
             what = $"{count} cells";
         }
+        KeepHeroesUnique(_clipboard, target);
         _movePlaced = true; // successful placement restores hotkeys
         StatusMessage?.Invoke(_rotTurns != 0
             ? $"placed {what} ({_rotTurns * 90}° ccw)"
@@ -248,6 +254,27 @@ public sealed class MapCanvas : Control
         // rotation, and the hotkey lock all end with the move. The original contract
         // was one placement too - the cleared source left nothing to place again.
         CancelMove();
+    }
+
+    /// Removes every other copy of a hero template, on this map and the others,
+    /// leaving only the one at keep. Returns one removed copy, or null if none.
+    private Pawn? TakeHeroCopies(CellKey keep, string templateId)
+    {
+        Pawn? taken = null;
+        foreach (var (c, p) in Document.Pawns.ToList())
+            if (c != keep && p.TemplateId == templateId) { taken ??= p; Document.Pawns.Remove(c); }
+        var other = TakeHeroFromOtherMaps?.Invoke(templateId);
+        return taken ?? other;
+    }
+
+    /// After a snapshot lands at target, keeps any heroes in it unique: the
+    /// pasted copy stays and older copies elsewhere are removed.
+    private void KeepHeroesUnique(MapDocument.RegionSnapshot snap, CellKey target)
+    {
+        int dx = target.X - snap.OriginX, dy = target.Y - snap.OriginY;
+        foreach (var p in snap.Pawns)
+            if (Library.Find(p.TemplateId)?.Hero == true)
+                TakeHeroCopies(new CellKey(p.Cell.X + dx, p.Cell.Y + dy), p.TemplateId);
     }
 
     /// Places the pawns in a snapshot at the target, swapping with any occupant
@@ -1723,8 +1750,15 @@ public sealed class MapCanvas : Control
                 }
                 else if (ArmedPawn is not null)
                 {
-                    // place a pawn that hard-references the armed library template
-                    Document.PlacePawn(new Pawn { Cell = cell, TemplateId = ArmedPawn.Id });
+                    // place a pawn that hard-references the armed library template.
+                    // a hero moves instead: the old copy goes and keeps its status.
+                    var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id };
+                    Document.PlacePawn(placed);
+                    if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
+                    {
+                        placed.Status = old.Status;
+                        StatusMessage?.Invoke($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
+                    }
                     Commit();
                     PawnPlaced?.Invoke(ArmedPawn.Id);
                 }

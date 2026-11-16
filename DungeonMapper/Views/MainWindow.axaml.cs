@@ -182,6 +182,20 @@ public partial class MainWindow : Window
             ActiveLibrary.NoteRecent(id);
             PawnViewsChanged();
         };
+        Canvas.TakeHeroFromOtherMaps = id =>
+        {
+            // each other map that loses the hero gets its own undo step
+            Pawn? taken = null;
+            foreach (var m in _project.Maps)
+            {
+                if (m.Doc == _doc) continue;
+                var cells = m.Doc.Pawns.Where(kv => kv.Value.TemplateId == id).Select(kv => kv.Key).ToList();
+                if (cells.Count == 0) continue;
+                foreach (var c in cells) { taken ??= m.Doc.Pawns[c]; m.Doc.Pawns.Remove(c); }
+                HistoryFor(m).Commit(m.Doc);
+            }
+            return taken;
+        };
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
