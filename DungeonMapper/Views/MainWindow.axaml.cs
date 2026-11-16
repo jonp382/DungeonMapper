@@ -167,18 +167,6 @@ public partial class MainWindow : Window
         };
         _autosaveTimer.Start();
 
-        // modal pawn-management popup
-        ModalClose.Click += (_, _) => ModalOverlay.IsVisible = false;
-        ModalAddPawn.Click += (_, _) =>
-        {
-            var t = new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
-            t.ApplyAffiliationDefaults();
-            ActiveLibrary.Add(t);
-            Canvas.ArmedPawn = t;
-            StatusText.Text = $"added {t.Name} - armed for placement";
-            ShowPawnManagement();
-        };
-
         Canvas.ActionCompleted += () =>
         {
             ActiveHistory.Commit(_doc);
@@ -189,6 +177,11 @@ public partial class MainWindow : Window
         Canvas.LabelEditRequested += l => BeginLabelEdit(l);
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
+        Canvas.PawnPlaced += id =>
+        {
+            ActiveLibrary.NoteRecent(id);
+            PawnViewsChanged();
+        };
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
@@ -219,6 +212,7 @@ public partial class MainWindow : Window
                 case Key.C: Canvas.CopySelection(); Canvas.Refresh(); e.Handled = true; return;
                 case Key.V: Canvas.PasteAtCursor(); Canvas.Refresh(); e.Handled = true; return;
                 case Key.X: Canvas.CutSelection(); Canvas.Refresh(); e.Handled = true; return;
+                case Key.F: FocusPawnSearch(); e.Handled = true; return;
             }
         }
         else if (e.Key == Key.Delete)
@@ -356,6 +350,7 @@ public partial class MainWindow : Window
     {
         FlushSettings();
         ModalOverlay.IsVisible = false;
+        _modalKind = null;
         SettingsOverlay.IsVisible = false;
         DoorPresetsOverlay.IsVisible = false;
         HotkeysOverlay.IsVisible = false;
@@ -453,53 +448,7 @@ public partial class MainWindow : Window
                 break;
 
             case ToolMode.Pawn:
-                ToolPanel.Clear("Pawn");
-                ToolPanel.AddHint("pick a pawn below, then click a cell to place it. click a placed pawn to edit its template.");
-                // manage pawns FIRST: at small resolutions the pawn display can grow
-                // past the panel, so all controls sit above it.
-                ToolPanel.AddButton("manage pawns", () => ShowPawnManagement());
-                if (ActiveLibrary.Pawns.Count == 0)
-                {
-                    ToolPanel.AddHint("library is empty - add pawns in the pawn menu.");
-                }
-                else
-                {
-                    // sort dropdown for the tool swatch grid: name,
-                    // affiliation, instance count. Re-selecting the tool rebuilds
-                    // the panel with the new order.
-                    ToolPanel.AddChoice("sort", new[] { "insertion", "name", "affiliation", "instances" },
-                        _pawnToolSort, mode =>
-                        {
-                            _pawnToolSort = mode;
-                            SetTool(ToolMode.Pawn);
-                        });
-                    // snapshot the templates so the swatch closure reads a stable
-                    // list; reading the live library by index can go out of range
-                    // if the library changes after the grid is built (add/delete).
-                    var snapshot = SortedPawns(_pawnToolSort);
-                    var items = new List<(string, string, string, int, int, int, int, int, int, string)>();
-                    foreach (var t in snapshot)
-                    {
-                        var (eo, ei) = t.Effective(_settings);
-                        items.Add((t.Id, string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name,
-                                   PawnTemplate.NormalizeAffiliation(t.Affiliation),
-                                   eo.r, eo.g, eo.b,            ei.r, ei.g, ei.b, t.Id));
-                    }
-                    // live count: recomputed on each hover from the live placed pawns
-                    Func<string, int> liveCount = id =>
-                    {
-                        int n = 0;
-                        foreach (var p in Canvas.Document.Pawns.Values)
-                            if (p.TemplateId == id) n++;
-                        return n;
-                    };
-                    ToolPanel.AddSwatchGrid("pawns", items, liveCount, Canvas.LoadPawnImage, i =>
-                    {
-                        if (i < 0 || i >= snapshot.Count) return;
-                        Canvas.ArmedPawn = snapshot[i];
-                        StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(snapshot[i].Name) ? "pawn" : snapshot[i].Name)} - click a cell to place";
-                    });
-                }
+                BuildPawnPanel();
                 break;
 
             case ToolMode.Polygon:
@@ -559,6 +508,7 @@ public partial class MainWindow : Window
         if (MapsOverlay.IsVisible) ShowMaps();
         StatusText.Text = $"switched to {_project.ActiveName}";
         Canvas.Refresh();
+        PawnViewsChanged();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
 
@@ -572,6 +522,7 @@ public partial class MainWindow : Window
         Canvas.ResetClipboard(); // new empty map: a cut from the old map must not paste/delete here
         Canvas.AutoFit();
         RefreshMapList();
+        PawnViewsChanged();
         StatusText.Text = $"added {name}";
         Canvas.Refresh();
         FocusCanvas();
@@ -852,6 +803,7 @@ public partial class MainWindow : Window
         if (snap is null) { StatusText.Text = "nothing to undo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
+        PawnViewsChanged();
         StatusText.Text = "undo";
     }
 
@@ -861,6 +813,7 @@ public partial class MainWindow : Window
         if (snap is null) { StatusText.Text = "nothing to redo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
+        PawnViewsChanged();
         StatusText.Text = "redo";
     }
 
@@ -1555,140 +1508,6 @@ public partial class MainWindow : Window
         ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
     }
 
-    // Template editor: edits a library template (name, affiliation, custom colors,
-    // inner/outer, status). Reached from the management menu. Editing a template
-    // propagates to every placed pawn that references it (hard reference).
-    private void ShowTemplateEditor(PawnTemplate t)
-    {
-        ToolPanel.Clear("Edit template");
-        var presets = PresetColors();
-
-        // NOTE: do NOT call PopulatePanel(Canvas.Mode) here. In Pawn mode that
-        // rebuilds the placement panel and wipes this edit panel (the "Edit"
-        // button bounced back to the selection menu). Canvas.Refresh updates the
-        // map; BuildLibraryGrid refreshes the management modal's swatches so the
-        // edit panel (side) and the modal (library) stay in sync live.
-        ToolPanel.AddText("Name", t.Name, name =>
-        {
-            t.Name = name;
-            Canvas.Refresh();
-            BuildLibraryGrid();
-        });
-        var affNames = new List<string>();
-        foreach (var ac in _settings.AffiliationColors) affNames.Add(ac.Name);
-        ToolPanel.AddChoice("Affiliation", affNames.ToArray(),
-            PawnTemplate.NormalizeAffiliation(t.Affiliation), aff =>
-            {
-                t.Affiliation = aff;
-                if (!t.ColorOverride) t.ApplyAffiliationDefaults();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            });
-
-        // custom colors: build the inner/outer fields once, then the toggle. Toggling
-        // inserts/removes the color fields IN PLACE so the edit panel stays open (no
-        // PopulatePanel wipe, no re-click). Fields start appended; if override is off
-        // they're removed, and the toggle re-inserts them right after the checkbox.
-        var innerPanel = ToolPanel.AddColorField("Inner color", t.InnerR, t.InnerG, t.InnerB, presets, c =>
-        {
-            t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b;
-            Canvas.Refresh();
-            BuildLibraryGrid();
-        });
-        var outerPanel = ToolPanel.AddColorField("Outer color", t.OuterR, t.OuterG, t.OuterB, presets, c =>
-        {
-            t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b;
-            Canvas.Refresh();
-            BuildLibraryGrid();
-        });
-        var check = new CheckBox { Content = "custom colors", IsChecked = t.ColorOverride, Foreground = Brushes.White };
-        check.IsCheckedChanged += (_, _) =>
-        {
-            bool on = check.IsChecked == true;
-            t.ColorOverride = on;
-            if (!on) t.ApplyAffiliationDefaults();
-            Canvas.Refresh();
-            BuildLibraryGrid();
-            if (on)
-            {
-                ToolPanel.InsertAfter(check, innerPanel);
-                ToolPanel.InsertAfter(innerPanel, outerPanel);
-            }
-            else
-            {
-                ToolPanel.RemoveControl(innerPanel);
-                ToolPanel.RemoveControl(outerPanel);
-            }
-        };
-        ToolPanel.Target.Children.Add(check);
-        if (!t.ColorOverride)
-        {
-            ToolPanel.RemoveControl(innerPanel);
-            ToolPanel.RemoveControl(outerPanel);
-        }
-
-        var names = new List<string>();
-        foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
-        var statusCombo = ToolPanel.AddChoice("Status", names.ToArray(), t.Status, s =>
-        {
-            t.Status = s;
-            Canvas.Refresh();
-            BuildLibraryGrid();
-        });
-        _statusCombo = statusCombo;
-        _statusComboTemplate = t;
-
-        // unique pawn image: upload replaces the two-tone circles entirely, drawn
-        // square (center-cropped) to fit the cell. PNG preferred, JPEG accepted.
-        // every upload is compressed to a 50x50 png (PawnImage.Compress).
-        ToolPanel.AddButton("upload image (png/jpg)", async () =>
-        {
-            var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-            {
-                AllowMultiple = false,
-                FileTypeFilter = new[]
-                {
-                    new FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg" } },
-                },
-            });
-            if (files.Count == 0) return;
-            var src = files[0].Path.LocalPath;
-            try
-            {
-                var png = PawnImage.Compress(System.IO.File.ReadAllBytes(src));
-                t.ImageB64 = System.Convert.ToBase64String(png);
-                t.ImageExt = ".png";
-                Canvas.InvalidateImageCache();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-                StatusText.Text = $"image compressed to 50x50 png ({png.Length / 1024} KB)";
-            }
-            catch (Exception ex)
-            {
-                StatusText.Text = $"could not read image: {ex.Message}";
-            }
-        });
-        if (!string.IsNullOrEmpty(t.ImageB64))
-        {
-            ToolPanel.AddButton("remove image", () =>
-            {
-                t.ImageB64 = "";
-                t.ImageExt = "";
-                Canvas.InvalidateImageCache();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            });
-        }
-
-        ToolPanel.AddButton("back to library", () => ShowPawnManagement());
-
-        // Delete template. If live placed pawns reference it, warn first (they
-        // render as X after deletion - broken reference - and can be replaced via
-        // Change Pawn). The warning is a confirmation flyout anchored on the button.
-        var delBtn = new Button { Content = "delete template" };
-        delBtn.Click += (_, _) => DeleteTemplateWithWarning(t, delBtn);
-        ToolPanel.AddButtonRaw(delBtn);
-    }
 
     // Delete a template, warning if live pawns reference it. Counting live pawns
     // from the canvas document; a confirmation flyout requires an explicit "delete".
@@ -1701,12 +1520,12 @@ public partial class MainWindow : Window
         void doDelete()
         {
             ActiveLibrary.Remove(t.Id);
-            Canvas.Refresh();
-            BuildLibraryGrid();
-            ShowPawnManagement();
-            // the side edit panel is showing the now-deleted template; restore it to
-            // the pawn tool panel so the stale editor (whose changes do nothing) is gone.
-            PopulatePanel(Canvas.Mode);
+            if (Canvas.ArmedPawn == t) Canvas.ArmedPawn = null;
+            if (_manageEditId == t.Id) _manageEditId = null;
+            PawnsChanged();
+            RefreshManageModal();
+            // a side panel still showing the deleted pawn goes back to the tool panel
+            if (Canvas.Mode == ToolMode.Pawn) BuildPawnPanel(); else PopulatePanel(Canvas.Mode);
         }
 
         if (live == 0)
@@ -1756,8 +1575,7 @@ public partial class MainWindow : Window
                 }
             _settings.AffiliationColors.Remove(ac);
             _settings.Save();
-            Canvas.Refresh();
-            BuildLibraryGrid();
+            PawnsChanged();
             ShowPawnManagement();
         }
 
@@ -1801,8 +1619,7 @@ public partial class MainWindow : Window
                 if (t.Status == st.Name) t.Status = "none";
             _settings.PawnStatuses.Remove(st);
             _settings.Save();
-            Canvas.Refresh();
-            BuildLibraryGrid();
+            PawnsChanged();
             ShowPawnManagement();
             RefreshStatusCombo();
         }
@@ -1849,278 +1666,6 @@ public partial class MainWindow : Window
                 if (map.TryGetValue(p.TemplateId, out var nid)) p.TemplateId = nid;
     }
 
-    // Export: writes the active library to a json file (templates + embedded
-    // base64 images), shareable independently of any map.
-    private async void ExportLibrary()
-    {
-        var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            SuggestedFileName = $"PawnLibrary_{Stamp()}.json",
-            DefaultExtension = "json",
-            FileTypeChoices = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
-        });
-        if (file is null) return;
-        var path = file.Path.LocalPath;
-        System.IO.File.WriteAllText(path, MapSerializer.LibraryToJson(ActiveLibrary));
-        StatusText.Text = $"exported {_libraries[_project].Pawns.Count} templates to {path}";
-    }
-
-    // Import: reads a library json file, then asks append vs overwrite.
-    // Append adds the imported templates to the end; overwrite deletes all
-    // current templates first. Colliding ids get a fresh id (imported template
-    // becomes a new entry; existing references are untouched).
-    private async void ImportLibrary()
-    {
-        var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            AllowMultiple = false,
-            FileTypeFilter = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
-        });
-        if (files.Count == 0) return;
-        List<PawnTemplate> templates;
-        try
-        {
-            templates = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(System.IO.File.ReadAllText(files[0].Path.LocalPath)));
-        }
-        catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; return; }
-        if (templates.Count == 0) { StatusText.Text = "nothing to import (empty library file)"; return; }
-
-        var overlay = new StackPanel { Spacing = 8 };
-        overlay.Children.Add(new TextBlock { Text = $"import {templates.Count} templates:", Foreground = Brushes.White, FontSize = 14 });
-        var appendBtn = new Button { Content = "append (add to the end)" };
-        var overBtn = new Button { Content = "overwrite (delete all current ones)" };
-        var cancelBtn = new Button { Content = "cancel" };
-        void Close() => ModalOverlay.IsVisible = false;
-        appendBtn.Click += (_, _) =>
-        {
-            Close();
-            ActiveLibrary.MergeAppend(templates);
-            Canvas.InvalidateImageCache();
-            Canvas.Refresh();
-            BuildLibraryGrid();
-            StatusText.Text = $"appended {templates.Count} pawns";
-        };
-        overBtn.Click += (_, _) =>
-        {
-            Close();
-            ActiveLibrary.MergeOverwrite(templates);
-            Canvas.InvalidateImageCache();
-            Canvas.Refresh();
-            BuildLibraryGrid();
-            StatusText.Text = $"replaced library with {templates.Count} pawns";
-        };
-        cancelBtn.Click += (_, _) => Close();
-        overlay.Children.Add(appendBtn);
-        overlay.Children.Add(overBtn);
-        overlay.Children.Add(cancelBtn);
-        ModalOverlay.Child = overlay;
-        ModalOverlay.IsVisible = true;
-    }
-
-    // Pawn management: a modal popup centered over the map. The library grid is
-    // virtualized (VirtualizingStackPanel) so only visible rows render, keeping
-    // large libraries fast. Opened from the pawn tool panel's "pawn menu" button.
-    private void ShowPawnManagement()
-    {
-        ModalOverlay.IsVisible = true;
-        var presets = PresetColors();
-
-        // sort dropdown for the library grid: name, affiliation,
-        // instance count, invalid-first.
-        ModalSortRow.Children.Clear();
-        ModalSortRow.Children.Add(new TextBlock { Text = "sort:", Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
-        var sortCombo = new ComboBox { MinWidth = 150 };
-        foreach (var m in new[] { "insertion", "name", "affiliation", "instances", "invalid" })
-            sortCombo.Items.Add(m);
-        sortCombo.SelectedIndex = Math.Max(0, new[] { "insertion", "name", "affiliation", "instances", "invalid" }.ToList().IndexOf(_pawnSort));
-        sortCombo.SelectionChanged += (_, _) =>
-        {
-            _pawnSort = sortCombo.SelectedItem?.ToString() ?? "insertion";
-            BuildLibraryGrid();
-        };
-        ModalSortRow.Children.Add(sortCombo);
-
-        // dedicated import/export buttons for the pawn library (independent of
-        // the map file; the library is still saved inside the project file).
-        var importBtn = new Button { Content = "import" };
-        importBtn.Click += (_, _) => ImportLibrary();
-        ModalSortRow.Children.Add(importBtn);
-        var exportBtn = new Button { Content = "export" };
-        exportBtn.Click += (_, _) => ExportLibrary();
-        ModalSortRow.Children.Add(exportBtn);
-
-        BuildLibraryGrid();
-
-        // Global affiliation coloring: templates inherit these unless ColorOverride.
-        // outer + inner on the SAME row (modal is constant width).
-        ToolPanel.SetTarget(ModalAffiliations);
-        ModalAffiliations.Children.Clear();
-        foreach (var ac in _settings.AffiliationColors)
-        {
-            var captured = ac;
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
-            row.Children.Add(new TextBlock { Text = captured.Name, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Width = 55 });
-            var outerCol = new StackPanel { Spacing = 1 };
-            outerCol.Children.Add(new TextBlock { Text = "outer", Foreground = Brushes.White, FontSize = 11 });
-            outerCol.Children.Add(ToolPanel.ColorCell(captured.OuterR, captured.OuterG, captured.OuterB, presets, c =>
-            {
-                captured.OuterR = c.r; captured.OuterG = c.g; captured.OuterB = c.b;
-                _settings.Save();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            }));
-            var innerCol = new StackPanel { Spacing = 1 };
-            innerCol.Children.Add(new TextBlock { Text = "inner", Foreground = Brushes.White, FontSize = 11 });
-            innerCol.Children.Add(ToolPanel.ColorCell(captured.InnerR, captured.InnerG, captured.InnerB, presets, c =>
-            {
-                captured.InnerR = c.r; captured.InnerG = c.g; captured.InnerB = c.b;
-                _settings.Save();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-            }));
-            row.Children.Add(outerCol);
-            row.Children.Add(innerCol);
-            // delete X for non-default affiliations. Player/Ally/Enemy/Neutral are
-            // hard-coded defaults and undeletable.
-            if (captured.Name != "Player" && captured.Name != "Ally"
-                && captured.Name != "Enemy" && captured.Name != "Neutral")
-            {
-                var delAff = new Button { Content = "X", Padding = new Thickness(4, 0, 4, 0) };
-                delAff.Click += (_, _) => DeleteAffiliationWithWarning(captured, delAff);
-                row.Children.Add(delAff);
-            }
-            ModalAffiliations.Children.Add(row);
-        }
-
-        ToolPanel.AddButton("+ add affiliation", () =>
-        {
-            var n = _settings.AffiliationColors.Count;
-            var name = $"Affiliation {n + 1}";
-            while (_settings.AffiliationColors.Any(a => a.Name == name))
-            { n++; name = $"Affiliation {n + 1}"; }
-            _settings.AffiliationColors.Add(new AffiliationColor(name, (180, 180, 180), (110, 110, 110)));
-            _settings.Save();
-            Canvas.Refresh();
-            BuildLibraryGrid();
-            ShowPawnManagement();
-        });
-
-        // Status styles: an actual Grid with grid lines. Columns: Name, color cell
-        // ([preview][palette]), Thickness, delete X. Each style on its own row.
-        // "none" is the hard default (black, thickness 1) and is un-deletable.
-        ToolPanel.SetTarget(ModalStatuses);
-        ModalStatuses.Children.Clear();
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) }); // name + duplicate X, ~2x wider
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });       // color
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(60) });     // thickness
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });        // delete
-        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header
-        int rowIdx = 0;
-        // header row
-        var hName = new TextBlock { Text = "Name", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
-        var hColor = new TextBlock { Text = "Color", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
-        var hThick = new TextBlock { Text = "Thickness", Foreground = Brushes.White, FontSize = 11, Margin = new Thickness(2) };
-        Grid.SetColumn(hName, 0); Grid.SetRow(hName, rowIdx);
-        Grid.SetColumn(hColor, 1); Grid.SetRow(hColor, rowIdx);
-        Grid.SetColumn(hThick, 2); Grid.SetRow(hThick, rowIdx);
-        grid.Children.Add(hName); grid.Children.Add(hColor); grid.Children.Add(hThick);
-        rowIdx++;
-        // status rows: name cell = [textbox][red X shown when the name is a duplicate].
-        // Track each row so renames can recompute the duplicate set live.
-        var rows = new List<(PawnStatus st, TextBox nameTb, TextBlock dupX)>();
-        foreach (var st in _settings.PawnStatuses)
-        {
-            var captured = st;
-            bool isNone = captured.Name == "none";
-            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-            var nameTb = new TextBox { Text = captured.Name, Width = 124, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
-            var dupX = new TextBlock { Text = "✕", Foreground = Brushes.Red, FontSize = 16, IsVisible = false, VerticalAlignment = VerticalAlignment.Center };
-            var nameCell = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
-            nameCell.Children.Add(nameTb);
-            nameCell.Children.Add(dupX);
-            nameTb.TextChanged += (_, _) =>
-            {
-                captured.Name = nameTb.Text;
-                _settings.Save();
-                Canvas.Refresh();
-                BuildLibraryGrid();
-                UpdateDuplicates();
-                RefreshStatusCombo();
-            };
-
-            var colorCell = ToolPanel.ColorCell(captured.R, captured.G, captured.B, presets, c =>
-            {
-                captured.R = c.r; captured.G = c.g; captured.B = c.b;
-                Canvas.Refresh();
-                _settings.Save();
-                BuildLibraryGrid();
-            });
-            colorCell.Margin = new Thickness(2);
-
-            var thickTb = new TextBox { Text = captured.Thickness.ToString(), Width = 50, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
-            thickTb.TextChanged += (_, _) =>
-            {
-                if (int.TryParse(thickTb.Text, out int v))
-                {
-                    captured.Thickness = Math.Max(0, v);
-                    Canvas.Refresh();
-                    _settings.Save();
-                    BuildLibraryGrid();
-                }
-            };
-
-            Grid.SetColumn(nameCell, 0); Grid.SetRow(nameCell, rowIdx);
-            Grid.SetColumn(colorCell, 1); Grid.SetRow(colorCell, rowIdx);
-            Grid.SetColumn(thickTb, 2); Grid.SetRow(thickTb, rowIdx);
-            grid.Children.Add(nameCell); grid.Children.Add(colorCell); grid.Children.Add(thickTb);
-
-            // delete X per row; "none" is un-deletable (no button). Deleting a style
-            // resets everything that uses it to "none" (confirmation flyout).
-            if (!isNone)
-            {
-                var delX = new Button { Content = "✕", Foreground = Brushes.Red, Margin = new Thickness(2), VerticalAlignment = VerticalAlignment.Center };
-                delX.Click += (_, _) => DeleteStatusWithWarning(captured, delX);
-                Grid.SetColumn(delX, 3); Grid.SetRow(delX, rowIdx);
-                grid.Children.Add(delX);
-            }
-
-            rows.Add((captured, nameTb, dupX));
-            rowIdx++;
-        }
-
-        // recompute which names are duplicated and toggle each row's red X.
-        void UpdateDuplicates()
-        {
-            var counts = new Dictionary<string, int>();
-            foreach (var (st, _, _) in rows)
-                counts[st.Name] = counts.TryGetValue(st.Name, out int n) ? n + 1 : 1;
-            foreach (var (st, _, dupX) in rows)
-                dupX.IsVisible = counts[st.Name] > 1;
-        }
-        UpdateDuplicates();
-
-        // grid lines: a border on each cell via a Grid with ShowGridLines
-        grid.ShowGridLines = true;
-        ModalStatuses.Children.Add(grid);
-        ToolPanel.AddButton("+ add status style", () =>
-        {
-            // give new statuses indexed unique names ("new", "new 1", "new 2", ...)
-            // so two new ones don't collide on "new".
-            const string prefix = "new";
-            string name = prefix;
-            int i = 1;
-            while (_settings.PawnStatuses.Any(st => st.Name == name))
-                name = prefix + " " + (i++);
-            _settings.PawnStatuses.Add(new PawnStatus(name, 245, 220, 60, 2));
-            _settings.Save();
-            ShowPawnManagement();
-            RefreshStatusCombo();
-        });
-
-        ToolPanel.SetTarget(null);
-    }
 
     // Rebuild the side panel's Status dropdown options from the current status list
     // and re-select the template's current status. Called whenever statuses change
@@ -2137,54 +1682,6 @@ public partial class MainWindow : Window
             : (opts.Length > 0 ? opts[0] : null);
     }
 
-    // Rebuild the virtualized library grid: chunk templates into rows of 4 swatches.
-    // The ItemsControl's VirtualizingStackPanel renders only the rows in view.
-    private string _pawnSort = "insertion";
-    private string _pawnToolSort = "insertion";
-
-    private void BuildLibraryGrid()
-    {
-        LibraryGrid.Items.Clear();
-        var snapshot = SortedPawns(_pawnSort);
-        for (int i = 0; i < snapshot.Count; i += 4)
-            LibraryGrid.Items.Add(BuildSwatchRow(snapshot.GetRange(i, Math.Min(4, snapshot.Count - i))));
-    }
-
-    // Shared sort for the pawn management modal and the pawn tool swatch grid.
-    // Modes: insertion (library order), name, affiliation, instances (live placed
-    // count, desc), invalid (invalid templates first). A template is invalid when
-    // its affiliation is not in the affiliation table (deleted faction) or it is a
-    // duplicate - sharing normalized name + affiliation with another template.
-    private List<PawnTemplate> SortedPawns(string mode)
-    {
-        var list = new List<PawnTemplate>(ActiveLibrary.Pawns);
-        switch (mode)
-        {
-            case "name":
-                list.Sort((a, b) => string.Compare((a.Name ?? "").Trim(), (b.Name ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
-                break;
-            case "affiliation":
-                list.Sort((a, b) => string.Compare(PawnTemplate.NormalizeAffiliation(a.Affiliation),
-                    PawnTemplate.NormalizeAffiliation(b.Affiliation), StringComparison.OrdinalIgnoreCase));
-                break;
-            case "instances":
-                list.Sort((a, b) => InstanceCount(b).CompareTo(InstanceCount(a)));
-                break;
-            case "invalid":
-                list.Sort((a, b) => (IsInvalid(b) ? 1 : 0).CompareTo(IsInvalid(a) ? 1 : 0));
-                break;
-            default: // insertion order, no sort
-                break;
-        }
-        return list;
-    }
-
-    private int InstanceCount(PawnTemplate t)
-    {
-        int n = 0;
-        foreach (var p in Canvas.Document.Pawns.Values) if (p.TemplateId == t.Id) n++;
-        return n;
-    }
 
     private bool IsInvalid(PawnTemplate t)
     {
@@ -2196,76 +1693,5 @@ public partial class MainWindow : Window
             if ((o.Name ?? "").Trim().ToLowerInvariant() == nm
                 && PawnTemplate.NormalizeAffiliation(o.Affiliation) == aff) same++;
         return same > 1;
-    }
-
-    // One row of clickable pawn swatches (concentric circles + status ring). Clicking
-    // a swatch opens its template editor. Hover shows a live instance count.
-    private StackPanel BuildSwatchRow(List<PawnTemplate> row)
-    {
-        var rowPanel = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var t in row)
-        {
-            var captured = t;
-            var (effOuter, effInner) = t.Effective(_settings);
-            var st = _settings.FindPawnStatus(t.Status);
-            var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
-            var canvas = new Avalonia.Controls.Canvas { Width = 30, Height = 30 };
-            // unique-image templates render the image in the swatch (center-crop
-            // square, clipped to the outer circle), same as on the map.
-            var bmp = string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
-            // non-image pawns keep the affiliation outer color; the image brush
-            // replaces it only when a bitmap loads.
-            IBrush outerFill = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
-            if (bmp is not null)
-            {
-                double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
-                // center-crop square in source-pixel coords, clipped to the ellipse
-                outerFill = new ImageBrush
-                {
-                    Source = bmp,
-                    Stretch = Stretch.Fill,
-                    TileMode = TileMode.None,
-                    SourceRect = new RelativeRect((bmp.PixelSize.Width - side) / (2.0 * bmp.PixelSize.Width),
-                                                  (bmp.PixelSize.Height - side) / (2.0 * bmp.PixelSize.Height),
-                                                  side / (double)bmp.PixelSize.Width,
-                                                  side / (double)bmp.PixelSize.Height,
-                                                  RelativeUnit.Relative),
-                };
-            }
-            var outer = new Ellipse { Width = 26, Height = 26, Fill = outerFill };
-            Avalonia.Controls.Canvas.SetLeft(outer, 2); Avalonia.Controls.Canvas.SetTop(outer, 2);
-            var inner = new Ellipse { Width = 13, Height = 13, Fill = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b)), IsVisible = bmp is null };
-            Avalonia.Controls.Canvas.SetLeft(inner, 8); Avalonia.Controls.Canvas.SetTop(inner, 8);
-            canvas.Children.Add(outer);
-            canvas.Children.Add(inner);
-            if (st.Thickness > 0)
-            {
-                var ring = new Ellipse { Width = 26, Height = 26, Stroke = new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), StrokeThickness = st.Thickness };
-                Avalonia.Controls.Canvas.SetLeft(ring, 2); Avalonia.Controls.Canvas.SetTop(ring, 2);
-                canvas.Children.Add(ring);
-            }
-            var hit = new Rectangle { Width = 30, Height = 30, Fill = Brushes.Transparent };
-            hit.PointerPressed += (_, _) =>
-            {
-                // clicking a library swatch arms it for placement AND opens its
-                // editor. Without arming here, the modal can never change the
-                // armed pawn - the first-armed template keeps getting placed.
-                Canvas.ArmedPawn = captured;
-                StatusText.Text = $"armed {(string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name)} - click a cell to place";
-                ShowTemplateEditor(captured);
-            };
-            canvas.Children.Add(hit);
-            var cap = new TextBlock { Text = string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name, FontSize = 10, Foreground = Brushes.White, MaxWidth = 60, TextWrapping = TextWrapping.Wrap };
-            cell.Children.Add(canvas);
-            cell.Children.Add(cap);
-            cell.PointerEntered += (_, _) =>
-            {
-                int n = 0;
-                foreach (var p in Canvas.Document.Pawns.Values) if (p.TemplateId == captured.Id) n++;
-                ToolTip.SetTip(cell, $"{captured.Name}, {PawnTemplate.NormalizeAffiliation(captured.Affiliation)} ({n}x) - click to edit");
-            };
-            rowPanel.Children.Add(cell);
-        }
-        return rowPanel;
     }
 }

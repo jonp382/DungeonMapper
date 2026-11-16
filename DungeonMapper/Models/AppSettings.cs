@@ -57,6 +57,8 @@ public sealed class PawnTemplate
     // (".png"/".jpg"), kept for decoding and re-export.
     [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
     [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
+    // starred in the pawn panel: favorites get their own group at the top
+    [JsonPropertyName("favorite")] public bool Favorite { get; set; }
 
     /// Affiliation default colors: outer bright, inner dark accent.
     public static ((int r, int g, int b) outer, (int r, int g, int b) inner) AffiliationColors(string aff) => aff switch
@@ -194,6 +196,9 @@ public sealed class AppSettings
 
     // New labels start with this text so a placed label is visible (item 1).
     [JsonPropertyName("default_label_text")] public string DefaultLabelText { get; set; } = "label";
+
+    // pawn panel: draw each pawn's name in a pill under it on the map
+    [JsonPropertyName("show_pawn_names")] public bool ShowPawnNames { get; set; } = false;
 
     public static AppSettings Default()
     {
@@ -353,6 +358,38 @@ public sealed class PawnLibrary
         }
         foreach (var (k, v) in MergeAppend(fresh)) map[k] = v;
         return map;
+    }
+
+    /// How an incoming template compares to the library, for the import picker.
+    public enum ImportKind { New, Have, NewLook }
+
+    public ImportKind Classify(PawnTemplate t)
+    {
+        if (Pawns.Exists(p => SameLook(p, t))) return ImportKind.Have;
+        if (Pawns.Exists(p => string.Equals(p.Name, t.Name, StringComparison.OrdinalIgnoreCase))) return ImportKind.NewLook;
+        return ImportKind.New;
+    }
+
+    /// A copy of the chosen templates as their own library, for exporting a
+    /// selection. Keeps library order.
+    public PawnLibrary Subset(IEnumerable<string> ids)
+    {
+        var set = new HashSet<string>(ids);
+        var lib = new PawnLibrary();
+        foreach (var p in Pawns) if (set.Contains(p.Id)) lib.Pawns.Add(p);
+        lib.BumpNextId();
+        return lib;
+    }
+
+    /// Recently placed template ids, newest first. Session only, not saved.
+    [JsonIgnore] public List<string> Recent { get; } = new();
+    public const int RecentMax = 5;
+
+    public void NoteRecent(string id)
+    {
+        Recent.Remove(id);
+        Recent.Insert(0, id);
+        if (Recent.Count > RecentMax) Recent.RemoveRange(RecentMax, Recent.Count - RecentMax);
     }
 
     private static bool SameLook(PawnTemplate a, PawnTemplate b) =>

@@ -2539,5 +2539,41 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// pawn library: import classify, export subset, recent list, favorites
+{
+    var lib = new PawnLibrary();
+    var sk = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" }; sk.ApplyAffiliationDefaults(); lib.Add(sk);
+    var wo = new PawnTemplate { Name = "Wolf", Affiliation = "Enemy", Favorite = true }; wo.ApplyAffiliationDefaults(); lib.Add(wo);
+    var ga = new PawnTemplate { Name = "Gareth", Affiliation = "Player" }; ga.ApplyAffiliationDefaults(); lib.Add(ga);
+
+    var same = new PawnTemplate { Name = "Skeleton", Affiliation = "Enemy" }; same.ApplyAffiliationDefaults();
+    var look = new PawnTemplate { Name = "skeleton", Affiliation = "Enemy", ColorOverride = true, InnerR = 9 }; look.ApplyAffiliationDefaults();
+    var fresh = new PawnTemplate { Name = "Ghoul", Affiliation = "Enemy" }; fresh.ApplyAffiliationDefaults();
+    Check(lib.Classify(same) == PawnLibrary.ImportKind.Have, "pawns: identical template classifies as already have");
+    Check(lib.Classify(look) == PawnLibrary.ImportKind.NewLook, "pawns: same name with a new look classifies as new look");
+    Check(lib.Classify(fresh) == PawnLibrary.ImportKind.New, "pawns: unknown template classifies as new");
+
+    var sub = lib.Subset(new[] { ga.Id, sk.Id });
+    Check(sub.Pawns.Count == 2 && sub.Pawns[0] == sk && sub.Pawns[1] == ga, "pawns: export subset keeps library order");
+    var back = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(MapSerializer.LibraryToJson(sub)));
+    Check(back.Count == 2 && back[1].Name == "Gareth", "pawns: exported subset reads back");
+
+    var full = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(MapSerializer.LibraryToJson(lib)));
+    Check(full.Single(x => x.Name == "Wolf").Favorite && !full.Single(x => x.Name == "Skeleton").Favorite, "pawns: favorite survives library json");
+    var proj = new MapProject();
+    var pjson = MapSerializer.ProjectToJson(proj, lib);
+    var fromProj = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(pjson));
+    Check(fromProj.Count == 3 && fromProj.Single(x => x.Name == "Wolf").Favorite, "pawns: import picker reads a campaign file's library");
+
+    // importing into a library that already has them adds nothing
+    int before = lib.Pawns.Count;
+    lib.MergeImport(MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(MapSerializer.LibraryToJson(lib))));
+    Check(lib.Pawns.Count == before, "pawns: re-importing the same pawns does not duplicate them");
+
+    var rl = new PawnLibrary();
+    foreach (var id in new[] { "a", "b", "c", "a", "d", "e", "f", "g" }) rl.NoteRecent(id);
+    Check(string.Join(",", rl.Recent) == "g,f,e,d,a", $"pawns: recent is newest first, deduplicated, max 5 ({string.Join(",", rl.Recent)})");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

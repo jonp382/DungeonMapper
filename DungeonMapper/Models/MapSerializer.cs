@@ -111,6 +111,7 @@ public sealed class PawnTemplateDto
     [JsonPropertyName("status")] public string Status { get; set; } = "none";
     [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
     [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
+    [JsonPropertyName("favorite")] public bool Favorite { get; set; }
 }
 
 public sealed class PawnDto
@@ -549,6 +550,7 @@ public static class MapSerializer
                 OuterR = t.OuterR, OuterG = t.OuterG, OuterB = t.OuterB,
                 Status = t.Status,
                 ImageB64 = t.ImageB64, ImageExt = t.ImageExt,
+                Favorite = t.Favorite,
             });
         return list;
     }
@@ -567,6 +569,7 @@ public static class MapSerializer
                 OuterR = d.OuterR, OuterG = d.OuterG, OuterB = d.OuterB,
                 Status = string.IsNullOrEmpty(d.Status) ? "none" : d.Status,
                 ImageB64 = d.ImageB64, ImageExt = d.ImageExt,
+                Favorite = d.Favorite,
             });
         }
         return list;

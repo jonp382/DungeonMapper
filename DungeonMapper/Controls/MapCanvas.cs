@@ -96,6 +96,8 @@ public sealed class MapCanvas : Control
     public event Action? ViewChanged;
     public event Action<Pawn>? PawnConfigRequested;
     public event Action<string>? StatusMessage;
+    // a pawn was placed with the pawn tool (template id), for the recent strip
+    public event Action<string>? PawnPlaced;
 
     public void Refresh() => InvalidateVisual();
 
@@ -562,6 +564,36 @@ public sealed class MapCanvas : Control
     private SolidColorBrush GhostBrush(SolidColorBrush src)
         => new SolidColorBrush(Color.FromArgb(120, src.Color.R, src.Color.G, src.Color.B));
 
+    // locate: the cell being highlighted and when, the ring fades out
+    private CellKey? _locateCell;
+    private DateTime _locateAt;
+    private Avalonia.Threading.DispatcherTimer? _locateTimer;
+    private const double LocateSeconds = 1.6;
+
+    /// Centers the view on a cell without changing zoom (zooms in first if the
+    /// map is zoomed far out) and flashes a ring around it.
+    public void CenterOn(CellKey c)
+    {
+        if (_scale < 24) _scale = Math.Min(40, MaxScale);
+        double availW = Bounds.Width > 0 ? Bounds.Width : 800;
+        double availH = Bounds.Height > 0 ? Bounds.Height : 600;
+        _offset = new Point(c.X + 0.5 - availW / (2 * _scale), c.Y + 0.5 - availH / (2 * _scale));
+        _locateCell = c;
+        _locateAt = DateTime.Now;
+        if (_locateTimer is null)
+        {
+            _locateTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(40) };
+            _locateTimer.Tick += (_, _) =>
+            {
+                if ((DateTime.Now - _locateAt).TotalSeconds > LocateSeconds) { _locateCell = null; _locateTimer!.Stop(); }
+                InvalidateVisual();
+            };
+        }
+        _locateTimer.Start();
+        InvalidateVisual();
+        ViewChanged?.Invoke();
+    }
+
     public void AutoFit()
     {
         var b = Document.ContentBounds();
@@ -960,6 +992,31 @@ public sealed class MapCanvas : Control
         if (_pawnDragging && _pawnDragPawn is not null && _pawnDragEnd != _pawnDragStart)
             DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Status, 0.45);
 
+        // names on map: a dark pill under each pawn. skipped when zoomed far
+        // out, where the text would only be noise.
+        if (Settings.ShowPawnNames && _scale >= 14)
+        {
+            double fs = Math.Clamp(_scale * 0.28, 9, 14);
+            foreach (var (c, p) in Document.Pawns)
+            {
+                if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
+                var t = Library.Find(p.TemplateId);
+                if (t is null || string.IsNullOrWhiteSpace(t.Name)) continue;
+                DrawNamePill(ctx, c, t.Name, fs);
+            }
+        }
+
+        // locate ring: a yellow ring that shrinks onto the located cell and fades
+        if (_locateCell is CellKey lc)
+        {
+            double k = Math.Clamp((DateTime.Now - _locateAt).TotalSeconds / LocateSeconds, 0, 1);
+            var p0 = WorldToScreen(lc.X, lc.Y);
+            var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
+            double r = _scale * (0.6 + 0.9 * (1 - Math.Min(1, k * 3)));
+            byte a = (byte)(255 * (1 - k * k));
+            ctx.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(a, 255, 204, 51)), 3), center, r, r);
+        }
+
         DrawPreview(ctx);
     }
 
@@ -1273,6 +1330,22 @@ public sealed class MapCanvas : Control
     /// Draws one pawn glyph (two-tone circles, unique image, broken-reference X,
     /// status ring) at a cell. Shared by the placed-pawn pass and the per-pawn
     /// drag ghost. alpha < 1 renders it semi-transparent (ghost).
+    private static readonly IBrush NamePillBg = new SolidColorBrush(Color.FromArgb(215, 16, 16, 22));
+    private static readonly IBrush NamePillText = new SolidColorBrush(Color.FromRgb(240, 240, 245));
+
+    // the pawn name centered under its cell, clipped to about three cells wide
+    private void DrawNamePill(DrawingContext ctx, CellKey c, string name, double fs)
+    {
+        var ft = new FormattedText(name, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface("Inter"), fs, NamePillText)
+        { MaxTextWidth = Math.Max(_scale * 3, 60), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+        var p0 = WorldToScreen(c.X, c.Y);
+        double w = ft.Width + 8, h = ft.Height + 2;
+        double x = p0.X + _scale / 2 - w / 2, y = p0.Y + _scale * 0.9;
+        ctx.DrawRectangle(NamePillBg, null, new Rect(x, y, w, h), 3, 3);
+        ctx.DrawText(ft, new Point(x + 4, y + 1));
+    }
+
     private void DrawPawnGlyph(DrawingContext ctx, CellKey c, string templateId, string? instanceStatus, double alpha = 1.0)
     {
         var p0 = WorldToScreen(c.X, c.Y);
@@ -1653,6 +1726,7 @@ public sealed class MapCanvas : Control
                     // place a pawn that hard-references the armed library template
                     Document.PlacePawn(new Pawn { Cell = cell, TemplateId = ArmedPawn.Id });
                     Commit();
+                    PawnPlaced?.Invoke(ArmedPawn.Id);
                 }
                 else
                 {
