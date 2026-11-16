@@ -188,11 +188,6 @@ public static class MapSerializer
     public const string KindCampaign = "campaign";
     public const string KindMap = "map";
 
-    private static readonly JsonSerializerOptions Opts = new()
-    {
-        WriteIndented = true,
-    };
-
     // "x,y" <-> CellKey
     private static string Key(CellKey c) => $"{c.X},{c.Y}";
     private static string Key(EdgeKey e) => $"{e.Cell.X},{e.Cell.Y},{e.Side.ToString().ToLowerInvariant()}";
@@ -356,7 +351,7 @@ public static class MapSerializer
         }
         foreach (var (k, d) in doc.VertexDoors)
             dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
-        return JsonSerializer.Serialize(dto, Opts);
+        return JsonSerializer.Serialize(dto, DmJson.Default.MapFileDto);
     }
 
     private static PawnDto PawnToDto(CellKey c, Pawn p) => new PawnDto
@@ -377,7 +372,7 @@ public static class MapSerializer
 
     public static MapDocument FromJson(string json)
     {
-        var dto = JsonSerializer.Deserialize<MapFileDto>(json)
+        var dto = JsonSerializer.Deserialize(json, DmJson.Default.MapFileDto)
             ?? throw new InvalidDataException("map file is empty or not a map object");
         var doc = new MapDocument();
         foreach (var s in dto.Cells)
@@ -439,20 +434,20 @@ public static class MapSerializer
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         if (library is not null) dto.PawnLibrary = LibraryToDtos(library);
-        return JsonSerializer.Serialize(dto, Opts);
+        return JsonSerializer.Serialize(dto, DmJson.Default.ProjectFileDto);
     }
 
     /// Embedded library DTOs of a project file (empty for v2 files). The caller
     /// merges them into the live library and remaps the loaded pawns' ids.
     public static List<PawnTemplateDto> ExtractLibrary(string json)
     {
-        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json);
+        var dto = JsonSerializer.Deserialize(json, DmJson.Default.ProjectFileDto);
         return dto?.PawnLibrary ?? new List<PawnTemplateDto>();
     }
 
     public static MapProject ProjectFromJson(string json)
     {
-        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json)
+        var dto = JsonSerializer.Deserialize(json, DmJson.Default.ProjectFileDto)
             ?? throw new InvalidDataException("project file is empty or not a project object");
         var project = new MapProject();
         project.Maps.Clear();
@@ -501,7 +496,7 @@ public static class MapSerializer
                 if (used.Contains(t.Id)) lib.Pawns.Add(t);
             dto.PawnLibrary = LibraryToDtos(lib);
         }
-        return JsonSerializer.Serialize(dto, Opts);
+        return JsonSerializer.Serialize(dto, DmJson.Default.MapExportDto);
     }
 
     /// Reads every map a file holds: all maps of a campaign, the one map of a
@@ -521,7 +516,7 @@ public static class MapSerializer
             }
             case SaveFileKind.Map:
             {
-                var dto = JsonSerializer.Deserialize<MapExportDto>(json)
+                var dto = JsonSerializer.Deserialize(json, DmJson.Default.MapExportDto)
                     ?? throw new InvalidDataException("map file is empty");
                 var name = string.IsNullOrWhiteSpace(dto.Name) ? fallbackName : dto.Name;
                 result.Maps.Add(new MapEntry { Name = name, Doc = FromDto(dto.Map) });
@@ -578,17 +573,17 @@ public static class MapSerializer
     }
 
     public static string LibraryToJson(PawnLibrary lib)
-        => JsonSerializer.Serialize(new { pawn_library = LibraryToDtos(lib) }, Opts);
+        => JsonSerializer.Serialize(new LibraryWire { pawn_library = LibraryToDtos(lib) }, DmJson.Default.LibraryWire);
 
     public static List<PawnTemplateDto> LibraryFromJson(string json)
     {
-        var dto = JsonSerializer.Deserialize<ProjectFileDto>(json);
+        var dto = JsonSerializer.Deserialize(json, DmJson.Default.ProjectFileDto);
         if (dto is not null && dto.PawnLibrary.Count > 0) return dto.PawnLibrary;
-        var w = JsonSerializer.Deserialize<LibraryWire>(json);
+        var w = JsonSerializer.Deserialize(json, DmJson.Default.LibraryWire);
         return w?.pawn_library ?? new List<PawnTemplateDto>();
     }
 
-    private sealed class LibraryWire
+    internal sealed class LibraryWire
     {
         [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> pawn_library { get; set; } = new();
     }

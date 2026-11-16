@@ -258,10 +258,9 @@ public sealed class AppSettings
 
     public void Save()
     {
-        var opts = new JsonSerializerOptions { WriteIndented = true };
         var path = SettingsPath();
         System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-        System.IO.File.WriteAllText(path, JsonSerializer.Serialize(this, opts));
+        System.IO.File.WriteAllText(path, JsonSerializer.Serialize(this, DmJson.Default.AppSettings));
     }
 
     public static AppSettings Load()
@@ -278,7 +277,7 @@ public sealed class AppSettings
         if (!System.IO.File.Exists(path)) return Default();
         try
         {
-            var s = JsonSerializer.Deserialize<AppSettings>(System.IO.File.ReadAllText(path));
+            var s = JsonSerializer.Deserialize(System.IO.File.ReadAllText(path), DmJson.Default.AppSettings);
             if (s is null) return Default();
             if (s.ToolHotkeys.Count == 0) s.ToolHotkeys = Default().ToolHotkeys;
             // settings.json written before a hotkey existed: fill in missing keys

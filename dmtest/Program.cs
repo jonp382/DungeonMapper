@@ -2161,6 +2161,9 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
         var libJson = MapSerializer.LibraryToJson(probeLib);
         var libBack = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(libJson));
         Check(libBack.Count == 1 && libBack[0].Name == "Skeleton", "probe: library export file round-trip");
+        // source generated json keeps the old file format: same key name, still indented
+        Check(libJson.Contains("\"pawn_library\": ["), "probe: library export keeps pawn_library key and indentation");
+        Check(probeJson.Contains("\n  "), "probe: project file is still indented");
 
         // append: free ids keep their id, colliding ids get fresh ids, remap returned
         var live = new PawnLibrary();
