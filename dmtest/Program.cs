@@ -1746,9 +1746,13 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
         var wallSide = h8.PixelAt(bmp8, 90, 160); // wall left of the gap
         Check(wallSide.r == 235 && wallSide.g == 235 && wallSide.b == 240,
               "render: straddled wall drawn up to the door gap");
-        var gap = h8.PixelAt(bmp8, 105, 160); // inside the gap, outside the glyph
-        Check(gap.r == 20 && gap.g == 20 && gap.b == 25,
-              "render: full-cell gap punched along the door orientation");
+        // a door is 75% of a cell long (30px at scale 40): glyph to 15px out, wall past it
+        var tip = h8.PixelAt(bmp8, 107, 160);
+        Check(tip.r == 245 && tip.g == 220 && tip.b == 60,
+              "render: vertex door is 75% of one wall long");
+        var past = h8.PixelAt(bmp8, 101, 160);
+        Check(past.r == 235 && past.g == 235 && past.b == 240,
+              "render: vertex door is the same length as a single wall door");
 
         // vertical orientation: walls on the vertical pair place a vertical door
         var h9 = new CanvasHarness();
@@ -1765,9 +1769,25 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
         var vwall = h9.PixelAt(bmp9, 120, 130); // wall above the gap
         Check(vwall.r == 235 && vwall.g == 235 && vwall.b == 240,
               "render: vertical straddled wall drawn up to the gap");
-        var vgap = h9.PixelAt(bmp9, 120, 145); // inside the vertical gap
-        Check(vgap.r == 20 && vgap.g == 20 && vgap.b == 25,
-              "render: vertical gap punched along the door");
+        var vtip = h9.PixelAt(bmp9, 120, 147);
+        Check(vtip.r == 245 && vtip.g == 220 && vtip.b == 60,
+              "render: vertical vertex door runs along the wall");
+
+        // a single wall door is a rectangle with its long side along the wall
+        var h10 = new CanvasHarness();
+        var ve = EdgeKey.Normalize(new CellKey(1, 1), Side.East); // x=2, y 1..2 -> screen (120, 80..120)
+        h10.Doc.SetWall(ve, true);
+        h10.Doc.TryPlaceDoor(ve, out _);
+        var bmp10 = h10.Render();
+        var along = h10.PixelAt(bmp10, 120, 113);
+        Check(along.r == 245 && along.g == 220 && along.b == 60,
+              "render: door is long along its wall");
+        var across = h10.PixelAt(bmp10, 133, 100);
+        Check(!(across.r == 245 && across.g == 220 && across.b == 60),
+              "render: door is thin across its wall");
+        var wallPast = h10.PixelAt(bmp10, 120, 83);
+        Check(wallPast.r == 235 && wallPast.g == 235 && wallPast.b == 240,
+              "render: wall resumes past the 75% door");
     }
 
 // --- per-map undo/redo: switching maps must not wipe the other map's history ---

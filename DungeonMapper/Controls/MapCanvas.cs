@@ -509,13 +509,18 @@ public sealed class MapCanvas : Control
         return new SolidColorBrush(Color.FromRgb((byte)t.R, (byte)t.G, (byte)t.B));
     }
 
-    // Door square glyph centered at mid, rotated by ang (radians). Open = hollow
-    // outline, closed = solid, locked = solid + red core. Shared by placed doors,
-    // angled doors, and the door tool placement ghost.
+    // a door is 75% of one cell of wall long, on every wall kind, so a door
+    // across two walls at a vertex is the same size as one on a single wall
+    private const double DoorLength = 0.75;
+
+    // Door rectangle glyph centered at mid, long side along ang (radians). Open =
+    // hollow outline, closed = solid, locked = solid + red core. Shared by placed
+    // doors, angled doors, and the door tool placement ghost.
     private void DrawDoorGlyph(DrawingContext ctx, Point mid, double ang, IBrush brush, DoorState state)
     {
         double s2 = Math.Max(4, _scale * 0.18);
-        var rect = new Rect(mid.X - s2, mid.Y - s2, s2 * 2, s2 * 2);
+        double l2 = Math.Max(s2, _scale * DoorLength / 2);
+        var rect = new Rect(mid.X - l2, mid.Y - s2, l2 * 2, s2 * 2);
         void core()
         {
             if (state == DoorState.Open)
@@ -528,10 +533,9 @@ public sealed class MapCanvas : Control
                 ctx.FillRectangle(brush, rect);
                 if (state == DoorState.Locked)
                 {
-                    double inner = s2 * 2 * 0.5;
                     // locked inner core is always RED, independent of door type.
                     ctx.FillRectangle(new SolidColorBrush(Color.FromRgb(220, 40, 40)),
-                        new Rect(mid.X - inner / 2, mid.Y - inner / 2, inner, inner));
+                        new Rect(mid.X - l2 / 2, mid.Y - s2 / 2, l2, s2));
                 }
             }
         }
@@ -792,14 +796,14 @@ public sealed class MapCanvas : Control
             DrawAngledWall(ctx, w, a, b, doors);
         }
 
-        // Vertex doors: centered on the lattice vertex, fixed 5ft (one cell)
-        // width, straddling the two collinear walls. Punch a full-cell gap along
-        // the orientation, then draw the glyph rotated to it.
+        // Vertex doors: centered on the lattice vertex, straddling the two
+        // collinear walls, the same length as a single wall door. Punch a gap
+        // along the orientation, then draw the glyph rotated to it.
         foreach (var (k, d) in Document.VertexDoors)
         {
             if (k.X + 1 < topLeft.X || k.X - 1 > bottomRight.X || k.Y + 1 < topLeft.Y || k.Y - 1 > bottomRight.Y) continue;
             var v = WorldToScreen(k.X, k.Y);
-            double gap = _scale; // 5ft door = one cell of wall width
+            double gap = _scale * DoorLength;
             var gapRect = k.Horizontal
                 ? new Rect(v.X - gap / 2, v.Y - 1.5, gap, 3)
                 : new Rect(v.X - 1.5, v.Y - gap / 2, 3, gap);
@@ -1008,7 +1012,8 @@ public sealed class MapCanvas : Control
                 var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
                 var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
                     ? s : DoorState.Closed;
-                DrawDoorGlyph(ctx, mid, 0, GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                DrawDoorGlyph(ctx, mid, Math.Abs(b.Y - a.Y) < 0.001 ? 0 : Math.PI / 2,
+                    GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
             }
         }
         // angled door ghost: hover near an angled segment shows the rotated door
@@ -1017,7 +1022,7 @@ public sealed class MapCanvas : Control
         {
             var (wall, t) = _previewAngled.Value;
             var doors = Document.GetAngledDoors(wall);
-            if (doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5) is null)
+            if (doors.FirstOrDefault(d => Math.Abs(d.T - t) < DoorLength) is null)
             {
                 var wa = WorldToScreen(wall.Ax, wall.Ay);
                 var wb = WorldToScreen(wall.Bx, wall.By);
@@ -1456,7 +1461,7 @@ public sealed class MapCanvas : Control
                 {
                     var (wall, t) = aw.Value;
                     var doors = Document.GetAngledDoors(wall);
-                    var near = doors.FirstOrDefault(d => Math.Abs(d.T - t) < 0.5);
+                    var near = doors.FirstOrDefault(d => Math.Abs(d.T - t) < DoorLength);
                     if (near is not null)
                     {
                         DoorConfigRequested?.Invoke(near);
@@ -1940,16 +1945,16 @@ public sealed class MapCanvas : Control
     {
         var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
         bool horizontal = Math.Abs(b.Y - a.Y) < 0.001;
-        double gap = _scale * 0.45; // wall gap where the door sits
+        double gap = _scale * DoorLength; // wall gap where the door sits
         var gapRect = horizontal
             ? new Rect(mid.X - gap / 2, mid.Y - 1.5, gap, 3)
             : new Rect(mid.X - 1.5, mid.Y - gap / 2, 3, gap);
         ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
-        DrawDoorGlyph(ctx, mid, 0, DoorBrush(door.Type), door.State);
+        DrawDoorGlyph(ctx, mid, horizontal ? 0 : Math.PI / 2, DoorBrush(door.Type), door.State);
     }
 
     /// Draws an angled wall segment with door gaps. The wall is drawn as the
-    /// sub-segments between the door gaps (gap half-width = 0.45*scale, matching
+    /// sub-segments between the door gaps (the same door length as
     /// axis-aligned doors), then each door glyph is drawn centered at its T along
     /// the segment, rotated to the segment angle. Doors are sorted by T so gaps
     /// tile the segment left-to-right. Door T is stored in CELL units; screen
@@ -1959,7 +1964,7 @@ public sealed class MapCanvas : Control
         double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
         if (len < 0.0001) return;
         double ux = (b.X - a.X) / len, uy = (b.Y - a.Y) / len; // unit direction
-        double gapHalf = _scale * 0.45; // door gap half-width in screen px
+        double gapHalf = _scale * DoorLength / 2; // door gap half-width in screen px
         Point At(double tPx) => new Point(a.X + ux * tPx, a.Y + uy * tPx);
 
         // draw wall sub-segments between gaps (door T in cells -> px via _scale)
