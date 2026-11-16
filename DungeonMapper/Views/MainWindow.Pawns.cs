@@ -414,7 +414,7 @@ public partial class MainWindow
         star.IsVisible = t.Favorite;
         Grid.SetColumn(star, 2);
         g.Children.Add(star);
-        var cnt = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#5c5c6a");
+        var cnt = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#8a8a98");
         cnt.MinWidth = 26;
         cnt.TextAlignment = TextAlignment.Right;
         Grid.SetColumn(cnt, 3);
@@ -460,7 +460,7 @@ public partial class MainWindow
     private readonly HashSet<string> _manageSelected = new();
     private string? _manageEditId;
     private StackPanel? _manageListHost;
-    private WrapPanel? _manageChipHost;
+    private StackPanel? _manageChipHost;
     private Border? _manageEditorHost;
     private Border? _manageBulkBar;
     private TextBlock? _manageFooter;
@@ -593,7 +593,7 @@ public partial class MainWindow
         DockPanel.SetDock(tools, Dock.Top);
         left.Children.Add(tools);
 
-        _manageChipHost = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+        _manageChipHost = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
         DockPanel.SetDock(_manageChipHost, Dock.Top);
         left.Children.Add(_manageChipHost);
 
@@ -700,13 +700,19 @@ public partial class MainWindow
         var map = MapCounts(_doc);
         _manageSelected.RemoveWhere(id => ActiveLibrary.Find(id) is null);
 
+        // view filters on the first line, affiliations on their own line so the
+        // row never wraps a single chip however many affiliations there are
         _manageChipHost.Children.Clear();
+        var views = new WrapPanel();
+        var affs = new WrapPanel();
+        _manageChipHost.Children.Add(views);
+        _manageChipHost.Children.Add(affs);
         foreach (var f in new[] { "all", "favorites", "on map", "unused" })
-            _manageChipHost.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
+            views.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
         foreach (var ac in _settings.AffiliationColors)
         {
             var n = ac.Name;
-            _manageChipHost.Children.Add(Chip(n, _manageFilter == n, AffDot(ac, 10), () => { _manageFilter = n; RefreshManageList(); }));
+            affs.Children.Add(Chip(n, _manageFilter == n, AffDot(ac, 10), () => { _manageFilter = n; RefreshManageList(); }));
         }
 
         var shown = ManageShown(camp, map);
@@ -763,8 +769,8 @@ public partial class MainWindow
         }
         AddCell(g, nameSp, 2);
         AddCell(g, new TextBlock { Text = PawnTemplate.NormalizeAffiliation(t.Affiliation), FontSize = 11, Foreground = Hx("#b0b0be"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }, 3);
-        var m = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#5c5c6a"); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
-        var c = Txt($"×{inCampaign}", 11, inCampaign > 0 ? "#c8c8d4" : "#5c5c6a"); c.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, c, 5);
+        var m = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#8a8a98"); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
+        var c = Txt($"×{inCampaign}", 11, inCampaign > 0 ? "#c8c8d4" : "#8a8a98"); c.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, c, 5);
 
         var row = new Border
         {
@@ -1030,7 +1036,7 @@ public partial class MainWindow
     {
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         g.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = Hx(strong ? "#e6e6ee" : "#9a9aaa"), TextTrimming = TextTrimming.CharacterEllipsis });
-        var v = Txt($"×{n}", 12, n > 0 ? "#c8c8d4" : "#5c5c6a");
+        var v = Txt($"×{n}", 12, n > 0 ? "#c8c8d4" : "#8a8a98");
         Grid.SetColumn(v, 1);
         g.Children.Add(v);
         return g;
@@ -1164,7 +1170,7 @@ public partial class MainWindow
             void Look()
             {
                 var gg = new Grid { Width = 30, Height = 30 };
-                gg.Children.Add(new Ellipse { Width = 30, Height = 30, Fill = Hx("#5c5c6a") });
+                gg.Children.Add(new Ellipse { Width = 30, Height = 30, Fill = Hx("#8a8a98") });
                 if (st.Thickness > 0) gg.Children.Add(new Ellipse { Width = 30, Height = 30, Stroke = Rgb((st.R, st.G, st.B)), StrokeThickness = Math.Min(st.Thickness, 6) });
                 look.Child = gg;
             }
