@@ -518,6 +518,10 @@ public sealed class MapCanvas : Control
     // a door is 75% of one cell of wall long, on every wall kind, so a door
     // across two walls at a vertex is the same size as one on a single wall
     private const double DoorLength = 0.75;
+    // open door outline, a fixed pixel width like the walls so it holds up when
+    // zoomed out. a bit thinner than a wall so the two read apart. capped at half
+    // the glyph's short side so thick walls zoomed far out still leave it hollow.
+    private double OpenDoorWidth(double s2) => Math.Min(s2, Math.Max(1.5, WallWidth * 0.75));
 
     // Door rectangle glyph centered at mid, long side along ang (radians). Open =
     // hollow outline, closed = solid, locked = solid + red core. Shared by placed
@@ -531,7 +535,7 @@ public sealed class MapCanvas : Control
         {
             if (state == DoorState.Open)
             {
-                var pen = new Pen(brush, Math.Max(1.5, _scale * 0.06));
+                var pen = new Pen(brush, OpenDoorWidth(s2));
                 ctx.DrawRectangle(pen, rect);
             }
             else

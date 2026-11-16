@@ -2496,5 +2496,45 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(!Blue(dh.PixelAt(dh.Render(400, 260), 200, 140)), "door: closed door stays solid");
 }
 
+// open door outline is a fixed pixel width like walls, a bit thinner than them
+{
+    var widths = new List<(int door, int wall)>();
+    foreach (double zs in new[] { 40.0, 80.0, 120.0 })
+    {
+        using var zh = new CanvasHarness();
+        zh.Canvas.Settings.WallThickness = 8;
+        typeof(DungeonMapper.Controls.MapCanvas).GetField("_scale", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(zh.Canvas, zs);
+        for (int x = 1; x <= 6; x++) for (int y = 1; y <= 3; y++) zh.Doc.Cells.Add(new CellKey(x, y));
+        for (int y = 1; y <= 3; y++) zh.Doc.SetWall(EdgeKey.Normalize(new CellKey(3, y), Side.East), true);
+        zh.Doc.Doors[EdgeKey.Normalize(new CellKey(3, 2), Side.East)] = new Door { Type = "standard", State = DoorState.Open };
+        var zb = zh.Render(800, 600);
+        int cx = (int)(5 * zs);
+        int Count(int sy, Func<(byte r, byte g, byte b, byte a), bool> f)
+        {
+            int n = 0;
+            for (int x = cx - (int)Math.Max(20, zs * 0.3); x <= cx; x++) if (f(zh.PixelAt(zb, x, sy))) n++;
+            return n;
+        }
+        int door = Count((int)(3.5 * zs), p => p.r > 200 && p.g > 180 && p.b < 120);
+        int wall = Count((int)(2.2 * zs), p => p.r > 200 && p.g > 200 && p.b > 200) * 2;
+        widths.Add((door, wall));
+    }
+    // the wall count covers its left half only, so it is doubled above
+    Check(widths.Max(w => w.door) - widths.Min(w => w.door) <= 1, $"door: open outline width holds across zoom ({string.Join(",", widths.Select(w => w.door))})");
+    Check(widths.All(w => w.door >= 5 && w.door < w.wall), $"door: open outline a bit thinner than the wall ({string.Join(",", widths)})");
+    // zoomed far out with thick walls the outline is capped so the door stays hollow
+    {
+        using var fh = new CanvasHarness();
+        fh.Canvas.Settings.WallThickness = 20;
+        fh.Canvas.Settings.CellFillR = 0; fh.Canvas.Settings.CellFillG = 0; fh.Canvas.Settings.CellFillB = 255;
+        typeof(DungeonMapper.Controls.MapCanvas).GetField("_scale", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(fh.Canvas, 12.0);
+        for (int x = 1; x <= 6; x++) for (int y = 1; y <= 3; y++) fh.Doc.Cells.Add(new CellKey(x, y));
+        fh.Doc.SetWall(EdgeKey.Normalize(new CellKey(3, 2), Side.East), true);
+        fh.Doc.Doors[EdgeKey.Normalize(new CellKey(3, 2), Side.East)] = new Door { Type = "standard", State = DoorState.Open };
+        var p = fh.PixelAt(fh.Render(200, 100), 60, 42);
+        Check(p.b > 200 && p.r < 40, "door: open door stays hollow zoomed out with thick walls");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
