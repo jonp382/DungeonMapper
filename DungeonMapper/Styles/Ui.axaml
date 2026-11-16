@@ -202,6 +202,47 @@
         <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Text}" />
     </Style>
 
+    <!-- small right aligned box for whole numbers -->
+    <Style Selector="TextBox.field.number">
+        <Setter Property="Width" Value="64" />
+        <Setter Property="HorizontalContentAlignment" Value="Right" />
+    </Style>
+
+    <!-- settings style pages: a section heading over a group of rows. each
+         row is label (and hint) on the left, control, then a reset button -->
+    <Style Selector="TextBlock.section">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+        <Setter Property="Margin" Value="2,6,0,0" />
+    </Style>
+    <Style Selector="TextBlock.hint">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Muted}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Border.group">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="10,8" />
+    </Style>
+    <Style Selector="Grid.setting">
+        <Setter Property="MinHeight" Value="30" />
+    </Style>
+    <Style Selector="Grid.setting > TextBlock.body">
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- quiet button: no fill until hovered, for small row actions like reset -->
+    <Style Selector="Button.btn.quiet">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Muted}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="6,2" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+    </Style>
+
     <Style Selector="CheckBox.toggle">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />

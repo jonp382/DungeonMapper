@@ -147,7 +147,7 @@ public partial class MainWindow : Window
         HotkeysClose.Click += (_, _) => { FlushSettings(); HotkeysOverlay.IsVisible = false; };
 
         // settings + door presets modal popups
-        SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
+        InitSettings();
         InitDoorPresets();
 
         // autosave: ticks every minute; writes to maps/autosaves when the
@@ -245,6 +245,7 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape)
         {
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
+            if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
@@ -938,116 +939,6 @@ public partial class MainWindow : Window
     // datetime stamp for autosave/backup names: valid on linux and windows
     // (no : / etc). yyyy-MM-dd_HH-mm-ss.
     private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-
-    // Settings: modal popup centered over the map (like Pawn Management). All
-    // fields apply live (canvas refresh) and mark the settings dirty; the json
-    // write flushes on modal close, tool switch, other menu open, autosave tick.
-    private void ShowSettings()
-    {
-        FlushSettings(); // opening any menu flushes pending changes
-        ToolPanel.SetTarget(SettingsSections);
-        SettingsSections.Children.Clear();
-
-        // grid draw spacing (item 6): major line every N cells, minor at every
-        // 5ft cell edge.
-        ToolPanel.AddNumber("grid draw spacing (cells between major lines)", _settings.GridDrawSpacing, v =>
-        {
-            _settings.GridDrawSpacing = Math.Max(1, v);
-            Canvas.Refresh();
-            MarkSetting();
-        });
-
-        // gridline colors (item 3): major at spacing boundaries, minor at every
-        // 5ft cell edge. At 1x spacing they coincide so only major is drawn.
-        var gpresets = PresetColors();
-        ToolPanel.AddColorField("major gridline color", _settings.MajorGridR, _settings.MajorGridG, _settings.MajorGridB, gpresets, c =>
-        {
-            _settings.MajorGridR = c.r; _settings.MajorGridG = c.g; _settings.MajorGridB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("minor gridline color", _settings.MinorGridR, _settings.MinorGridG, _settings.MinorGridB, gpresets, c =>
-        {
-            _settings.MinorGridR = c.r; _settings.MinorGridG = c.g; _settings.MinorGridB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        // toggle minor gridline visibility, on the same row as the minor color,
-        // with padding. Unchecked = minor lines not drawn at all.
-        var minorPanel = ToolPanel.Target.Children[^1];
-        var minorRow = (StackPanel)((StackPanel)minorPanel).Children[^1];
-        var minorCheck = new CheckBox { Content = "show minor", IsChecked = _settings.ShowMinorGrid, Foreground = Brushes.White, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-        minorCheck.IsCheckedChanged += (_, _) =>
-        {
-            _settings.ShowMinorGrid = minorCheck.IsChecked == true;
-            Canvas.Refresh();
-            MarkSetting();
-        };
-        minorRow.Children.Add(minorCheck);
-        ToolPanel.AddColorField("grid dot color (empty space)", _settings.GridDotR, _settings.GridDotG, _settings.GridDotB, gpresets, c =>
-        {
-            _settings.GridDotR = c.r; _settings.GridDotG = c.g; _settings.GridDotB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-
-        // canvas element colors (item 5): background, cell fill, wall, stairs,
-        // labels. The old static GridLine/FaintGridLine brushes were dead code
-        // (grid uses the major/minor settings colors) and are removed.
-        ToolPanel.AddColorField("background color", _settings.BackgroundR, _settings.BackgroundG, _settings.BackgroundB, gpresets, c =>
-        {
-            _settings.BackgroundR = c.r; _settings.BackgroundG = c.g; _settings.BackgroundB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("cell fill color", _settings.CellFillR, _settings.CellFillG, _settings.CellFillB, gpresets, c =>
-        {
-            _settings.CellFillR = c.r; _settings.CellFillG = c.g; _settings.CellFillB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("wall color", _settings.WallR, _settings.WallG, _settings.WallB, gpresets, c =>
-        {
-            _settings.WallR = c.r; _settings.WallG = c.g; _settings.WallB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddNumber($"wall thickness in pixels ({AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness})", _settings.WallThickness, v =>
-        {
-            _settings.WallThickness = Math.Clamp(v, AppSettings.MinWallThickness, AppSettings.MaxWallThickness);
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("stair color", _settings.StairColorR, _settings.StairColorG, _settings.StairColorB, gpresets, c =>
-        {
-            _settings.StairColorR = c.r; _settings.StairColorG = c.g; _settings.StairColorB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-        ToolPanel.AddColorField("label color", _settings.LabelR, _settings.LabelG, _settings.LabelB, gpresets, c =>
-        {
-            _settings.LabelR = c.r; _settings.LabelG = c.g; _settings.LabelB = c.b;
-            Canvas.Refresh();
-            MarkSetting();
-        });
-
-        // default label text (item 1)
-        ToolPanel.AddText("default label text", _settings.DefaultLabelText, t =>
-        {
-            _settings.DefaultLabelText = t;
-            MarkSetting();
-        });
-
-        // autosave interval (minutes, 0 = off)
-        ToolPanel.AddNumber("autosave every N minutes (0 = off)", _settings.AutosaveMinutes, v =>
-        {
-            _settings.AutosaveMinutes = Math.Max(0, v);
-            MarkSetting();
-        });
-
-        SettingsOverlay.IsVisible = true;
-        ToolPanel.SetTarget(null);
-    }
 
     // hotkeys: editable single letter per tool, then the fixed shortcuts.
     // edits apply live to the tooltips and flush like settings.

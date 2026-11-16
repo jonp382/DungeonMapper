@@ -824,13 +824,13 @@ public partial class MainWindow
             : $"delete {ids.Count} pawns? {placed} placed pawn(s) across the campaign will render as X (broken reference) and can be replaced with Change Pawn.", doDelete);
     }
 
-    private static void ConfirmFlyout(Control anchor, string message, Action onYes)
+    private static void ConfirmFlyout(Control anchor, string message, Action onYes, string yesLabel = "delete")
     {
         var popup = new StackPanel { Spacing = 6 };
         popup.Children.Add(new TextBlock { Text = message, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap, MaxWidth = 260 });
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         var flyout = new Flyout { Content = popup };
-        var yes = new Button { Content = "delete" };
+        var yes = new Button { Content = yesLabel };
         var no = new Button { Content = "cancel" };
         yes.Click += (_, _) => { flyout.Hide(); onYes(); };
         no.Click += (_, _) => flyout.Hide();

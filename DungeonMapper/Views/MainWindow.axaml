@@ -137,22 +137,135 @@
                     Background="#22222c" BorderBrush="#444450" BorderThickness="1" CornerRadius="6"
                     Width="760" Height="640"
                     HorizontalAlignment="Center" VerticalAlignment="Center" />
-            <!-- settings modal: centered popup like Pawn Management. Sections are
-                 built in code (ShowSettingsModal) into SettingsSections. -->
-            <Border x:Name="SettingsOverlay" IsVisible="False"
-                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
-                    Width="460" MaxHeight="640" Padding="12"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="8">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Settings" FontSize="15" Foreground="White" VerticalAlignment="Center" />
-                        <Button x:Name="SettingsClose" Content="close" Margin="8,0,0,0" />
-                    </StackPanel>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
-                        <StackPanel x:Name="SettingsSections" Spacing="10" />
-                    </ScrollViewer>
-                </StackPanel>
-            </Border>
+            <!-- settings modal on the shared look in Styles/Ui.axaml. every row
+                 is fixed here, MainWindow.Settings.cs fills the values and puts
+                 the color buttons into the hosts. -->
+            <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border x:Name="SettingsOverlay" Classes="modal" IsVisible="False" Width="540" Height="540">
+                    <DockPanel>
+                        <Border Classes="header" DockPanel.Dock="Top">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="title" Text="Settings" />
+                                <Button x:Name="SettingsClose" Grid.Column="1" Classes="btn" Content="close" />
+                            </Grid>
+                        </Border>
+                        <Border Classes="footer" DockPanel.Dock="Bottom" Margin="14,0,14,10">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center"
+                                           Text="changes show on the map right away and are saved when you close." />
+                                <Button x:Name="SettingsResetAll" Grid.Column="1" Classes="btn" Content="reset all" Margin="10,0,0,0" />
+                            </Grid>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="14,12,14,12" Spacing="6">
+
+                                <TextBlock Classes="section" Text="grid" />
+                                <Border Classes="group">
+                                    <StackPanel Spacing="8">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="major lines every" />
+                                                <TextBlock Classes="hint" Text="cells between major lines, 1 to 100. a cell is 5 ft." />
+                                                <TextBlock x:Name="SetGridSpacingError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <TextBox x:Name="SetGridSpacing" Grid.Column="1" Classes="field number" />
+                                            <Button x:Name="ResetGridSpacing" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="major line color" />
+                                            <ContentControl x:Name="SetMajorColor" Grid.Column="1" />
+                                            <Button x:Name="ResetMajorColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="minor lines" />
+                                                <TextBlock Classes="hint" Text="every cell edge between major lines." />
+                                            </StackPanel>
+                                            <CheckBox x:Name="SetShowMinor" Grid.Column="1" Classes="toggle" Content="show" Margin="0,0,10,0" />
+                                            <ContentControl x:Name="SetMinorColor" Grid.Column="2" />
+                                            <Button x:Name="ResetMinorColor" Grid.Column="3" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="grid dots" />
+                                                <TextBlock Classes="hint" Text="the dots in empty space." />
+                                            </StackPanel>
+                                            <ContentControl x:Name="SetDotColor" Grid.Column="1" />
+                                            <Button x:Name="ResetDotColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Classes="section" Text="map colors" />
+                                <Border Classes="group">
+                                    <StackPanel Spacing="8">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="background" />
+                                            <ContentControl x:Name="SetBackgroundColor" Grid.Column="1" />
+                                            <Button x:Name="ResetBackgroundColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="room fill" />
+                                            <ContentControl x:Name="SetCellColor" Grid.Column="1" />
+                                            <Button x:Name="ResetCellColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="walls" />
+                                            <ContentControl x:Name="SetWallColor" Grid.Column="1" />
+                                            <Button x:Name="ResetWallColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="wall thickness" />
+                                                <TextBlock x:Name="SetWallThicknessHint" Classes="hint" />
+                                                <TextBlock x:Name="SetWallThicknessError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <TextBox x:Name="SetWallThickness" Grid.Column="1" Classes="field number" />
+                                            <Button x:Name="ResetWallThickness" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="stairs" />
+                                            <ContentControl x:Name="SetStairColor" Grid.Column="1" />
+                                            <Button x:Name="ResetStairColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <TextBlock Classes="body" Text="labels" />
+                                            <ContentControl x:Name="SetLabelColor" Grid.Column="1" />
+                                            <Button x:Name="ResetLabelColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <TextBlock Classes="section" Text="new labels" />
+                                <Border Classes="group">
+                                    <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="starting text" />
+                                            <TextBlock Classes="hint" Text="what a label says when you place it." />
+                                            <TextBlock x:Name="SetLabelTextError" Classes="refusal" IsVisible="False" />
+                                        </StackPanel>
+                                        <TextBox x:Name="SetLabelText" Grid.Column="1" Classes="field" Width="160" />
+                                        <Button x:Name="ResetLabelText" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Classes="section" Text="saving" />
+                                <Border Classes="group">
+                                    <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="autosave every" />
+                                            <TextBlock x:Name="SetAutosaveHint" Classes="hint" />
+                                            <TextBlock x:Name="SetAutosaveError" Classes="refusal" IsVisible="False" />
+                                        </StackPanel>
+                                        <TextBox x:Name="SetAutosave" Grid.Column="1" Classes="field number" />
+                                        <Button x:Name="ResetAutosave" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </ThemeVariantScope>
             <!-- door presets modal. first menu on the shared look in
                  Styles/Ui.axaml: the frame, header, editor and footer are fixed
                  here, only the rows are built in code (MainWindow.DoorPresets.cs) -->
