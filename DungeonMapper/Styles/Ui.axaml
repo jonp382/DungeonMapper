@@ -1,0 +1,209 @@
+<!-- shared ui look. colors are resources, the
+     component looks are style classes. code built rows use the same classes
+     (Classes.Add("row")) instead of hardcoding hex values. -->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Styles.Resources>
+        <SolidColorBrush x:Key="Ui.Bg.Modal" Color="#22222c" />
+        <SolidColorBrush x:Key="Ui.Bg.Row" Color="#262632" />
+        <SolidColorBrush x:Key="Ui.Bg.RowHover" Color="#2c2c38" />
+        <SolidColorBrush x:Key="Ui.Bg.Button" Color="#3a3a46" />
+        <SolidColorBrush x:Key="Ui.Bg.ButtonHover" Color="#454552" />
+        <SolidColorBrush x:Key="Ui.Bg.Input" Color="#14141a" />
+        <SolidColorBrush x:Key="Ui.Bg.Armed" Color="#34406a" />
+        <SolidColorBrush x:Key="Ui.Line" Color="#444450" />
+        <SolidColorBrush x:Key="Ui.Line.Soft" Color="#33333e" />
+        <SolidColorBrush x:Key="Ui.Line.Control" Color="#50505c" />
+        <SolidColorBrush x:Key="Ui.Line.Hover" Color="#6a6a7a" />
+        <SolidColorBrush x:Key="Ui.Accent" Color="#5a7fd0" />
+        <SolidColorBrush x:Key="Ui.Accent.Fill" Color="#3d5aa0" />
+        <SolidColorBrush x:Key="Ui.Accent.Hover" Color="#4a68b0" />
+        <SolidColorBrush x:Key="Ui.Text" Color="#e6e6ee" />
+        <SolidColorBrush x:Key="Ui.Text.Strong" Color="#ffffff" />
+        <SolidColorBrush x:Key="Ui.Text.Muted" Color="#9a9aaa" />
+        <SolidColorBrush x:Key="Ui.Text.Label" Color="#8a8a9a" />
+        <SolidColorBrush x:Key="Ui.Text.Dim" Color="#b0b0be" />
+        <SolidColorBrush x:Key="Ui.Count.On" Color="#c8c8d4" />
+        <SolidColorBrush x:Key="Ui.Count.Zero" Color="#8a8a98" />
+        <SolidColorBrush x:Key="Ui.Tag" Color="#9ab8ff" />
+        <SolidColorBrush x:Key="Ui.Danger.Text" Color="#ffb0b0" />
+        <SolidColorBrush x:Key="Ui.Danger.Line" Color="#6a3a40" />
+        <SolidColorBrush x:Key="Ui.Danger.Hover" Color="#3a2428" />
+    </Styles.Resources>
+
+    <!-- frames -->
+    <Style Selector="Border.modal">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Modal}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="Border.header">
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="Padding" Value="14,10" />
+    </Style>
+    <Style Selector="Border.footer">
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Soft}" />
+        <Setter Property="BorderThickness" Value="0,1,0,0" />
+        <Setter Property="Padding" Value="0,8,0,0" />
+    </Style>
+    <Style Selector="Border.divider">
+        <Setter Property="Background" Value="{StaticResource Ui.Line}" />
+        <Setter Property="Width" Value="1" />
+    </Style>
+    <Style Selector="Border.colhead">
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Soft}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="Padding" Value="8,0,8,4" />
+        <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+    <Style Selector="Border.infobox">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="8,6" />
+    </Style>
+
+    <!-- list rows: hover and selected states come from the classes -->
+    <Style Selector="Border.row">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="8,0" />
+        <Setter Property="MinHeight" Value="32" />
+        <Setter Property="Margin" Value="0,0,0,3" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Border.row:pointerover">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+    </Style>
+    <Style Selector="Border.row.selected">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Armed}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+
+    <!-- text -->
+    <Style Selector="TextBlock.title">
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.body">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.strong">
+        <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="TextBlock.muted">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Muted}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="TextBlock.label">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Label}" />
+        <Setter Property="Margin" Value="0,6,0,2" />
+    </Style>
+    <Style Selector="TextBlock.colhead">
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Label}" />
+    </Style>
+    <Style Selector="TextBlock.count">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Count.On}" />
+        <Setter Property="TextAlignment" Value="Right" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.count.zero">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Count.Zero}" />
+    </Style>
+    <Style Selector="TextBlock.tag">
+        <Setter Property="FontSize" Value="9" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Tag}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.refusal">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Danger.Text}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
+    <!-- buttons. fluent paints the background on the template's content
+         presenter, so hover and pressed states target that part -->
+    <Style Selector="Button.btn">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Padding" Value="10,3" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Button}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Control}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.btn:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.ButtonHover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Strong}" />
+    </Style>
+    <Style Selector="Button.btn:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+    <Style Selector="Button.btn:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Soft}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Label}" />
+    </Style>
+
+    <Style Selector="Button.btn.primary">
+        <Setter Property="Background" Value="{StaticResource Ui.Accent.Fill}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Strong}" />
+    </Style>
+    <Style Selector="Button.btn.primary:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Accent.Hover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+
+    <Style Selector="Button.btn.danger">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Line}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Danger.Text}" />
+    </Style>
+    <Style Selector="Button.btn.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Danger.Hover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Text}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Danger.Text}" />
+    </Style>
+
+    <!-- text inputs: dark at rest, hover and focus -->
+    <Style Selector="TextBox.field">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="MinHeight" Value="28" />
+        <Setter Property="Padding" Value="6,4" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Input}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Control}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+    </Style>
+    <Style Selector="TextBox.field:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Input}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+    </Style>
+    <Style Selector="TextBox.field:focus /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Input}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+    <Style Selector="TextBox.field.invalid /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Text}" />
+    </Style>
+
+    <Style Selector="CheckBox.toggle">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+    </Style>
+</Styles>

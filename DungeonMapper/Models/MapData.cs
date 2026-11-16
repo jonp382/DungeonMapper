@@ -216,6 +216,24 @@ public sealed class MapDocument
     public List<FloodRegion> FloodRegions { get; } = new();
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
 
+    /// every door on the map: edge, angled and vertex doors
+    public IEnumerable<IDoorConfig> AllDoors()
+    {
+        foreach (var d in Doors.Values) yield return d;
+        foreach (var l in AngledDoors.Values)
+            foreach (var d in l) yield return d;
+        foreach (var d in VertexDoors.Values) yield return d;
+    }
+
+    /// points every door of type `from` at type `to`. returns how many changed
+    public int RetypeDoors(string from, string to)
+    {
+        int n = 0;
+        foreach (var d in AllDoors())
+            if (d.Type == from) { d.Type = to; n++; }
+        return n;
+    }
+
     /// The two collinear unit edges a vertex door straddles (2.5ft of the door
     /// on each). Keys are normalized (North/East). Horizontal: left+right edges
     /// meeting at the vertex; vertical: top+bottom edges.

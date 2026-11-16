@@ -16,5 +16,7 @@
         <!-- ColorPicker styles are NOT bundled into FluentTheme; include them
              explicitly so the picker (spectrum/sliders) renders. -->
         <StyleInclude Source="avares://Avalonia.Controls.ColorPicker/Themes/Fluent/Fluent.xaml" />
+        <!-- shared ui look: color tokens and style classes -->
+        <StyleInclude Source="avares://DungeonMapper/Styles/Ui.axaml" />
     </Application.Styles>
 </Application>

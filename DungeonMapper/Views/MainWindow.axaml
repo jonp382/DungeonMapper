@@ -153,23 +153,72 @@
                     </ScrollViewer>
                 </StackPanel>
             </Border>
-            <!-- door presets modal: Manage Door Presets, opened from the Door tool.
-                 Door categories (name + color) with add/remove; Standard is the
-                 undeletable default. Door tool itself shows only placement options. -->
-            <Border x:Name="DoorPresetsOverlay" IsVisible="False"
-                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
-                    Width="420" MaxHeight="640" Padding="12"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="8">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Manage Door Presets" FontSize="15" Foreground="White" VerticalAlignment="Center" />
-                        <Button x:Name="DoorPresetsClose" Content="close" Margin="8,0,0,0" />
-                    </StackPanel>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Height="560">
-                        <StackPanel x:Name="DoorPresetsSections" Spacing="10" />
-                    </ScrollViewer>
-                </StackPanel>
-            </Border>
+            <!-- door presets modal. first menu on the shared look in
+                 Styles/Ui.axaml: the frame, header, editor and footer are fixed
+                 here, only the rows are built in code (MainWindow.DoorPresets.cs) -->
+            <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border x:Name="DoorPresetsOverlay" Classes="modal" IsVisible="False" Width="660" Height="480">
+                    <DockPanel>
+                        <Border Classes="header" DockPanel.Dock="Top">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="title" Text="Door presets" />
+                                <Button x:Name="DoorPresetsClose" Grid.Column="1" Classes="btn" Content="close" />
+                            </Grid>
+                        </Border>
+                        <Grid ColumnDefinitions="*,1,280">
+                            <!-- left: the door types -->
+                            <DockPanel Margin="12,12,12,10">
+                                <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+                                    <TextBlock Classes="muted" VerticalAlignment="Center"
+                                               Text="door types color the doors on the map. counts are this map and the whole campaign." />
+                                    <Button x:Name="DoorAdd" Grid.Column="1" Classes="btn primary" Content="+ add door type" Margin="10,0,0,0" />
+                                </Grid>
+                                <Border DockPanel.Dock="Top" Classes="colhead">
+                                    <Grid ColumnDefinitions="30,*,60,70">
+                                        <TextBlock Classes="colhead" Text="color" />
+                                        <TextBlock Classes="colhead" Grid.Column="1" Text="name" />
+                                        <TextBlock Classes="colhead" Grid.Column="2" Text="on map" HorizontalAlignment="Right" />
+                                        <TextBlock Classes="colhead" Grid.Column="3" Text="campaign" HorizontalAlignment="Right" />
+                                    </Grid>
+                                </Border>
+                                <Border DockPanel.Dock="Bottom" Classes="footer">
+                                    <TextBlock x:Name="DoorFooter" Classes="muted" />
+                                </Border>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel x:Name="DoorRows" />
+                                </ScrollViewer>
+                            </DockPanel>
+                            <Border Grid.Column="1" Classes="divider" />
+                            <!-- right: editor for the selected type -->
+                            <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                                <StackPanel Margin="14,12,14,12">
+                                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                                        <Border x:Name="DoorPreview" Width="36" Height="10" CornerRadius="2" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="DoorPreviewName" Classes="body strong" FontSize="14" />
+                                    </StackPanel>
+                                    <TextBlock Classes="label" Text="NAME" />
+                                    <TextBox x:Name="DoorName" Classes="field" />
+                                    <TextBlock x:Name="DoorNameError" Classes="refusal" IsVisible="False" Margin="0,4,0,0" />
+                                    <TextBlock Classes="label" Text="COLOR" />
+                                    <ContentControl x:Name="DoorColorHost" />
+                                    <TextBlock Classes="label" Text="DEFAULT" />
+                                    <Button x:Name="DoorMakeDefault" Classes="btn" Content="set as default" HorizontalAlignment="Left" />
+                                    <TextBlock x:Name="DoorDefaultNote" Classes="muted" FontSize="11" Margin="0,4,0,0"
+                                               Text="new doors are placed as this type." />
+                                    <Border Classes="infobox" Margin="0,12,0,0">
+                                        <TextBlock x:Name="DoorUsage" Classes="muted" />
+                                    </Border>
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,14,0,0">
+                                        <Button x:Name="DoorDuplicate" Classes="btn" Content="duplicate" />
+                                        <Button x:Name="DoorDelete" Classes="btn danger" Content="delete" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="DoorDeleteNote" Classes="muted" FontSize="11" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
+                    </DockPanel>
+                </Border>
+            </ThemeVariantScope>
             <!-- floating maps panel over the bottom left of the map, opened from
                  the map strip. not modal: the map stays usable behind it. rows
                  are built in code (ShowMaps) into MapsRows. -->

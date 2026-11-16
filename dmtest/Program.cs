@@ -2576,5 +2576,31 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(string.Join(",", rl.Recent) == "g,f,e,d,a", $"pawns: recent is newest first, deduplicated, max 5 ({string.Join(",", rl.Recent)})");
 }
 
+// ---- door types: rename and retype across doors and undo snapshots ----
+{
+    var dd = new MapDocument();
+    var ek = EdgeKey.Normalize(new CellKey(0, 0), Side.North);
+    dd.Walls[ek] = true;
+    dd.Doors[ek] = new Door { Type = "iron" };
+    var dw = new AngledWall(0, 0, 2, 2);
+    dd.AngledWalls.Add(dw);
+    dd.AngledDoors[dw] = new List<AngledDoor> { new AngledDoor { Type = "iron" }, new AngledDoor { Type = "standard" } };
+    dd.TryPlaceVertexDoor(5, 5, true, "iron", "closed", out _);
+    Check(dd.AllDoors().Count() == 4, "door types: AllDoors covers edge, angled and vertex doors");
+    Check(dd.AllDoors().Count(x => x.Type == "iron") == 3, "door types: counts by type include vertex doors");
+
+    var hist = new History();
+    hist.Initialize(dd);
+    dd.Doors[ek].State = DoorState.Open;
+    hist.Commit(dd);
+    int changed = dd.RetypeDoors("iron", "steel");
+    hist.Rewrite(x => x.RetypeDoors("iron", "steel"));
+    Check(changed == 3 && dd.AllDoors().All(x => x.Type != "iron"), "door types: RetypeDoors renames every door of the type");
+    var back = hist.Undo();
+    Check(back is not null && back.AllDoors().Count(x => x.Type == "steel") == 3 && back.AllDoors().All(x => x.Type != "iron"),
+        "door types: undo after a rename keeps the new name");
+    Check(back is not null && back.Doors.Values.First().State == DoorState.Closed, "door types: rewrite keeps the rest of the snapshot");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

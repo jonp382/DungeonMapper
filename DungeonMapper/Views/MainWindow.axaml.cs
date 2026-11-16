@@ -148,7 +148,7 @@ public partial class MainWindow : Window
 
         // settings + door presets modal popups
         SettingsClose.Click += (_, _) => { FlushSettings(); SettingsOverlay.IsVisible = false; };
-        DoorPresetsClose.Click += (_, _) => { FlushSettings(); DoorPresetsOverlay.IsVisible = false; };
+        InitDoorPresets();
 
         // autosave: ticks every minute; writes to maps/autosaves when the
         // configured interval has elapsed (0 = off). Flushes pending settings.
@@ -181,6 +181,7 @@ public partial class MainWindow : Window
         {
             ActiveLibrary.NoteRecent(id);
             PawnViewsChanged();
+            RefreshDoorPresets();
         };
         Canvas.TakeHeroFromOtherMaps = id =>
         {
@@ -243,6 +244,7 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Escape)
         {
+            if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
@@ -458,7 +460,7 @@ public partial class MainWindow : Window
                         _settings.DefaultDoorState = s;
                         MarkSetting();
                     });
-                ToolPanel.AddButton("Manage Door Presets", () => ShowDoorPresets());
+                ToolPanel.AddButton("manage door presets", () => { CloseModals(); ShowDoorPresets(); });
                 break;
 
             case ToolMode.Pawn:
@@ -523,6 +525,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"switched to {_project.ActiveName}";
         Canvas.Refresh();
         PawnViewsChanged();
+        RefreshDoorPresets();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
 
@@ -537,6 +540,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         PawnViewsChanged();
+        RefreshDoorPresets();
         StatusText.Text = $"added {name}";
         Canvas.Refresh();
         FocusCanvas();
@@ -818,6 +822,7 @@ public partial class MainWindow : Window
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
+        RefreshDoorPresets();
         StatusText.Text = "undo";
     }
 
@@ -828,6 +833,7 @@ public partial class MainWindow : Window
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
+        RefreshDoorPresets();
         StatusText.Text = "redo";
     }
 
@@ -1112,116 +1118,6 @@ public partial class MainWindow : Window
 
         HotkeysOverlay.IsVisible = true;
         ToolPanel.SetTarget(null);
-    }
-
-    // Manage Door Presets: modal popup opened from the Door tool. Door categories
-    // (name + color) with add/remove. Standard is the undeletable default.
-    // Removing a category that is in use warns; on confirm, affected doors reset
-    // to Standard in ONE undoable transaction (commit after mutation).
-    private void ShowDoorPresets()
-    {
-        FlushSettings();
-        ToolPanel.SetTarget(DoorPresetsSections);
-        DoorPresetsSections.Children.Clear();
-
-        ToolPanel.AddHint("door categories (name + color):");
-        foreach (var t in _settings.DoorTypes)
-        {
-            var captured = t;
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            var nameBox = new TextBox { Text = captured.Name, Width = 90 };
-            nameBox.TextChanged += (_, _) =>
-            {
-                captured.Name = nameBox.Text;
-                MarkSetting();
-            };
-            row.Children.Add(nameBox);
-            row.Children.Add(ToolPanel.ColorCell(captured.R, captured.G, captured.B, PresetColors(), c =>
-            {
-                captured.R = c.r; captured.G = c.g; captured.B = c.b;
-                Canvas.Refresh();
-                MarkSetting();
-            }));
-            if (captured.Name != "standard")
-            {
-                var del = new Button { Content = "remove" };
-                del.Click += (_, _) => DeleteDoorTypeWithWarning(captured, del);
-                row.Children.Add(del);
-            }
-            DoorPresetsSections.Children.Add(row);
-        }
-        ToolPanel.AddButton("+ add door category", () =>
-        {
-            _settings.DoorTypes.Add(new DoorType("new", 245, 220, 60));
-            MarkSetting();
-            ShowDoorPresets(); // rebuild for the new row
-        });
-
-        DoorPresetsOverlay.IsVisible = true;
-        ToolPanel.SetTarget(null);
-    }
-
-    // Count doors (axis-aligned + angled) using a door type name.
-    private int CountDoorsOfType(string name)
-    {
-        int n = 0;
-        foreach (var d in _doc.Doors.Values)
-            if (d.Type == name) n++;
-        foreach (var l in _doc.AngledDoors.Values)
-            foreach (var d in l)
-                if (d.Type == name) n++;
-        return n;
-    }
-
-    // Delete a door category. Standard is undeletable. If doors of that type
-    // exist, a confirmation flyout warns; on confirm they reset to Standard and
-    // the mutation is committed as ONE undoable transaction.
-    private void DeleteDoorTypeWithWarning(DoorType t, Control anchor)
-    {
-        if (t.Name == "standard") return; // undeletable default
-
-        int affected = CountDoorsOfType(t.Name);
-
-        void doDelete()
-        {
-            foreach (var d in _doc.Doors.Values)
-                if (d.Type == t.Name) d.Type = "standard";
-            foreach (var l in _doc.AngledDoors.Values)
-                foreach (var d in l)
-                    if (d.Type == t.Name) d.Type = "standard";
-            if (_settings.DefaultDoorType == t.Name) _settings.DefaultDoorType = "standard";
-            _settings.DoorTypes.Remove(t);
-            MarkSetting();
-            FlushSettings();
-            ActiveHistory.Commit(_doc); // one transaction: undo restores the doors
-            Canvas.Refresh();
-            ShowDoorPresets();
-        }
-
-        if (affected == 0)
-        {
-            doDelete();
-            return;
-        }
-
-        var popup = new StackPanel { Spacing = 6 };
-        popup.Children.Add(new TextBlock
-        {
-            Text = $"deleting '{t.Name}' resets {affected} door(s) of that type to Standard. delete?",
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 240,
-        });
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var flyout = new Flyout { Content = popup };
-        var yes = new Button { Content = "delete" };
-        var no = new Button { Content = "cancel" };
-        yes.Click += (_, _) => { flyout.Hide(); doDelete(); };
-        no.Click += (_, _) => flyout.Hide();
-        row.Children.Add(yes);
-        row.Children.Add(no);
-        popup.Children.Add(row);
-        flyout.ShowAt(anchor);
     }
 
     private void ShowDoorConfig(IDoorConfig door)

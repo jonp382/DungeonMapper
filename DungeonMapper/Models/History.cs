@@ -32,6 +32,18 @@ public sealed class History
         _index = _snapshots.Count - 1;
     }
 
+    /// applies a change to every stored snapshot, used when something the
+    /// documents refer to by name is renamed so undo and redo keep the link
+    public void Rewrite(Action<MapDocument> change)
+    {
+        for (int i = 0; i < _snapshots.Count; i++)
+        {
+            var d = MapSerializer.FromJson(_snapshots[i]);
+            change(d);
+            _snapshots[i] = MapSerializer.ToJson(d);
+        }
+    }
+
     public bool CanUndo => _index > 0;
     public bool CanRedo => _index < _snapshots.Count - 1;
 
