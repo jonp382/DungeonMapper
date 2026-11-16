@@ -6,6 +6,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
@@ -640,9 +641,14 @@ public sealed class MapCanvas : Control
 
     // a dot on each grid vertex in the visible window. major vertices (both
     // coordinates on the spacing) get a bigger dot, minor ones a smaller dot
-    // when minor grid is on. all dots go in one geometry so it is one draw.
-    // when zoomed out far enough that dots would crowd together they are
-    // skipped, minor first.
+    // when minor grid is on. when zoomed out far enough that dots would crowd
+    // together they are skipped, minor first.
+    // one sp x sp block of dots is drawn into a small bitmap and the screen is
+    // filled with it as a tiled brush. drawing thousands of dots one by one,
+    // or as one big path, ran at a few frames a second with minor dots on.
+    private RenderTargetBitmap? _dotTile;
+    private ImageBrush? _dotBrush;
+    private (int px, int sp, bool minor, double rMajor, double rMinor, Color col) _dotTileKey;
     private void DrawGridDots(DrawingContext ctx, Point topLeft, Point bottomRight, int sp)
     {
         bool minor = sp > 1 && Settings.ShowMinorGrid && _scale >= 8;
@@ -650,26 +656,56 @@ public sealed class MapCanvas : Control
         if (_scale * step < 8) return;
         double rMajor = Math.Clamp(_scale * 0.04, 1.1, 2.0);
         double rMinor = sp > 1 ? rMajor * 0.7 : rMajor;
-        int xs = (int)Math.Floor(topLeft.X), ys = (int)Math.Floor(topLeft.Y);
-        xs -= FloorMod(xs, step); ys -= FloorMod(ys, step);
-        int xe = (int)Math.Ceiling(bottomRight.X), ye = (int)Math.Ceiling(bottomRight.Y);
-        var geo = new StreamGeometry();
-        using (var g = geo.Open())
+        var col = Color.FromRgb((byte)Settings.GridDotR, (byte)Settings.GridDotG, (byte)Settings.GridDotB);
+        double tile = sp * _scale;
+        int px = (int)Math.Round(tile);
+        if (px > 1024)
         {
+            // zoomed in this far there are only a few dots on screen, draw
+            // them directly instead of building a huge tile
+            var solid = new SolidColorBrush(col);
+            int xs = (int)Math.Floor(topLeft.X), ys = (int)Math.Floor(topLeft.Y);
+            xs -= FloorMod(xs, step); ys -= FloorMod(ys, step);
+            int xe = (int)Math.Ceiling(bottomRight.X), ye = (int)Math.Ceiling(bottomRight.Y);
             for (int y = ys; y <= ye; y += step)
                 for (int x = xs; x <= xe; x += step)
                 {
-                    bool major = FloorMod(x, sp) == 0 && FloorMod(y, sp) == 0;
-                    double r = major ? rMajor : rMinor;
-                    var p = WorldToScreen(x, y);
-                    g.BeginFigure(new Point(p.X + r, p.Y), true);
-                    g.ArcTo(new Point(p.X - r, p.Y), new Size(r, r), 0, false, SweepDirection.Clockwise);
-                    g.ArcTo(new Point(p.X + r, p.Y), new Size(r, r), 0, false, SweepDirection.Clockwise);
-                    g.EndFigure(true);
+                    double r = FloorMod(x, sp) == 0 && FloorMod(y, sp) == 0 ? rMajor : rMinor;
+                    ctx.DrawEllipse(solid, null, WorldToScreen(x, y), r, r);
                 }
+            return;
         }
-        var brush = new SolidColorBrush(Color.FromRgb((byte)Settings.GridDotR, (byte)Settings.GridDotG, (byte)Settings.GridDotB));
-        ctx.DrawGeometry(brush, null, geo);
+        var key = (px, sp, minor, rMajor, rMinor, col);
+        if (_dotTile is null || _dotTileKey != key)
+        {
+            // the tile covers world vertex - 0.5 cell to + sp - 0.5 cells, so
+            // every dot sits inside it and none is cut at the tile edge
+            _dotTile?.Dispose();
+            _dotTile = new RenderTargetBitmap(new PixelSize(px, px), new Vector(96, 96));
+            double cell = (double)px / sp;
+            var solid = new SolidColorBrush(col);
+            using (var tctx = _dotTile.CreateDrawingContext())
+                for (int j = 0; j < sp; j++)
+                    for (int i = 0; i < sp; i++)
+                    {
+                        bool major = i == 0 && j == 0;
+                        if (!major && !minor) continue;
+                        double r = major ? rMajor : rMinor;
+                        tctx.DrawEllipse(solid, null, new Point((i + 0.5) * cell, (j + 0.5) * cell), r, r);
+                    }
+            _dotBrush = new ImageBrush(_dotTile) { TileMode = TileMode.Tile, Stretch = Stretch.Fill };
+            _dotTileKey = key;
+        }
+        // line the tile up with world vertex 0,0 (a major vertex). the brush
+        // offset did not place the tile where asked, so the tile stays at 0,0
+        // and the drawing is shifted by a transform instead. only the offset
+        // within one tile matters.
+        var origin = WorldToScreen(-0.5, -0.5);
+        double ox = origin.X - Math.Floor(origin.X / tile) * tile;
+        double oy = origin.Y - Math.Floor(origin.Y / tile) * tile;
+        _dotBrush!.DestinationRect = new RelativeRect(0, 0, tile, tile, RelativeUnit.Absolute);
+        using (ctx.PushTransform(Matrix.CreateTranslation(ox, oy)))
+            ctx.FillRectangle(_dotBrush, new Rect(-ox, -oy, Bounds.Width, Bounds.Height));
     }
 
     private Point _lastViewOffset; private double _lastViewScale;

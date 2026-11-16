@@ -2450,6 +2450,29 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(!Near(gb2, 400, 360, Green), "grid: no minor dot when minor grid is off");
     gs.ShowMinorGrid = true;
     Check(Near(gh.Render(), 400, 360, Green), "grid: minor dot when minor grid is on");
+    // dots stay on their vertices when the view is panned by odd amounts
+    var offField = typeof(DungeonMapper.Controls.MapCanvas).GetField("_offset", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+    gs.ShowMinorGrid = false;
+    bool panOk = true;
+    foreach (int psp in new[] { 2, 3 })
+        foreach (var (ox, oy) in new[] { (-1.37, -0.81), (5.23, 2.6), (-11.9, 7.45) })
+        {
+            gs.GridDrawSpacing = psp;
+            offField.SetValue(gh.Canvas, new Avalonia.Point(ox, oy));
+            var pb = gh.Render();
+            bool DotAt(double wx, double wy)
+            {
+                int sx = (int)Math.Round((wx - ox) * 40), sy = (int)Math.Round((wy - oy) * 40);
+                for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++)
+                    if (Green(gh.PixelAt(pb, sx + dx, sy + dy))) return true;
+                return false;
+            }
+            // a major vertex in empty space well inside the view, and the
+            // vertex one cell over which is not major
+            double mx = Math.Ceiling((ox + 18) / psp) * psp, my = Math.Ceiling((oy + 12) / psp) * psp;
+            if (!DotAt(mx, my) || DotAt(mx + 1, my) || DotAt(mx, my + 1)) panOk = false;
+        }
+    Check(panOk, "grid: dots stay on their vertices when panned");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");
