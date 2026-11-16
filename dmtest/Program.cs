@@ -2282,5 +2282,19 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Same(new List<(int, int)> { (8, 10), (6, 10), (4, 4), (9, 9), (8, 2), (18, 6) }, "reflex spike pinched at a corner");
 }
 
+// a merging polygon only opens walls that touch it. two rooms side by side
+// keep the wall and door between them when a polygon is drawn below one.
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 3, 3);
+    d.AddRoom(4, 0, 7, 3);
+    var shared = EdgeKey.Normalize(new CellKey(3, 1), Side.East);
+    d.TryPlaceDoor(shared, out _);
+    d.AddPolygon(new List<(int, int)> { (0, 4), (4, 4), (6, 6), (0, 6) }, mergeNearby: true);
+    Check(d.Doors.ContainsKey(shared), "polygon merge: a door between two other rooms survives");
+    Check(d.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(3, 2), Side.East)), "polygon merge: a wall between two other rooms survives");
+    Check(!d.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(1, 3), Side.South)), "polygon merge: the wall shared with the room above opens");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

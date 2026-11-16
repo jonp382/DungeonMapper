@@ -676,15 +676,16 @@ public sealed class MapDocument
         var opened = new List<(int ax, int ay, int bx, int by)>();
 
         // interior walls removed so adjacent rooms merge, ONLY when the merge
-        // checkbox is on (skipped in strict mode). Mirror AddRoom: remove walls
-        // between two cells in the MERGED region (the polygon fill plus any
-        // pre-existing room cells the polygon overlaps), not just fill-to-fill,
-        // so a polygon grown out of a room opens the shared wall.
+        // checkbox is on (skipped in strict mode). like AddRoom, only walls
+        // with a fill cell on at least one side are opened: the polygon's
+        // inside and its border with neighbouring room cells, so a polygon
+        // grown out of a room opens the shared wall. walls between two cells
+        // elsewhere on the map, and their doors, are left alone.
         if (mergeNearby && !strict)
         {
             var merged = new HashSet<CellKey>(fill);
-            foreach (var c in Cells) merged.Add(c); // includes pre-existing cells
-            foreach (var c in merged)
+            foreach (var c in Cells) merged.Add(c);
+            foreach (var c in fill)
                 foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                 {
                     var (nx, ny) = side switch
