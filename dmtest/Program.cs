@@ -2390,5 +2390,29 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(MapCanvas.LabelDefaultSize(twoLines) < MapCanvas.LabelDefaultSize(two), "multi-line label: more lines shrink a range label to fit");
 }
 
+// --- wall thickness setting ---
+{
+    Check(AppSettings.Default().WallThickness == 3, "wall thickness: defaults to 3 pixels");
+    var oldSettings = System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{\"wall_r\":1}")!;
+    Check(oldSettings.WallThickness == 3, "wall thickness: old settings files get the default");
+    var ws = AppSettings.Default(); ws.WallThickness = 9;
+    var wsBack = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(ws))!;
+    Check(wsBack.WallThickness == 9, "wall thickness: round-trips through settings json");
+
+    // a north wall on cell (1,1) runs along screen y=80 from x 80 to 120
+    using var thin = new CanvasHarness();
+    thin.Doc.SetWall(EdgeKey.Normalize(new CellKey(1, 1), Side.North), true);
+    var tp = thin.PixelAt(thin.Render(), 100, 84);
+    Check(!(tp.r == 235 && tp.g == 235 && tp.b == 240), "wall thickness: a 3 pixel wall stays thin");
+    using var thick = new CanvasHarness();
+    thick.Canvas.Settings.WallThickness = 10;
+    thick.Doc.SetWall(EdgeKey.Normalize(new CellKey(1, 1), Side.North), true);
+    var kp = thick.PixelAt(thick.Render(), 100, 84);
+    Check(kp.r == 235 && kp.g == 235 && kp.b == 240, "wall thickness: a 10 pixel wall draws wider");
+    thick.Canvas.Settings.WallThickness = 500;
+    var cp = thick.PixelAt(thick.Render(), 100, 95);
+    Check(!(cp.r == 235 && cp.g == 235 && cp.b == 240), "wall thickness: clamped to 20 pixels");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

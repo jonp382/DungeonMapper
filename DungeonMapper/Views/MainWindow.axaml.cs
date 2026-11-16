@@ -1033,6 +1033,12 @@ public partial class MainWindow : Window
             Canvas.Refresh();
             MarkSetting();
         });
+        ToolPanel.AddNumber($"wall thickness in pixels ({AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness})", _settings.WallThickness, v =>
+        {
+            _settings.WallThickness = Math.Clamp(v, AppSettings.MinWallThickness, AppSettings.MaxWallThickness);
+            Canvas.Refresh();
+            MarkSetting();
+        });
         ToolPanel.AddColorField("stair color", _settings.StairColorR, _settings.StairColorG, _settings.StairColorB, gpresets, c =>
         {
             _settings.StairColorR = c.r; _settings.StairColorG = c.g; _settings.StairColorB = c.b;

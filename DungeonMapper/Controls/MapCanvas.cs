@@ -446,15 +446,20 @@ public sealed class MapCanvas : Control
             return _cellFillBrush;
         }
     }
-    private Pen? _wallPenField; private int _wpR, _wpG, _wpB;
+    /// wall line thickness in screen pixels from the global setting, clamped
+    private double WallWidth => Math.Clamp(Settings.WallThickness, AppSettings.MinWallThickness, AppSettings.MaxWallThickness);
+
+    private Pen? _wallPenField; private int _wpR, _wpG, _wpB; private double _wpW;
     private IPen WallPen
     {
         get
         {
-            if (_wallPenField is null || _wpR != Settings.WallR || _wpG != Settings.WallG || _wpB != Settings.WallB)
+            if (_wallPenField is null || _wpR != Settings.WallR || _wpG != Settings.WallG || _wpB != Settings.WallB || _wpW != WallWidth)
             {
-                _wpR = Settings.WallR; _wpG = Settings.WallG; _wpB = Settings.WallB;
-                _wallPenField = new Pen(new SolidColorBrush(Color.FromRgb((byte)_wpR, (byte)_wpG, (byte)_wpB)), 3);
+                _wpR = Settings.WallR; _wpG = Settings.WallG; _wpB = Settings.WallB; _wpW = WallWidth;
+                // square caps close the notch where two thick walls meet at a corner
+                _wallPenField = new Pen(new SolidColorBrush(Color.FromRgb((byte)_wpR, (byte)_wpG, (byte)_wpB)), _wpW,
+                    lineCap: PenLineCap.Square);
             }
             return _wallPenField;
         }
@@ -804,9 +809,10 @@ public sealed class MapCanvas : Control
             if (k.X + 1 < topLeft.X || k.X - 1 > bottomRight.X || k.Y + 1 < topLeft.Y || k.Y - 1 > bottomRight.Y) continue;
             var v = WorldToScreen(k.X, k.Y);
             double gap = _scale * DoorLength;
+            double gw = WallWidth + 1; // a pixel over the wall to cover its anti-aliased edge
             var gapRect = k.Horizontal
-                ? new Rect(v.X - gap / 2, v.Y - 1.5, gap, 3)
-                : new Rect(v.X - 1.5, v.Y - gap / 2, 3, gap);
+                ? new Rect(v.X - gap / 2, v.Y - gw / 2, gap, gw)
+                : new Rect(v.X - gw / 2, v.Y - gap / 2, gw, gap);
             ctx.FillRectangle(Background, gapRect);
             DrawDoorGlyph(ctx, v, k.Horizontal ? 0 : Math.PI / 2, DoorBrush(d.Type), d.State);
         }
@@ -1946,9 +1952,10 @@ public sealed class MapCanvas : Control
         var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
         bool horizontal = Math.Abs(b.Y - a.Y) < 0.001;
         double gap = _scale * DoorLength; // wall gap where the door sits
+        double gw = WallWidth + 1; // a pixel over the wall to cover its anti-aliased edge
         var gapRect = horizontal
-            ? new Rect(mid.X - gap / 2, mid.Y - 1.5, gap, 3)
-            : new Rect(mid.X - 1.5, mid.Y - gap / 2, 3, gap);
+            ? new Rect(mid.X - gap / 2, mid.Y - gw / 2, gap, gw)
+            : new Rect(mid.X - gw / 2, mid.Y - gap / 2, gw, gap);
         ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
         DrawDoorGlyph(ctx, mid, horizontal ? 0 : Math.PI / 2, DoorBrush(door.Type), door.State);
     }

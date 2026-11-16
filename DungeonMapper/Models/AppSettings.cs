@@ -152,6 +152,10 @@ public sealed class AppSettings
     [JsonPropertyName("wall_r")] public int WallR { get; set; } = 235;
     [JsonPropertyName("wall_g")] public int WallG { get; set; } = 235;
     [JsonPropertyName("wall_b")] public int WallB { get; set; } = 240;
+    // wall line thickness in screen pixels, the same for every wall. render only,
+    // walls do not store it.
+    [JsonPropertyName("wall_thickness")] public int WallThickness { get; set; } = 3;
+    public const int MinWallThickness = 1, MaxWallThickness = 20;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
     [JsonPropertyName("stair_color_r")] public int StairColorR { get; set; } = 230;
