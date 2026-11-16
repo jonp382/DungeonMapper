@@ -2475,5 +2475,26 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(panOk, "grid: dots stay on their vertices when panned");
 }
 
+// open doors are hollow: the floor shows through, not a background strip
+{
+    using var dh = new CanvasHarness();
+    var ds = dh.Canvas.Settings;
+    ds.CellFillR = 0; ds.CellFillG = 0; ds.CellFillB = 255;
+    ds.BackgroundR = 255; ds.BackgroundG = 0; ds.BackgroundB = 0;
+    for (int x = 1; x <= 6; x++) for (int y = 1; y <= 3; y++) dh.Doc.Cells.Add(new CellKey(x, y));
+    for (int y = 1; y <= 3; y++) dh.Doc.SetWall(EdgeKey.Normalize(new CellKey(3, y), Side.East), true);
+    dh.Doc.SetWall(EdgeKey.Normalize(new CellKey(5, 1), Side.East), true);
+    dh.Doc.SetWall(EdgeKey.Normalize(new CellKey(5, 2), Side.East), true);
+    dh.Doc.Doors[EdgeKey.Normalize(new CellKey(3, 2), Side.East)] = new Door { Type = "standard", State = DoorState.Open };
+    dh.Doc.VertexDoors[new VertexDoorKey(6, 2, false)] = new VertexDoor { Type = "standard", State = DoorState.Open };
+    var db = dh.Render(400, 260);
+    bool Blue((byte r, byte g, byte b, byte a) p) => p.b > 200 && p.r < 40;
+    // door centers: edge door at world (4,2.5), vertex door at world (6,2)
+    Check(Blue(dh.PixelAt(db, 200, 140)) && Blue(dh.PixelAt(db, 200, 138)), "door: open wall door shows floor inside");
+    Check(Blue(dh.PixelAt(db, 280, 120)) && Blue(dh.PixelAt(db, 280, 116)), "door: open vertex door shows floor inside");
+    dh.Doc.Doors[EdgeKey.Normalize(new CellKey(3, 2), Side.East)].State = DoorState.Closed;
+    Check(!Blue(dh.PixelAt(dh.Render(400, 260), 200, 140)), "door: closed door stays solid");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

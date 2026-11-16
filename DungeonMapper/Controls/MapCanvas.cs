@@ -908,7 +908,7 @@ public sealed class MapCanvas : Control
             var gapRect = k.Horizontal
                 ? new Rect(v.X - gap / 2, v.Y - gw / 2, gap, gw)
                 : new Rect(v.X - gw / 2, v.Y - gap / 2, gw, gap);
-            ctx.FillRectangle(Background, gapRect);
+            ctx.FillRectangle(GapFill(d.State), gapRect);
             DrawDoorGlyph(ctx, v, k.Horizontal ? 0 : Math.PI / 2, DoorBrush(d.Type), d.State);
         }
 
@@ -2042,6 +2042,11 @@ public sealed class MapCanvas : Control
         InvalidateVisual();
     }
 
+    // an open door shows floor through its hollow glyph, so its wall gap is
+    // filled with the floor color. the background color read as a line
+    // across the doorway and made the door look sealed when zoomed out.
+    private IBrush GapFill(DoorState state) => state == DoorState.Open ? CellFill : Background;
+
     private void DrawDoor(DrawingContext ctx, EdgeKey e, Point a, Point b, Door door)
     {
         var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
@@ -2051,7 +2056,7 @@ public sealed class MapCanvas : Control
         var gapRect = horizontal
             ? new Rect(mid.X - gap / 2, mid.Y - gw / 2, gap, gw)
             : new Rect(mid.X - gw / 2, mid.Y - gap / 2, gw, gap);
-        ctx.FillRectangle(Background, gapRect); // erase wall segment for the gap
+        ctx.FillRectangle(GapFill(door.State), gapRect); // erase wall segment for the gap
         DrawDoorGlyph(ctx, mid, horizontal ? 0 : Math.PI / 2, DoorBrush(door.Type), door.State);
     }
 
