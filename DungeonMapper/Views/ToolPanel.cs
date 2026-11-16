@@ -85,11 +85,11 @@ public sealed class ToolPanel : Border
         return cb;
     }
 
-    public void AddText(string label, string initial, Action<string> onChange)
+    public void AddText(string label, string initial, Action<string> onChange, bool multiline = false)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
-        var tb = new TextBox { Text = initial };
+        var tb = new TextBox { Text = initial, AcceptsReturn = multiline };
         tb.TextChanged += (_, _) => onChange(tb.Text);
         panel.Children.Add(tb);
         Target.Children.Add(panel);

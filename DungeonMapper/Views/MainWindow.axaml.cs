@@ -9,6 +9,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Reactive;
+using Avalonia.Styling;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
@@ -185,6 +186,8 @@ public partial class MainWindow : Window
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
         Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
+        Canvas.LabelEditRequested += l => BeginLabelEdit(l);
+        Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.StatusMessage += msg =>
         {
@@ -1286,6 +1289,119 @@ public partial class MainWindow : Window
             });
     }
 
+    // ---- in place label editing: a text box laid over the label on the map,
+    // like editing a cell in a spreadsheet. enter keeps the text, shift+enter
+    // or alt+enter starts a new line, escape puts the old text back, and
+    // clicking away keeps it.
+
+    private TextBox? _labelEditor;
+    private MapLabel? _editingLabel;
+    private string _editOriginal = "";
+
+    private TextBox LabelEditor()
+    {
+        if (_labelEditor is not null) return _labelEditor;
+        var tb = new TextBox
+        {
+            IsVisible = false,
+            AcceptsReturn = true,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(2, 0),
+            MinHeight = 0,
+            Background = new SolidColorBrush(Color.FromArgb(200, 20, 24, 32)),
+            BorderBrush = new SolidColorBrush(Color.Parse("#5b8def")),
+            BorderThickness = new Thickness(1.5),
+            CornerRadius = new CornerRadius(0),
+        };
+        // the fluent theme repaints the box when it is focused or hovered,
+        // keep it looking like the label instead
+        foreach (var state in new[] { ":focus", ":pointerover" })
+        {
+            var st = new Avalonia.Styling.Style(x => x.OfType<TextBox>().Class(state)
+                .Template().OfType<Border>().Name("PART_BorderElement"));
+            st.Setters.Add(new Avalonia.Styling.Setter(Border.BackgroundProperty, tb.Background));
+            st.Setters.Add(new Avalonia.Styling.Setter(Border.BorderBrushProperty, tb.BorderBrush));
+            st.Setters.Add(new Avalonia.Styling.Setter(Border.BorderThicknessProperty, tb.BorderThickness));
+            tb.Styles.Add(st);
+        }
+        tb.AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key == Key.Escape) { EndLabelEdit(false); e.Handled = true; }
+            else if (e.Key == Key.Enter)
+            {
+                e.Handled = true;
+                if ((e.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Alt)) == 0) { EndLabelEdit(true); return; }
+                var t = tb.Text ?? "";
+                int a = Math.Min(tb.SelectionStart, tb.SelectionEnd), b = Math.Max(tb.SelectionStart, tb.SelectionEnd);
+                a = Math.Clamp(a, 0, t.Length); b = Math.Clamp(b, a, t.Length);
+                tb.Text = t[..a] + "\n" + t[b..];
+                tb.SelectionStart = tb.SelectionEnd = tb.CaretIndex = a + 1;
+            }
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        tb.TextChanged += (_, _) =>
+        {
+            if (_editingLabel is null) return;
+            _editingLabel.Text = (tb.Text ?? "").Replace("\r\n", "\n");
+            // a range label's default size follows its text
+            PlaceLabelEditor();
+        };
+        tb.LostFocus += (_, _) => EndLabelEdit(true);
+        // sits just above the map, under the tool panel and the popups
+        var host = (Panel)Canvas.Parent!;
+        host.Children.Insert(host.Children.IndexOf(Canvas) + 1, tb);
+        return _labelEditor = tb;
+    }
+
+    private void BeginLabelEdit(MapLabel label)
+    {
+        if (ReferenceEquals(_editingLabel, label)) return;
+        EndLabelEdit(true);
+        var tb = LabelEditor();
+        _editOriginal = label.Text;
+        tb.Text = label.Text;
+        _editingLabel = label;
+        Canvas.EditingLabel = label;
+        tb.Foreground = Canvas.LabelTextBrush(label);
+        tb.TextAlignment = label.Align switch
+        {
+            LabelAlign.Left => TextAlignment.Left,
+            LabelAlign.Right => TextAlignment.Right,
+            _ => TextAlignment.Center,
+        };
+        PlaceLabelEditor();
+        tb.IsVisible = true;
+        tb.Focus();
+        tb.SelectAll();
+        Canvas.Refresh();
+    }
+
+    // keeps the box over the label at its drawn size as the map pans or zooms
+    private void PlaceLabelEditor()
+    {
+        if (_editingLabel is null || _labelEditor is null) return;
+        var r = Canvas.LabelScreenRect(_editingLabel);
+        _labelEditor.Margin = new Thickness(r.X, r.Y, 0, 0);
+        _labelEditor.MinWidth = r.Width;
+        _labelEditor.MinHeight = r.Height;
+        _labelEditor.FontSize = Canvas.LabelRenderSize(_editingLabel);
+    }
+
+    private void EndLabelEdit(bool keep)
+    {
+        if (_editingLabel is null || _labelEditor is null) return;
+        var label = _editingLabel;
+        _editingLabel = null;
+        Canvas.EditingLabel = null;
+        _labelEditor.IsVisible = false;
+        if (!keep) label.Text = _editOriginal;
+        else if (label.Text != _editOriginal) ActiveHistory.Commit(_doc);
+        Canvas.Refresh();
+        ShowLabelConfig(label);
+        FocusCanvas();
+    }
+
     private void ShowLabelConfig(MapLabel label)
     {
         ToolPanel.Clear(label.IsRange ? $"Label ({label.W}x{label.H})" : "Label");
@@ -1301,13 +1417,13 @@ public partial class MainWindow : Window
             sizeBox.Text = ((int)Math.Round(MapCanvas.LabelSize(label))).ToString();
             settingSize = false;
         }
-        ToolPanel.AddText("Text", label.Text, t =>
+        ToolPanel.AddText("Text (double click the label to edit it on the map)", label.Text, t =>
         {
-            label.Text = t;
+            label.Text = t.Replace("\r\n", "\n");
             if (label.FontSize == 0) ShowSize();
             ActiveHistory.Commit(_doc);
             Canvas.Refresh();
-        });
+        }, multiline: true);
         // font size at 100% zoom, it scales with the map. color uses the
         // standard color picker, -1 = inherit the settings label color.
         sizeBox = ToolPanel.AddNumber("Font size", (int)Math.Round(MapCanvas.LabelSize(label)), v =>

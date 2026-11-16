@@ -89,6 +89,10 @@ public sealed class MapCanvas : Control
     public event Action<IDoorConfig>? DoorConfigRequested;
     public event Action<Stair>? StairConfigRequested;
     public event Action<MapLabel>? LabelConfigRequested;
+    /// a label should be edited in place on the map (double click, or just placed)
+    public event Action<MapLabel>? LabelEditRequested;
+    /// the pan or zoom changed, so anything placed over the map must follow
+    public event Action? ViewChanged;
     public event Action<Pawn>? PawnConfigRequested;
     public event Action<string>? StatusMessage;
 
@@ -601,8 +605,14 @@ public sealed class MapCanvas : Control
             }
     }
 
+    private Point _lastViewOffset; private double _lastViewScale;
     public override void Render(DrawingContext ctx)
     {
+        if (_offset != _lastViewOffset || _scale != _lastViewScale)
+        {
+            _lastViewOffset = _offset; _lastViewScale = _scale;
+            if (ViewChanged is { } vc) Avalonia.Threading.Dispatcher.UIThread.Post(vc);
+        }
         ctx.FillRectangle(Background, new Rect(Bounds.Size));
 
         // Visible world window, for culling
@@ -801,24 +811,30 @@ public sealed class MapCanvas : Control
         foreach (var l in Document.Labels)
         {
             if (l.Cell.X + l.W < topLeft.X || l.Cell.X > bottomRight.X || l.Cell.Y + l.H < topLeft.Y || l.Cell.Y > bottomRight.Y) continue;
+            // the label being edited in place is drawn by the edit box instead
+            if (ReferenceEquals(l, EditingLabel)) continue;
             var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
-            // sizes are stored at RefScale and follow the zoom. the floor keeps
-            // small text readable when zoomed far out, as before.
-            double size = LabelSize(l);
-            double fs = Math.Max(Math.Min(10, size), size * _scale / MapLabel.RefScale);
-            var brush = (l.R >= 0 && l.G >= 0 && l.B >= 0)
-                ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
-                : LabelBrush;
-            var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                new Typeface("Inter"), fs, brush);
+            double fs = LabelRenderSize(l);
+            var brush = LabelTextBrush(l);
+            // one line at a time so each line is aligned on its own
+            var lines = LabelLines(l.Text)
+                .Select(t => (blank: t.Length == 0, ft: new FormattedText(t.Length == 0 ? " " : t, CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, new Typeface("Inter"), fs, brush)))
+                .ToList();
             double w = l.W * _scale, h = l.H * _scale, pad = LabelPad * _scale;
-            double tx = l.Align switch
+            double y = p0.Y + (h - lines.Sum(x => x.ft.Height)) / 2;
+            foreach (var (blank, ft) in lines)
             {
-                LabelAlign.Left => p0.X + pad,
-                LabelAlign.Right => p0.X + w - pad - ft.Width,
-                _ => p0.X + (w - ft.Width) / 2,
-            };
-            ctx.DrawText(ft, new Point(tx, p0.Y + (h - ft.Height) / 2));
+                double lw = blank ? 0 : ft.Width;
+                double tx = l.Align switch
+                {
+                    LabelAlign.Left => p0.X + pad,
+                    LabelAlign.Right => p0.X + w - pad - lw,
+                    _ => p0.X + (w - lw) / 2,
+                };
+                if (lw > 0) ctx.DrawText(ft, new Point(tx, y));
+                y += ft.Height;
+            }
         }
 
         // Pawns: concentric circles (outer + inner) + outer status border, scaled
@@ -877,27 +893,68 @@ public sealed class MapCanvas : Control
 
     // gap between the range edge and left or right aligned text, in cells
     private const double LabelPad = 0.15;
+    private int _pressClicks;
 
     /// The size a label draws at, at MapLabel.RefScale: its own size when set,
     /// otherwise its default.
     public static double LabelSize(MapLabel l) => l.FontSize > 0 ? l.FontSize : LabelDefaultSize(l);
 
+    // range labels default a bit under the size that exactly fills the range
+    private const double RangeFill = 0.8;
+
     /// The default size of a label. a single cell label uses the global
-    /// default. a range label gets the largest size that fits its text across
-    /// the range (inside the padding), capped at half the range height.
+    /// default. a range label gets the largest size that fits all its lines
+    /// inside the range padding, capped at half the range height, then
+    /// scaled down by RangeFill so it does not crowd the edges.
     public static double LabelDefaultSize(MapLabel l)
     {
         if (!l.IsRange) return MapLabel.DefaultSize;
         double cap = l.H * MapLabel.RefScale * 0.5;
-        if (string.IsNullOrEmpty(l.Text)) return cap;
-        // text width grows linearly with the font size, so measure once at 100
-        var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-            new Typeface("Inter"), 100, Brushes.White);
-        double perPoint = ft.Width / 100;
-        double room = (l.W - 2 * LabelPad) * MapLabel.RefScale;
-        double fit = perPoint > 0 ? room / perPoint : cap;
-        return Math.Max(4, Math.Min(cap, fit));
+        double size = cap;
+        if (!string.IsNullOrEmpty(l.Text))
+        {
+            // text grows linearly with the font size, so measure once at 100
+            double widest = 0, tall = 0;
+            foreach (var t in LabelLines(l.Text))
+            {
+                var ft = new FormattedText(t.Length == 0 ? " " : t, CultureInfo.InvariantCulture,
+                    FlowDirection.LeftToRight, new Typeface("Inter"), 100, Brushes.White);
+                if (t.Length > 0) widest = Math.Max(widest, ft.Width);
+                tall += ft.Height;
+            }
+            double roomW = (l.W - 2 * LabelPad) * MapLabel.RefScale;
+            double roomH = (l.H - 2 * LabelPad) * MapLabel.RefScale;
+            if (widest > 0) size = Math.Min(size, roomW / (widest / 100));
+            if (tall > 0) size = Math.Min(size, roomH / (tall / 100));
+        }
+        return Math.Max(4, size * RangeFill);
     }
+
+    /// a label's text split into lines
+    public static string[] LabelLines(string text) => text.Replace("\r\n", "\n").Split('\n');
+
+    /// the font size a label draws at on screen at the current zoom. sizes are
+    /// stored at RefScale and follow the zoom; the floor keeps small text
+    /// readable when zoomed far out.
+    public double LabelRenderSize(MapLabel l)
+    {
+        double size = LabelSize(l);
+        return Math.Max(Math.Min(10, size), size * _scale / MapLabel.RefScale);
+    }
+
+    public IBrush LabelTextBrush(MapLabel l) => (l.R >= 0 && l.G >= 0 && l.B >= 0)
+        ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
+        : LabelBrush;
+
+    /// the screen rectangle a label covers
+    public Rect LabelScreenRect(MapLabel l)
+    {
+        var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
+        return new Rect(p0.X, p0.Y, l.W * _scale, l.H * _scale);
+    }
+
+    /// the label being edited in place. the canvas skips drawing it.
+    public MapLabel? EditingLabel { get; set; }
 
     /// the topmost label covering a cell
     private MapLabel? LabelAt(CellKey c) => Document.Labels.LastOrDefault(l => l.Covers(c));
@@ -1304,6 +1361,7 @@ public sealed class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
+        _pressClicks = e.ClickCount;
 
         _ghostVisible = false; // hide paste ghost on click/drag
 
@@ -1464,7 +1522,9 @@ public sealed class MapCanvas : Control
                 var lbl = LabelAt(cell);
                 if (lbl is not null)
                 {
-                    LabelConfigRequested?.Invoke(lbl);
+                    // a double click edits the text on the map
+                    if (e.ClickCount >= 2) LabelEditRequested?.Invoke(lbl);
+                    else LabelConfigRequested?.Invoke(lbl);
                     break;
                 }
                 _dragging = true;
@@ -1708,7 +1768,11 @@ public sealed class MapCanvas : Control
                 else
                 {
                     var lbl = LabelAt(cell);
-                    if (lbl is not null) LabelConfigRequested?.Invoke(lbl);
+                    if (lbl is not null)
+                    {
+                        if (_pressClicks >= 2) LabelEditRequested?.Invoke(lbl);
+                        else LabelConfigRequested?.Invoke(lbl);
+                    }
                 }
             }
             InvalidateVisual();
@@ -1770,6 +1834,7 @@ public sealed class MapCanvas : Control
                 Document.Labels.Add(lbl);
                 Commit();
                 LabelConfigRequested?.Invoke(lbl);
+                LabelEditRequested?.Invoke(lbl);
                 break;
             }
             case ToolMode.Floor:

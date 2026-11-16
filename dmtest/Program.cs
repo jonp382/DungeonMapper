@@ -2350,5 +2350,25 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(full.Labels.Single().Cell == new CellKey(0, 0) && full.Labels.Single().W == 4, "range label: four turns come back");
 }
 
+// --- multi-line labels ---
+{
+    var ls = MapCanvas.LabelLines("a\r\nb\n\nc");
+    Check(ls.Length == 4 && ls[0] == "a" && ls[1] == "b" && ls[2] == "" && ls[3] == "c", "multi-line label: splits on line breaks and keeps blank lines");
+    Check(MapCanvas.LabelLines("one").Length == 1, "multi-line label: one line stays one line");
+
+    var m = new MapDocument();
+    m.Labels.Add(new MapLabel { Cell = new CellKey(0, 0), W = 3, H = 2, Text = "Great Hall\nnorth wing" });
+    var back = MapSerializer.FromJson(MapSerializer.ToJson(m));
+    Check(back.Labels.Single().Text == "Great Hall\nnorth wing", "multi-line label: line breaks round-trip");
+
+    // an empty range label sits at 80% of half its height
+    var empty = new MapLabel { Cell = new CellKey(0, 0), W = 4, H = 2 };
+    Check(Math.Abs(MapCanvas.LabelDefaultSize(empty) - 2 * MapLabel.RefScale * 0.5 * 0.8) < 1e-9, "multi-line label: range default is 80% of the cap");
+    Check(MapCanvas.LabelDefaultSize(new MapLabel { Cell = new CellKey(0, 0) }) == MapLabel.DefaultSize, "multi-line label: single cell keeps the global default");
+    var two = new MapLabel { Cell = new CellKey(0, 0), W = 6, H = 1, Text = "hall" };
+    var twoLines = new MapLabel { Cell = new CellKey(0, 0), W = 6, H = 1, Text = "hall\nhall" };
+    Check(MapCanvas.LabelDefaultSize(twoLines) < MapCanvas.LabelDefaultSize(two), "multi-line label: more lines shrink a range label to fit");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
