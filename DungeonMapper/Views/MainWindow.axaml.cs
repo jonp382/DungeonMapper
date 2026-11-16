@@ -144,11 +144,11 @@ public partial class MainWindow : Window
         MenuPawns.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
         MenuDoorPresets.Click += (_, _) => { CloseModals(); ShowDoorPresets(); };
         MenuHotkeys.Click += (_, _) => { CloseModals(); ShowHotkeys(); };
-        HotkeysClose.Click += (_, _) => { FlushSettings(); HotkeysOverlay.IsVisible = false; };
 
-        // settings + door presets modal popups
+        // settings, door presets and hotkeys modal popups
         InitSettings();
         InitDoorPresets();
+        InitHotkeys();
 
         // autosave: ticks every minute; writes to maps/autosaves when the
         // configured interval has elapsed (0 = off). Flushes pending settings.
@@ -246,6 +246,7 @@ public partial class MainWindow : Window
         {
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
+            if (HotkeysOverlay.IsVisible) { CloseHotkeys(); e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
@@ -939,77 +940,6 @@ public partial class MainWindow : Window
     // datetime stamp for autosave/backup names: valid on linux and windows
     // (no : / etc). yyyy-MM-dd_HH-mm-ss.
     private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-
-    // hotkeys: editable single letter per tool, then the fixed shortcuts.
-    // edits apply live to the tooltips and flush like settings.
-    private void ShowHotkeys()
-    {
-        FlushSettings();
-        ToolPanel.SetTarget(HotkeysSections);
-        HotkeysSections.Children.Clear();
-
-        // grid of small single-letter boxes with a label above each. reset
-        // restores the hardcoded defaults.
-        ToolPanel.AddHint("tool hotkeys (single letter):");
-        var hotkeyGrid = new WrapPanel { MaxWidth = 420 };
-        foreach (var modeName in _settings.ToolHotkeys.Keys)
-        {
-            var captured = modeName;
-            var cell = new StackPanel { Spacing = 1, Margin = new Thickness(2) };
-            cell.Children.Add(new TextBlock { Text = captured, Foreground = Brushes.White, FontSize = 11 });
-            var tb = new TextBox { Text = _settings.ToolHotkeys[captured], Width = 30, HorizontalAlignment = HorizontalAlignment.Left };
-            tb.TextChanged += (_, _) =>
-            {
-                var k = tb.Text.Trim().ToUpperInvariant();
-                if (k.Length == 1)
-                {
-                    _settings.ToolHotkeys[captured] = k;
-                    MarkSetting();
-                    RefreshToolLabels();
-                }
-            };
-            cell.Children.Add(tb);
-            hotkeyGrid.Children.Add(cell);
-        }
-        ToolPanel.Target.Children.Add(hotkeyGrid);
-        ToolPanel.AddButton("reset hotkeys to default", () =>
-        {
-            _settings.ToolHotkeys = AppSettings.Default().ToolHotkeys;
-            MarkSetting();
-            FlushSettings();
-            ShowHotkeys(); // rebuild the grid with the restored defaults
-            RefreshToolLabels();
-        });
-
-
-        // fixed shortcuts, listed for reference only
-        ToolPanel.AddHint("fixed shortcuts:");
-        var fixedGrid = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Margin = new Thickness(2, 0, 0, 0) };
-        (string keys, string what)[] fixedKeys =
-        {
-            ("Ctrl+S", "save"),
-            ("Ctrl+Z / Ctrl+Y", "undo / redo"),
-            ("Ctrl+C / X / V", "copy / cut / paste at cursor"),
-            ("Delete", "erase the selection"),
-            ("R / Shift+R", "rotate a picked up selection"),
-            ("Enter", "close the polygon"),
-            ("Esc", "cancel a move, polygon or wall line"),
-            ("Right drag", "pan"),
-            ("Wheel", "zoom"),
-        };
-        for (int i = 0; i < fixedKeys.Length; i++)
-        {
-            fixedGrid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
-            var k = new TextBlock { Text = fixedKeys[i].keys, Foreground = Brushes.White, FontSize = 12, Margin = new Thickness(0, 2, 16, 2) };
-            var w = new TextBlock { Text = fixedKeys[i].what, Foreground = new SolidColorBrush(Color.FromRgb(0xaa, 0xaa, 0xb4)), FontSize = 12, Margin = new Thickness(0, 2) };
-            Grid.SetRow(k, i); Grid.SetRow(w, i); Grid.SetColumn(w, 1);
-            fixedGrid.Children.Add(k); fixedGrid.Children.Add(w);
-        }
-        ToolPanel.Target.Children.Add(fixedGrid);
-
-        HotkeysOverlay.IsVisible = true;
-        ToolPanel.SetTarget(null);
-    }
 
     private void ShowDoorConfig(IDoorConfig door)
     {

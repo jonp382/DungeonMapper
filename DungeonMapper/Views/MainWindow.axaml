@@ -354,22 +354,41 @@
                     </StackPanel>
                 </Border>
             </ThemeVariantScope>
-            <!-- hotkeys modal: editable tool letters plus the fixed shortcuts.
-                 built in code (ShowHotkeys) into HotkeysSections. -->
-            <Border x:Name="HotkeysOverlay" IsVisible="False"
-                    Background="#22222c" BorderBrush="#444450" BorderThickness="1"
-                    Width="440" MaxHeight="640" Padding="12"
-                    HorizontalAlignment="Center" VerticalAlignment="Center">
-                <StackPanel Spacing="8">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="Hotkeys" FontSize="15" Foreground="White" VerticalAlignment="Center" />
-                        <Button x:Name="HotkeysClose" Content="close" Margin="8,0,0,0" />
-                    </StackPanel>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="560">
-                        <StackPanel x:Name="HotkeysSections" Spacing="10" />
-                    </ScrollViewer>
-                </StackPanel>
-            </Border>
+            <!-- hotkeys modal: one letter per tool, then the fixed shortcuts.
+                 the frame is fixed here, MainWindow.Hotkeys.cs builds the tool
+                 rows into HotkeyRows and the shortcut rows into FixedKeyRows. -->
+            <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border x:Name="HotkeysOverlay" Classes="modal" IsVisible="False" Width="480" Height="580">
+                    <DockPanel>
+                        <Border Classes="header" DockPanel.Dock="Top">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="title" Text="Hotkeys" />
+                                <Button x:Name="HotkeysClose" Grid.Column="1" Classes="btn" Content="close" />
+                            </Grid>
+                        </Border>
+                        <Border Classes="footer" DockPanel.Dock="Bottom" Margin="14,0,14,10">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center"
+                                           Text="changes apply right away and are saved when you close." />
+                                <Button x:Name="HotkeysResetAll" Grid.Column="1" Classes="btn" Content="reset all" Margin="10,0,0,0" />
+                            </Grid>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="14,12,14,12" Spacing="6">
+                                <TextBlock Classes="section" Text="tools" />
+                                <TextBlock Classes="hint" Text="click a box and press a letter. hotkeys do nothing while you type in a text box." />
+                                <Border Classes="group">
+                                    <StackPanel x:Name="HotkeyRows" Spacing="2" />
+                                </Border>
+                                <TextBlock Classes="section" Text="fixed shortcuts" Margin="2,12,0,0" />
+                                <Border Classes="group">
+                                    <StackPanel x:Name="FixedKeyRows" Spacing="6" />
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+                    </DockPanel>
+                </Border>
+            </ThemeVariantScope>
         </Panel>
     </DockPanel>
 
