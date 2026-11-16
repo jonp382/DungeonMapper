@@ -381,7 +381,7 @@ public partial class MainWindow : Window
             ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
-            ToolMode.Label => "label: click a cell to place, click a label to edit",
+            ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
@@ -1288,19 +1288,39 @@ public partial class MainWindow : Window
 
     private void ShowLabelConfig(MapLabel label)
     {
-        ToolPanel.Clear("Label");
+        ToolPanel.Clear(label.IsRange ? $"Label ({label.W}x{label.H})" : "Label");
+        // the size box shows the size the label draws at. while the label has
+        // no size of its own that is its default, which for a range depends on
+        // the text, so the box follows the text until a number is typed in.
+        TextBox? sizeBox = null;
+        bool settingSize = false;
+        void ShowSize()
+        {
+            if (sizeBox is null) return;
+            settingSize = true;
+            sizeBox.Text = ((int)Math.Round(MapCanvas.LabelSize(label))).ToString();
+            settingSize = false;
+        }
         ToolPanel.AddText("Text", label.Text, t =>
         {
             label.Text = t;
+            if (label.FontSize == 0) ShowSize();
             ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
-        // per-label size + color: size is a font size in points, 0 =
-        // auto (zoom-scaled); color uses the standardized color picker, -1 = inherit
-        // the settings label color.
-        ToolPanel.AddNumber("Font size (0 = auto)", label.FontSize, v =>
+        // font size at 100% zoom, it scales with the map. color uses the
+        // standard color picker, -1 = inherit the settings label color.
+        sizeBox = ToolPanel.AddNumber("Font size", (int)Math.Round(MapCanvas.LabelSize(label)), v =>
         {
+            if (settingSize) return;
             label.FontSize = Math.Max(0, v);
+            ActiveHistory.Commit(_doc);
+            Canvas.Refresh();
+        });
+        ToolPanel.AddChoice("Alignment", new[] { "Left", "Center", "Right" }, label.Align.ToString(), v =>
+        {
+            if (!Enum.TryParse<LabelAlign>(v, out var a) || a == label.Align) return;
+            label.Align = a;
             ActiveHistory.Commit(_doc);
             Canvas.Refresh();
         });
@@ -1311,11 +1331,14 @@ public partial class MainWindow : Window
                 ActiveHistory.Commit(_doc);
                 Canvas.Refresh();
             });
-        ToolPanel.AddButton("reset to auto size + inherit color", () =>
+        ToolPanel.AddButton("reset to defaults", () =>
         {
             label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
+            label.Align = LabelAlign.Center;
             ActiveHistory.Commit(_doc);
             Canvas.Refresh();
+            // rebuild so every field shows the defaults
+            ShowLabelConfig(label);
         });
     }
 

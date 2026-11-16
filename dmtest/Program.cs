@@ -2314,5 +2314,41 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(!d.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(1, 3), Side.South)), "polygon merge: the wall shared with the room above opens");
 }
 
+// --- range labels ---
+{
+    var rl = new MapLabel { Cell = new CellKey(2, 3), W = 4, H = 2, Text = "Hall" };
+    Check(rl.IsRange && rl.Covers(new CellKey(5, 4)) && rl.Covers(new CellKey(2, 3)), "range label: covers its corners");
+    Check(!rl.Covers(new CellKey(6, 3)) && !rl.Covers(new CellKey(2, 5)), "range label: not past its edges");
+    Check(!new MapLabel { Cell = new CellKey(0, 0) }.IsRange, "range label: 1x1 is not a range");
+
+    var m = new MapDocument();
+    m.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), W = 3, H = 2, Text = "R", Align = LabelAlign.Right, FontSize = 30, R = 1, G = 2, B = 3 });
+    m.Labels.Add(new MapLabel { Cell = new CellKey(9, 9), Text = "one" });
+    var back = MapSerializer.FromJson(MapSerializer.ToJson(m));
+    var r = back.Labels.First(l => l.Cell == new CellKey(1, 1));
+    var o = back.Labels.First(l => l.Cell == new CellKey(9, 9));
+    Check(r.W == 3 && r.H == 2 && r.Align == LabelAlign.Right, "range label: size and align round-trip");
+    Check(o.W == 1 && o.H == 1 && o.Align == LabelAlign.Center, "range label: single label defaults round-trip");
+    var old = MapSerializer.FromJson("{\"labels\":[{\"cell\":\"1,2\",\"text\":\"a\"}]}");
+    Check(old.Labels.Count == 1 && old.Labels[0].W == 1 && old.Labels[0].Align == LabelAlign.Center, "range label: old files load as single centered labels");
+
+    // paste keeps the range, align, size and color
+    var snap = m.CaptureRegion(0, 0, 4, 4);
+    var p2 = new MapDocument();
+    p2.PasteRegion(snap, 10, 10);
+    var pl = p2.Labels.Single();
+    Check(pl.Cell == new CellKey(11, 11) && pl.W == 3 && pl.H == 2 && pl.Align == LabelAlign.Right
+        && pl.FontSize == 30 && pl.R == 1, "range label: paste keeps every field");
+
+    // a ccw quarter turn of a 4x2 label covering (0..3, 0..1) gives a 2x4 at (0,-4)
+    var rd = new MapDocument();
+    rd.Labels.Add(new MapLabel { Cell = new CellKey(0, 0), W = 4, H = 2, Text = "t" });
+    var rs = MapDocument.Rotate(rd.CaptureRegion(0, 0, 3, 1), 1);
+    var rot = rs.Labels.Single();
+    Check(rot.Cell == new CellKey(0, -4) && rot.W == 2 && rot.H == 4, "range label: rotate swaps width and height");
+    var full = MapDocument.Rotate(MapDocument.Rotate(rs, 1), 2);
+    Check(full.Labels.Single().Cell == new CellKey(0, 0) && full.Labels.Single().W == 4, "range label: four turns come back");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

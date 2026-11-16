@@ -87,6 +87,10 @@ public sealed class LabelDto
     [JsonPropertyName("r")] public int R { get; set; } = -1;
     [JsonPropertyName("g")] public int G { get; set; } = -1;
     [JsonPropertyName("b")] public int B { get; set; } = -1;
+    // range in cells from the top-left cell, and text alignment across it
+    [JsonPropertyName("w")] public int W { get; set; } = 1;
+    [JsonPropertyName("h")] public int H { get; set; } = 1;
+    [JsonPropertyName("align")] public string Align { get; set; } = "center";
 }
 
 public sealed class PawnTemplateDto
@@ -326,7 +330,11 @@ public static class MapSerializer
         foreach (var (c, s) in doc.Stairs)
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
+            dto.Labels.Add(new LabelDto
+            {
+                Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(),
+            });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
         foreach (var w in doc.AngledWalls)
@@ -397,7 +405,12 @@ public static class MapSerializer
         foreach (var l in dto.Labels)
         {
             if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
+            doc.Labels.Add(new MapLabel
+            {
+                Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+                W = Math.Max(1, l.W), H = Math.Max(1, l.H),
+                Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
+            });
         }
         AddPawns(dto, doc);
         AddAngled(dto, doc);
@@ -596,7 +609,11 @@ public static class MapSerializer
         foreach (var (c, s) in doc.Stairs)
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto { Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
+            dto.Labels.Add(new LabelDto
+            {
+                Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(),
+            });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
         foreach (var w in doc.AngledWalls)
@@ -649,7 +666,12 @@ public static class MapSerializer
         foreach (var l in dto.Labels)
         {
             if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel { Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B });
+            doc.Labels.Add(new MapLabel
+            {
+                Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+                W = Math.Max(1, l.W), H = Math.Max(1, l.H),
+                Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
+            });
         }
         AddPawns(dto, doc);
         AddAngled(dto, doc);

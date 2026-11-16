@@ -149,18 +149,43 @@ public sealed class Stair
     public string? TargetMap { get; set; }
 }
 
-/// Text anchored to a cell, rendered centered on that cell.
+public enum LabelAlign { Left, Center, Right }
+
+/// Text placed over a range of cells. Cell is the top-left cell, W and H the
+/// range in cells (1x1 for a single cell label). The text is centered
+/// vertically in the range and aligned left, center or right across it.
 public sealed class MapLabel
 {
+    /// font sizes are stored at this many pixels per cell and scale with zoom
+    public const double RefScale = 40;
+    /// the default size of a single cell label
+    public const double DefaultSize = 14;
+
     public CellKey Cell { get; set; }
+    public int W { get; set; } = 1;
+    public int H { get; set; } = 1;
+    public LabelAlign Align { get; set; } = LabelAlign.Center;
     public string Text { get; set; } = "";
-    // Per-label overrides. FontSize 0 = auto (zoom-scaled default). Color -1 =
-    // inherit the settings label color. Labels render centered on their cell;
-    // oversized text may leak into neighboring cells, which is allowed.
+    // Per-label overrides. FontSize 0 = auto: the default size for a single
+    // cell, or the size that fits the text in the range. Color -1 = inherit
+    // the settings label color. oversized text may leak into neighboring
+    // cells, which is allowed.
     public int FontSize { get; set; } = 0;
     public int R { get; set; } = -1;
     public int G { get; set; } = -1;
     public int B { get; set; } = -1;
+
+    public bool IsRange => W > 1 || H > 1;
+
+    public bool Covers(CellKey c) =>
+        c.X >= Cell.X && c.X < Cell.X + W && c.Y >= Cell.Y && c.Y < Cell.Y + H;
+
+    /// a copy of this label anchored at another cell
+    public MapLabel CopyAt(CellKey cell) => new()
+    {
+        Cell = cell, W = W, H = H, Align = Align, Text = Text,
+        FontSize = FontSize, R = R, G = G, B = B,
+    };
 }
 
 public enum Affiliation { Player, Ally, Enemy, Neutral }
@@ -1562,7 +1587,7 @@ public sealed class MapDocument
         foreach (var (c, s) in snap.Stairs)
             Stairs[new CellKey(c.X + dx, c.Y + dy)] = new Stair { Direction = s.Direction, TargetMap = s.TargetMap };
         foreach (var l in snap.Labels)
-            Labels.Add(new MapLabel { Cell = new CellKey(l.Cell.X + dx, l.Cell.Y + dy), Text = l.Text });
+            Labels.Add(l.CopyAt(new CellKey(l.Cell.X + dx, l.Cell.Y + dy)));
         foreach (var p in snap.Pawns)
             Pawns[new CellKey(p.Cell.X + dx, p.Cell.Y + dy)] = new Pawn
             {
@@ -1742,8 +1767,13 @@ public sealed class MapDocument
         }
         foreach (var l in snap.Labels)
         {
-            var (rx, ry) = RotCell(l.Cell.X, l.Cell.Y);
-            s.Labels.Add(new MapLabel { Cell = new CellKey(rx, ry), Text = l.Text });
+            // a range label rotates as a rect: both corners, then the new top-left
+            var (ax, ay) = RotCell(l.Cell.X, l.Cell.Y);
+            var (bx, by) = RotCell(l.Cell.X + l.W - 1, l.Cell.Y + l.H - 1);
+            var nl = l.CopyAt(new CellKey(Math.Min(ax, bx), Math.Min(ay, by)));
+            nl.W = Math.Abs(bx - ax) + 1;
+            nl.H = Math.Abs(by - ay) + 1;
+            s.Labels.Add(nl);
         }
         foreach (var p in snap.Pawns)
         {

@@ -110,7 +110,7 @@ public sealed class ToolPanel : Border
         return cb;
     }
 
-    public void AddNumber(string label, int initial, Action<int> onChange)
+    public TextBox AddNumber(string label, int initial, Action<int> onChange)
     {
         var panel = new StackPanel { Spacing = 2 };
         panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
@@ -121,6 +121,7 @@ public sealed class ToolPanel : Border
         };
         panel.Children.Add(tb);
         Target.Children.Add(panel);
+        return tb;
     }
 
     public void AddButton(string label, Action onClick)

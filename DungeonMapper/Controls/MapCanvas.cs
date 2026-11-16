@@ -300,7 +300,8 @@ public sealed class MapCanvas : Control
     private static void ClearCellObstacles(MapDocument doc, CellKey c)
     {
         doc.Stairs.Remove(c);
-        doc.Labels.RemoveAll(l => l.Cell == c);
+        // a pawn only displaces a single cell label, never a range label
+        doc.Labels.RemoveAll(l => l.Cell == c && !l.IsRange);
         bool onFloor = doc.Cells.Contains(c);
         if (!onFloor)
             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
@@ -328,7 +329,7 @@ public sealed class MapCanvas : Control
                 if (f.Cells) Document.Cells.Remove(c);
                 if (f.Stairs) Document.Stairs.Remove(c);
                 if (f.Pawns) Document.Pawns.Remove(c);
-                if (f.Labels) Document.Labels.RemoveAll(l => l.Cell == c);
+                if (f.Labels) Document.Labels.RemoveAll(l => l.Covers(c));
                 if (f.Walls)
                     foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
                         Document.SetWall(new EdgeKey(c, side), false);
@@ -796,20 +797,28 @@ public sealed class MapCanvas : Control
             DrawDoorGlyph(ctx, v, k.Horizontal ? 0 : Math.PI / 2, DoorBrush(d.Type), d.State);
         }
 
-        // Labels centered on their cell
+        // Labels: centered vertically in their range, aligned across it
         foreach (var l in Document.Labels)
         {
-            if (l.Cell.X + 1 < topLeft.X || l.Cell.X > bottomRight.X || l.Cell.Y + 1 < topLeft.Y || l.Cell.Y > bottomRight.Y) continue;
+            if (l.Cell.X + l.W < topLeft.X || l.Cell.X > bottomRight.X || l.Cell.Y + l.H < topLeft.Y || l.Cell.Y > bottomRight.Y) continue;
             var p0 = WorldToScreen(l.Cell.X, l.Cell.Y);
-            // per-label overrides: FontSize 0 = zoom-scaled auto, color -1 = inherit
-            double fs = l.FontSize > 0 ? l.FontSize : Math.Max(10, _scale * 0.35);
+            // sizes are stored at RefScale and follow the zoom. the floor keeps
+            // small text readable when zoomed far out, as before.
+            double size = LabelSize(l);
+            double fs = Math.Max(Math.Min(10, size), size * _scale / MapLabel.RefScale);
             var brush = (l.R >= 0 && l.G >= 0 && l.B >= 0)
                 ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
                 : LabelBrush;
             var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
                 new Typeface("Inter"), fs, brush);
-            var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
-            ctx.DrawText(ft, new Point(center.X - ft.Width / 2, center.Y - ft.Height / 2));
+            double w = l.W * _scale, h = l.H * _scale, pad = LabelPad * _scale;
+            double tx = l.Align switch
+            {
+                LabelAlign.Left => p0.X + pad,
+                LabelAlign.Right => p0.X + w - pad - ft.Width,
+                _ => p0.X + (w - ft.Width) / 2,
+            };
+            ctx.DrawText(ft, new Point(tx, p0.Y + (h - ft.Height) / 2));
         }
 
         // Pawns: concentric circles (outer + inner) + outer status border, scaled
@@ -866,9 +875,36 @@ public sealed class MapCanvas : Control
         _lineDragging = false;
     }
 
+    // gap between the range edge and left or right aligned text, in cells
+    private const double LabelPad = 0.15;
+
+    /// The size a label draws at, at MapLabel.RefScale: its own size when set,
+    /// otherwise its default.
+    public static double LabelSize(MapLabel l) => l.FontSize > 0 ? l.FontSize : LabelDefaultSize(l);
+
+    /// The default size of a label. a single cell label uses the global
+    /// default. a range label gets the largest size that fits its text across
+    /// the range (inside the padding), capped at half the range height.
+    public static double LabelDefaultSize(MapLabel l)
+    {
+        if (!l.IsRange) return MapLabel.DefaultSize;
+        double cap = l.H * MapLabel.RefScale * 0.5;
+        if (string.IsNullOrEmpty(l.Text)) return cap;
+        // text width grows linearly with the font size, so measure once at 100
+        var ft = new FormattedText(l.Text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface("Inter"), 100, Brushes.White);
+        double perPoint = ft.Width / 100;
+        double room = (l.W - 2 * LabelPad) * MapLabel.RefScale;
+        double fit = perPoint > 0 ? room / perPoint : cap;
+        return Math.Max(4, Math.Min(cap, fit));
+    }
+
+    /// the topmost label covering a cell
+    private MapLabel? LabelAt(CellKey c) => Document.Labels.LastOrDefault(l => l.Covers(c));
+
     private void DrawPreview(DrawingContext ctx)
     {
-        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase))
+        if (_dragging && (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase || Mode == ToolMode.Label))
         {
             var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
             var tl = WorldToScreen(x0, y0);
@@ -879,6 +915,8 @@ public sealed class MapCanvas : Control
                 ? new SolidColorBrush(Color.FromArgb(70, 150, 130, 90)) // floor: muted tan
                 : Mode == ToolMode.Stair
                 ? new SolidColorBrush(Color.FromArgb(70, 230, 160, 80))
+                : Mode == ToolMode.Label
+                ? new SolidColorBrush(Color.FromArgb(50, 250, 250, 250))
                 : new SolidColorBrush(Color.FromArgb(70, 220, 60, 60)); // erase: red = removal
             ctx.FillRectangle(fill, rect);
             var border = Mode == ToolMode.Erase
@@ -1421,18 +1459,18 @@ public sealed class MapCanvas : Control
                 break;
 
             case ToolMode.Label:
-                var lbl = Document.Labels.FirstOrDefault(l => l.Cell == cell);
+                // clicking a label edits it. otherwise drag out a range (a
+                // click is a 1x1 range) and the label is placed on release.
+                var lbl = LabelAt(cell);
                 if (lbl is not null)
                 {
                     LabelConfigRequested?.Invoke(lbl);
+                    break;
                 }
-                else
-                {
-                    lbl = new MapLabel { Cell = cell, Text = Settings.DefaultLabelText };
-                    Document.Labels.Add(lbl);
-                    Commit();
-                    LabelConfigRequested?.Invoke(lbl);
-                }
+                _dragging = true;
+                _dragStart = cell;
+                _dragEnd = cell;
+                e.Pointer.Capture(this);
                 break;
 
             case ToolMode.Pawn:
@@ -1550,7 +1588,7 @@ public sealed class MapCanvas : Control
         if (_dragging)
         {
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
-            if (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase)
+            if (Mode == ToolMode.Room || Mode == ToolMode.Floor || Mode == ToolMode.Stair || Mode == ToolMode.Erase || Mode == ToolMode.Label)
             {
                 if (cell != _dragEnd) { _dragEnd = cell; InvalidateVisual(); }
             }
@@ -1669,7 +1707,7 @@ public sealed class MapCanvas : Control
                 else if (Document.Stairs.TryGetValue(cell, out var s)) StairConfigRequested?.Invoke(s);
                 else
                 {
-                    var lbl = Document.Labels.FirstOrDefault(l => l.Cell == cell);
+                    var lbl = LabelAt(cell);
                     if (lbl is not null) LabelConfigRequested?.Invoke(lbl);
                 }
             }
@@ -1719,6 +1757,19 @@ public sealed class MapCanvas : Control
                 bool passageway = !strict && Document.Cells.Contains(_dragStart);
                 Document.AddRoom(x0, y0, x1, y1, passageway, strict, RoomMergeNearby, _dragStart);
                 Commit();
+                break;
+            }
+            case ToolMode.Label:
+            {
+                var (x0, y0, x1, y1) = NormRect(_dragStart, _dragEnd);
+                var lbl = new MapLabel
+                {
+                    Cell = new CellKey(x0, y0), W = x1 - x0 + 1, H = y1 - y0 + 1,
+                    Text = Settings.DefaultLabelText,
+                };
+                Document.Labels.Add(lbl);
+                Commit();
+                LabelConfigRequested?.Invoke(lbl);
                 break;
             }
             case ToolMode.Floor:
@@ -1771,7 +1822,7 @@ public sealed class MapCanvas : Control
                         if (f.Cells) Document.Cells.Remove(c);
                         if (f.Stairs) Document.Stairs.Remove(c);
                         if (f.Pawns) Document.Pawns.Remove(c);
-                        if (f.Labels) Document.Labels.RemoveAll(l => l.Cell == c);
+                        if (f.Labels) Document.Labels.RemoveAll(l => l.Covers(c));
                         // remove walls on all four edges of the cell (doors auto-removed)
                         if (f.Walls)
                             foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
