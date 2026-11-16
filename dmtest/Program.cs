@@ -2414,5 +2414,43 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(!(cp.r == 235 && cp.g == 235 && cp.b == 240), "wall thickness: clamped to 20 pixels");
 }
 
+// grid: lines inside rooms, a dot on each vertex in empty space
+{
+    Check(AppSettings.Default().GridDotR == 105, "grid dots: default dot color");
+    using var gh = new CanvasHarness();
+    var gs = gh.Canvas.Settings;
+    gs.MajorGridR = 255; gs.MajorGridG = 0; gs.MajorGridB = 0;
+    gs.MinorGridR = 255; gs.MinorGridG = 0; gs.MinorGridB = 0;
+    gs.GridDotR = 0; gs.GridDotG = 255; gs.GridDotB = 0;
+    for (int x = 3; x <= 5; x++) for (int y = 3; y <= 5; y++) gh.Doc.Cells.Add(new CellKey(x, y));
+    gh.Doc.AddFloodRegion(new FloodRegion { Rings = { new() { (10, 2), (13, 2), (13, 5), (10, 5) } } });
+    // world (x,y) is screen ((x+1)*40, (y+1)*40). a 1px line on a whole pixel
+    // splits over two pixels, so look at the 2x2 block around a point.
+    bool Near(Avalonia.Media.Imaging.RenderTargetBitmap bmp, int sx, int sy, Func<(byte r, byte g, byte b, byte a), bool> f)
+    {
+        for (int dx = -1; dx <= 0; dx++) for (int dy = -1; dy <= 0; dy++)
+            if (f(gh.PixelAt(bmp, sx + dx, sy + dy))) return true;
+        return false;
+    }
+    bool Red((byte r, byte g, byte b, byte a) c) => c.r > c.g + 60;
+    bool Green((byte r, byte g, byte b, byte a) c) => c.g > c.r + 60;
+    var gb = gh.Render();
+    Check(!Near(gb, 380, 360, Red), "grid: no line in empty space between vertices");
+    Check(Near(gb, 360, 360, Green), "grid: a dot on a vertex in empty space");
+    Check(!Near(gb, 380, 360, Green), "grid: no dot between vertices in empty space");
+    Check(Near(gb, 200, 220, Red), "grid: lines still draw inside a cell room");
+    Check(!Near(gb, 200, 200, Green), "grid: no dot on a vertex inside a cell room");
+    Check(Near(gb, 480, 180, Red), "grid: lines still draw inside a flood floor");
+    Check(!Near(gb, 480, 160, Green), "grid: no dot on a vertex inside a flood floor");
+    Check(!Near(gb, 200, 300, Red), "grid: room lines stop at the room edge");
+    // spacing 2 with minor off: only both-major vertices get a dot
+    gs.GridDrawSpacing = 2; gs.ShowMinorGrid = false;
+    var gb2 = gh.Render();
+    Check(Near(gb2, 360, 360, Green), "grid: major dot at spacing 2");
+    Check(!Near(gb2, 400, 360, Green), "grid: no minor dot when minor grid is off");
+    gs.ShowMinorGrid = true;
+    Check(Near(gh.Render(), 400, 360, Green), "grid: minor dot when minor grid is on");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

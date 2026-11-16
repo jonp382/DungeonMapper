@@ -139,6 +139,11 @@ public sealed class AppSettings
     // Toggle: when false, minor gridlines (every 5ft edge) are not drawn at all,
     // so at spacing 2 you can show only the 10ft major lines.
     [JsonPropertyName("show_minor_grid")] public bool ShowMinorGrid { get; set; } = true;
+    // empty space outside rooms shows a dot on each grid vertex instead of
+    // lines. one color for both, major dots are drawn a little bigger.
+    [JsonPropertyName("grid_dot_r")] public int GridDotR { get; set; } = 105;
+    [JsonPropertyName("grid_dot_g")] public int GridDotG { get; set; } = 105;
+    [JsonPropertyName("grid_dot_b")] public int GridDotB { get; set; } = 115;
 
     // Canvas element colors (settings menu). Defaults match the original hardcoded
     // brushes in MapCanvas. The old static GridLine/FaintGridLine brushes were dead

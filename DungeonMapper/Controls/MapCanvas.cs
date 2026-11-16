@@ -582,9 +582,9 @@ public sealed class MapCanvas : Control
     /// stroked edge-by-edge with the floor color to close anti-aliasing seams
     /// where an edge meets a room rect. polygon floors are flood regions too,
     /// so this is the one painter for both. culled by the ring bounds.
-    private void DrawFloorRings(DrawingContext ctx, FloodRegion? fr, Point topLeft, Point bottomRight)
+    private (StreamGeometry geo, double x0, double y0, double x1, double y1)? DrawFloorRings(DrawingContext ctx, FloodRegion? fr, Point topLeft, Point bottomRight)
     {
-        if (fr is null || fr.Rings.Count == 0) return;
+        if (fr is null || fr.Rings.Count == 0) return null;
         double fminX = double.MaxValue, fminY = double.MaxValue, fmaxX = double.MinValue, fmaxY = double.MinValue;
         foreach (var ring in fr.Rings)
             foreach (var (rx, ry) in ring)
@@ -592,7 +592,7 @@ public sealed class MapCanvas : Control
                 if (rx < fminX) fminX = rx; if (rx > fmaxX) fmaxX = rx;
                 if (ry < fminY) fminY = ry; if (ry > fmaxY) fmaxY = ry;
             }
-        if (fmaxX < topLeft.X || fminX > bottomRight.X + 1 || fmaxY < topLeft.Y || fminY > bottomRight.Y + 1) return;
+        if (fmaxX < topLeft.X || fminX > bottomRight.X + 1 || fmaxY < topLeft.Y || fminY > bottomRight.Y + 1) return null;
         var geo = new StreamGeometry();
         using (var g = geo.Open())
         {
@@ -612,6 +612,64 @@ public sealed class MapCanvas : Control
                 var (bx, by) = ring[(i + 1) % ring.Count];
                 ctx.DrawLine(pen, WorldToScreen(ax, ay), WorldToScreen(bx, by));
             }
+        return (geo, fminX, fminY, fmaxX, fmaxY);
+    }
+
+    // grid lines over the world box x0..x1, y0..y1. the caller clips them to
+    // a floor.
+    private void DrawGridLines(DrawingContext ctx, double x0, double y0, double x1, double y1, int sp, Pen majorPen, Pen minorPen)
+    {
+        if (x1 < x0 || y1 < y0) return;
+        double top = WorldToScreen(0, y0).Y, bottom = WorldToScreen(0, y1).Y;
+        double left = WorldToScreen(x0, 0).X, right = WorldToScreen(x1, 0).X;
+        for (int x = (int)Math.Floor(x0); x <= (int)Math.Ceiling(x1); x++)
+        {
+            bool major = sp == 1 || FloorMod(x, sp) == 0;
+            if (!major && !Settings.ShowMinorGrid) continue;
+            double sx = WorldToScreen(x, 0).X;
+            ctx.DrawLine(major ? majorPen : minorPen, new Point(sx, top), new Point(sx, bottom));
+        }
+        for (int y = (int)Math.Floor(y0); y <= (int)Math.Ceiling(y1); y++)
+        {
+            bool major = sp == 1 || FloorMod(y, sp) == 0;
+            if (!major && !Settings.ShowMinorGrid) continue;
+            double sy = WorldToScreen(0, y).Y;
+            ctx.DrawLine(major ? majorPen : minorPen, new Point(left, sy), new Point(right, sy));
+        }
+    }
+
+    // a dot on each grid vertex in the visible window. major vertices (both
+    // coordinates on the spacing) get a bigger dot, minor ones a smaller dot
+    // when minor grid is on. all dots go in one geometry so it is one draw.
+    // when zoomed out far enough that dots would crowd together they are
+    // skipped, minor first.
+    private void DrawGridDots(DrawingContext ctx, Point topLeft, Point bottomRight, int sp)
+    {
+        bool minor = sp > 1 && Settings.ShowMinorGrid && _scale >= 8;
+        int step = minor ? 1 : sp;
+        if (_scale * step < 8) return;
+        double rMajor = Math.Clamp(_scale * 0.04, 1.1, 2.0);
+        double rMinor = sp > 1 ? rMajor * 0.7 : rMajor;
+        int xs = (int)Math.Floor(topLeft.X), ys = (int)Math.Floor(topLeft.Y);
+        xs -= FloorMod(xs, step); ys -= FloorMod(ys, step);
+        int xe = (int)Math.Ceiling(bottomRight.X), ye = (int)Math.Ceiling(bottomRight.Y);
+        var geo = new StreamGeometry();
+        using (var g = geo.Open())
+        {
+            for (int y = ys; y <= ye; y += step)
+                for (int x = xs; x <= xe; x += step)
+                {
+                    bool major = FloorMod(x, sp) == 0 && FloorMod(y, sp) == 0;
+                    double r = major ? rMajor : rMinor;
+                    var p = WorldToScreen(x, y);
+                    g.BeginFigure(new Point(p.X + r, p.Y), true);
+                    g.ArcTo(new Point(p.X - r, p.Y), new Size(r, r), 0, false, SweepDirection.Clockwise);
+                    g.ArcTo(new Point(p.X + r, p.Y), new Size(r, r), 0, false, SweepDirection.Clockwise);
+                    g.EndFigure(true);
+                }
+        }
+        var brush = new SolidColorBrush(Color.FromRgb((byte)Settings.GridDotR, (byte)Settings.GridDotG, (byte)Settings.GridDotB));
+        ctx.DrawGeometry(brush, null, geo);
     }
 
     private Point _lastViewOffset; private double _lastViewScale;
@@ -651,6 +709,11 @@ public sealed class MapCanvas : Control
         //    filled, so rooms never overhang their boundary.
         // cells cut by a diagonal are never in Cells, the flood region rings
         // below paint their floor, so every cell here is a full square.
+        // empty space shows a dot on each grid vertex instead of lines. drawn
+        // before the floors, so a floor covers any dot under it and the dots
+        // only show outside rooms.
+        DrawGridDots(ctx, topLeft, bottomRight, sp);
+
         int cx0 = (int)Math.Floor(topLeft.X), cx1 = (int)Math.Ceiling(bottomRight.X);
         int cy0 = (int)Math.Floor(topLeft.Y), cy1 = (int)Math.Ceiling(bottomRight.Y);
 
@@ -660,6 +723,7 @@ public sealed class MapCanvas : Control
         // larger than the document (zoomed way out), iterate the document and
         // cull instead - O(min(window area, document size)) per frame.
         var visibleCells = new List<CellKey>();
+        var floorClip = new GeometryGroup { FillRule = FillRule.NonZero };
         var remaining = new HashSet<CellKey>();
         long windowArea = (long)(cx1 - cx0 + 1) * (cy1 - cy0 + 1);
         if (windowArea <= Document.Cells.Count)
@@ -701,32 +765,27 @@ public sealed class MapCanvas : Control
             double rh = h * _scale + (Document.Cells.Contains(new CellKey(c.X, c.Y + h)) ? pad : 0);
             var p0 = WorldToScreen(c.X, c.Y);
             ctx.FillRectangle(CellFill, new Rect(p0.X, p0.Y, rw, rh));
+            floorClip.Children.Add(new RectangleGeometry(new Rect(p0.X, p0.Y, rw, rh)));
         }
 
         // flood region floors, polygon floors included
+        var floodFloors = new List<(StreamGeometry geo, double x0, double y0, double x1, double y1)>();
         foreach (var fr in Document.FloodRegions)
-            DrawFloorRings(ctx, fr, topLeft, bottomRight);
+            if (DrawFloorRings(ctx, fr, topLeft, bottomRight) is { } ff) floodFloors.Add(ff);
 
-        // Grid lines across the WHOLE visible viewport, not just on drawn flooring,
-        // so the grid is visible everywhere. Drawn after cell fills so lines show
-        // on top of flooring. Major at spacing boundaries, minor at every 5ft cell
-        // edge; at sp==1 minor coincides with major so all lines are major.
-        int xStart = (int)Math.Floor(topLeft.X), xEnd = (int)Math.Ceiling(bottomRight.X);
-        int yStart = (int)Math.Floor(topLeft.Y), yEnd = (int)Math.Ceiling(bottomRight.Y);
-        for (int x = xStart; x <= xEnd; x++)
-        {
-            double sx = WorldToScreen(x, 0).X;
-            bool major = sp == 1 || FloorMod(x, sp) == 0;
-            if (!major && !Settings.ShowMinorGrid) continue;
-            ctx.DrawLine(major ? majorPen : minorPen, new Point(sx, 0), new Point(sx, Bounds.Height));
-        }
-        for (int y = yStart; y <= yEnd; y++)
-        {
-            double sy = WorldToScreen(0, y).Y;
-            bool major = sp == 1 || FloorMod(y, sp) == 0;
-            if (!major && !Settings.ShowMinorGrid) continue;
-            ctx.DrawLine(major ? majorPen : minorPen, new Point(0, sy), new Point(Bounds.Width, sy));
-        }
+        // grid lines only inside rooms, clipped to the floor. drawn after the
+        // fills so the lines show on top. major at spacing boundaries, minor at
+        // every 5ft cell edge; at sp==1 minor coincides with major so all lines
+        // are major.
+        if (floorClip.Children.Count > 0)
+            using (ctx.PushGeometryClip(floorClip))
+                DrawGridLines(ctx, topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y, sp, majorPen, minorPen);
+        // flood floors clip one at a time, each keeps its own even-odd holes.
+        // lines are limited to the region's box so many regions stay cheap.
+        foreach (var (geo, fx0, fy0, fx1, fy1) in floodFloors)
+            using (ctx.PushGeometryClip(geo))
+                DrawGridLines(ctx, Math.Max(fx0, topLeft.X), Math.Max(fy0, topLeft.Y),
+                              Math.Min(fx1, bottomRight.X), Math.Min(fy1, bottomRight.Y), sp, majorPen, minorPen);
 
         // Stairs: fill tint + axis-aligned triangle. Up = tip up, Down = tip
         // down, Left = tip left, Right = tip right. No diagonal glyphs: the

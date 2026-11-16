@@ -1011,6 +1011,12 @@ public partial class MainWindow : Window
             MarkSetting();
         };
         minorRow.Children.Add(minorCheck);
+        ToolPanel.AddColorField("grid dot color (empty space)", _settings.GridDotR, _settings.GridDotG, _settings.GridDotB, gpresets, c =>
+        {
+            _settings.GridDotR = c.r; _settings.GridDotG = c.g; _settings.GridDotB = c.b;
+            Canvas.Refresh();
+            MarkSetting();
+        });
 
         // canvas element colors (item 5): background, cell fill, wall, stairs,
         // labels. The old static GridLine/FaintGridLine brushes were dead code
