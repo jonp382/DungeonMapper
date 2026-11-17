@@ -91,7 +91,30 @@ public sealed class MapCanvas : Control
     // special move mode: selection captures and moves ONLY pawns; other elements
     // are untouched at the source, and incompatible elements at the destination
     // are removed so the pawn lands clean.
-    public bool MovePawnsOnly { get; set; }
+    // flipping it while a move is armed drops the move, the armed snapshot
+    // was shaped for the other mode
+    public bool MovePawnsOnly
+    {
+        get => _movePawnsOnly;
+        set { if (value == _movePawnsOnly) return; _movePawnsOnly = value; CancelMove(); }
+    }
+    private bool _movePawnsOnly;
+
+    /// Pawns only moves carry just the pawns, with the origin at their bounding
+    /// box so the ghost and the landing spot fit the pawns, not the dragged
+    /// rectangle. Returns an empty snapshot when the region has no pawns.
+    private static MapDocument.RegionSnapshot PawnsOnlySnapshot(MapDocument.RegionSnapshot snap, out (int x0, int y0, int x1, int y1) box)
+    {
+        box = default;
+        var s = new MapDocument.RegionSnapshot();
+        if (snap.Pawns.Count == 0) return s;
+        box = (snap.Pawns.Min(p => p.Cell.X), snap.Pawns.Min(p => p.Cell.Y),
+               snap.Pawns.Max(p => p.Cell.X), snap.Pawns.Max(p => p.Cell.Y));
+        s.OriginX = box.x0;
+        s.OriginY = box.y0;
+        s.Pawns.AddRange(snap.Pawns);
+        return s;
+    }
 
     public event Action? ActionCompleted;
     public event Action<IDoorConfig>? DoorConfigRequested;
@@ -1248,7 +1271,8 @@ public sealed class MapCanvas : Control
         }
 
         // selection rectangle (cyan)
-        if (_selectDragging || (_selectStart != _selectEnd && (Mode == ToolMode.Select || Mode == ToolMode.Move)))
+        if (_selectDragging || (_selectStart != _selectEnd && (Mode == ToolMode.Select || Mode == ToolMode.Move))
+            || (Mode == ToolMode.Move && _moveArmed))
         {
             var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
             var tl = WorldToScreen(x0, y0);
@@ -1356,6 +1380,15 @@ public sealed class MapCanvas : Control
                 var p0 = WorldToScreen(c.X + dx, c.Y + dy);
                 ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
             }
+            // a pawns only move has no cells, the ghost is the pawns themselves
+            if (Mode == ToolMode.Move && MovePawnsOnly)
+                foreach (var p in _clipboard.Pawns)
+                {
+                    var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
+                    var p0 = WorldToScreen(nc.X, nc.Y);
+                    ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
+                    DrawPawnGlyph(ctx, nc, p.TemplateId, p.Status, 0.45);
+                }
         }
     }
 
@@ -1585,7 +1618,11 @@ public sealed class MapCanvas : Control
         {
             case ToolMode.Select:
             case ToolMode.Move:
-                if (Mode == ToolMode.Move && HasSelection)
+                // only an armed move makes this click the target. a leftover
+                // selection with nothing armed (a select tool drag, or a move
+                // drag over empty space) must not swallow the click, or a new
+                // drag can never start and the tool looks dead.
+                if (Mode == ToolMode.Move && _moveArmed)
                 {
                     // a region is already armed; this click is the move target.
                     // the armed snapshot persists after placement so the ghost
@@ -1952,13 +1989,26 @@ public sealed class MapCanvas : Control
             var world = ScreenToWorld(e.GetPosition(this));
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
             _selectEnd = cell;
-            if (Mode == ToolMode.Move && _selectStart != _selectEnd)
+            // decided before a pawns only shrink can turn the box into one cell
+            bool singleCell = _selectStart == _selectEnd;
+            if (Mode == ToolMode.Move && !singleCell)
             {
                 // arm the move: capture the region so the paste ghost previews
                 // it at the cursor until the destination click. remember the map
                 // it was selected on so the move works after a map switch.
                 var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
                 var snap = Document.CaptureRegion(x0, y0, x1, y1);
+                if (MovePawnsOnly)
+                {
+                    // shrink the selection to the pawns
+                    snap = PawnsOnlySnapshot(snap, out var box);
+                    if (!snap.Empty)
+                    {
+                        (x0, y0, x1, y1) = box;
+                        _selectStart = new CellKey(x0, y0);
+                        _selectEnd = new CellKey(x1, y1);
+                    }
+                }
                 if (!snap.Empty)
                 {
                     _clipboard = snap;
@@ -1970,8 +2020,17 @@ public sealed class MapCanvas : Control
                     _movePlaced = false;
                     _rotTurns = 0;
                 }
+                else
+                {
+                    // nothing in the region: drop the selection so the next
+                    // drag starts fresh
+                    ClearSelection();
+                    StatusMessage?.Invoke(MovePawnsOnly ? "no pawns in that region" : "nothing to move in that region");
+                    InvalidateVisual();
+                    return;
+                }
             }
-            if (_selectStart == _selectEnd)
+            if (singleCell)
             {
                 // single cell: manage the element under the cursor
                 var edge = HitEdge(world);

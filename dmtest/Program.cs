@@ -2845,5 +2845,106 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(DungeonMapper.Views.MainWindow.StairConfigInfo(1) == "a single stair, no others are connected to it", "config views: stair info for a lone stair");
 }
 
+// --- move tool: a leftover selection must not block a new move ---
+{
+    // a region dragged with the select tool, then the move tool picked
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 1, 1);
+    h.Canvas.Mode = ToolMode.Select;
+    h.Drag(0, 0, 1, 1);
+    h.Canvas.Mode = ToolMode.Move; h.Canvas.CancelMove();
+    h.Drag(0, 0, 1, 1);
+    Check(h.Canvas.MoveArmed, "move stuck: a select tool selection does not block a new move drag");
+    h.Click(5, 5);
+    Check(h.Doc.Cells.Contains(new CellKey(5, 5)) && !h.Doc.Cells.Contains(new CellKey(0, 0)), "move stuck: the move after a select tool selection lands");
+
+    // a move drag over empty space selects nothing, the next drag still works
+    var h2 = new CanvasHarness();
+    h2.Doc.AddRoom(0, 0, 1, 1);
+    h2.Canvas.Mode = ToolMode.Move;
+    h2.Drag(10, 10, 12, 12);
+    Check(!h2.Canvas.MoveArmed && !h2.Canvas.HasSelection, "move stuck: an empty move drag leaves no selection");
+    h2.Drag(0, 0, 1, 1);
+    Check(h2.Canvas.MoveArmed, "move stuck: a drag after an empty one arms the move");
+    h2.Click(5, 5);
+    Check(h2.Doc.Cells.Contains(new CellKey(5, 5)) && !h2.Doc.Cells.Contains(new CellKey(0, 0)), "move stuck: the move after an empty drag lands");
+}
+
+// --- move tool: pawns only shrinks the selection to the pawns ---
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 8, 8);
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(3, 3), TemplateId = "p1" });
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(4, 5), TemplateId = "p2" });
+    h.Canvas.Mode = ToolMode.Move;
+    h.Canvas.MovePawnsOnly = true;
+    h.Drag(0, 0, 8, 8);
+    Check(h.Canvas.MoveArmed, "pawns only: a wide drag around the pawns arms the move");
+    // the anchor is the pawn box (3,3)-(4,5), so a click at (10,10) puts the
+    // top left pawn there, not 3 cells in from it
+    h.Click(10, 10);
+    Check(h.Doc.Pawns.TryGetValue(new CellKey(10, 10), out var a) && a.TemplateId == "p1"
+        && h.Doc.Pawns.TryGetValue(new CellKey(11, 12), out var b) && b.TemplateId == "p2",
+        "pawns only: the move lands anchored on the pawns, not the dragged rectangle");
+    Check(h.Doc.Pawns.Count == 2 && h.Doc.Cells.Contains(new CellKey(3, 3)) && h.Doc.Cells.Count == 81,
+        "pawns only: the pawns leave the source and the room stays");
+
+    // one pawn shrinks to a single cell and still moves, without opening its config
+    var h2 = new CanvasHarness();
+    h2.Doc.AddRoom(0, 0, 5, 5);
+    h2.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
+    int cfg = 0; h2.Canvas.PawnConfigRequested += _ => cfg++;
+    h2.Canvas.Mode = ToolMode.Move;
+    h2.Canvas.MovePawnsOnly = true;
+    h2.Drag(0, 0, 4, 4);
+    Check(h2.Canvas.MoveArmed && cfg == 0, "pawns only: one pawn in a wide drag arms without opening its config");
+    h2.Click(8, 8);
+    Check(h2.Doc.Pawns.ContainsKey(new CellKey(8, 8)) && h2.Doc.Pawns.Count == 1, "pawns only: one pawn lands on the click");
+
+    // a drag with no pawns in it leaves nothing armed and nothing selected
+    var h3 = new CanvasHarness();
+    h3.Doc.AddRoom(0, 0, 5, 5);
+    h3.Canvas.Mode = ToolMode.Move;
+    h3.Canvas.MovePawnsOnly = true;
+    h3.Drag(0, 0, 4, 4);
+    Check(!h3.Canvas.MoveArmed && !h3.Canvas.HasSelection && h3.Statuses.Contains("no pawns in that region"),
+        "pawns only: a drag over no pawns arms nothing");
+
+    // flipping pawns only while armed drops the move
+    var h4 = new CanvasHarness();
+    h4.Doc.AddRoom(0, 0, 5, 5);
+    h4.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
+    h4.Canvas.Mode = ToolMode.Move;
+    h4.Canvas.MovePawnsOnly = true;
+    h4.Drag(0, 0, 4, 4);
+    h4.Canvas.MovePawnsOnly = false;
+    Check(!h4.Canvas.MoveArmed && !h4.Canvas.HasSelection, "pawns only: toggling it while armed cancels the move");
+
+    // without pawns only the whole dragged rectangle still moves
+    var h5 = new CanvasHarness();
+    h5.Doc.AddRoom(0, 0, 3, 3);
+    h5.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
+    h5.Canvas.Mode = ToolMode.Move;
+    h5.Drag(0, 0, 3, 3);
+    h5.Click(10, 10);
+    Check(h5.Doc.Pawns.ContainsKey(new CellKey(12, 12)) && h5.Doc.Cells.Contains(new CellKey(10, 10)),
+        "move: the full move still anchors on the dragged rectangle");
+}
+
+// --- move tool: the pawns only ghost draws the pawns at the cursor ---
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 5, 5);
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
+    h.Canvas.Mode = ToolMode.Move;
+    h.Canvas.MovePawnsOnly = true;
+    h.Drag(0, 0, 4, 4);
+    h.MoveTo(12, 3);
+    var bmp = h.Render();
+    var at = h.PixelAt(bmp, (int)h.ScreenOf(12, 3).X, (int)h.ScreenOf(12, 3).Y);
+    var off = h.PixelAt(bmp, (int)h.ScreenOf(18, 3).X, (int)h.ScreenOf(18, 3).Y);
+    Check(at != off, "pawns only: the ghost shows the pawn under the cursor");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
