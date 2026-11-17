@@ -6,6 +6,7 @@
 
     <Styles.Resources>
         <SolidColorBrush x:Key="Ui.Bg.Modal" Color="#22222c" />
+        <SolidColorBrush x:Key="Ui.Bg.Panel" Color="#1e1e26" />
         <SolidColorBrush x:Key="Ui.Bg.Row" Color="#262632" />
         <SolidColorBrush x:Key="Ui.Bg.RowHover" Color="#2c2c38" />
         <SolidColorBrush x:Key="Ui.Bg.Button" Color="#3a3a46" />

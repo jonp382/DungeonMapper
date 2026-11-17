@@ -131,7 +131,7 @@
 
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />
-            <views:ToolPanel x:Name="ToolPanel" />
+            <views:ToolPanel x:Name="ToolPanel" Background="{DynamicResource Ui.Bg.Panel}" />
             <!-- pawn management and the import pickers. the frame, header and
                  tabs are fixed here, MainWindow.Pawns.cs and PresetImport.cs
                  build the body. the tabs and close only show for management. -->
