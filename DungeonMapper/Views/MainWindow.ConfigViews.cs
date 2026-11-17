@@ -94,6 +94,11 @@ public partial class MainWindow
         void ShowInfo() { if (info is not null) info.Text = DoorConfigInfo(door.Type, _doc, _project.Maps.Select(m => m.Doc)); }
 
         var types = ActivePresets.DoorTypes.GroupBy(t => t.Name).ToDictionary(g => g.Key, g => g.First());
+        // known issue: one chip per door preset, all shown. with around 90 presets
+        // the chips push the door view past the bottom of the screen at 1080p.
+        // left as is since a campaign is not expected to have that many door
+        // types. if it ever matters, cap the chip area height with its own scroll
+        // or switch to a searchable list past a set count.
         ToolPanel.AddChips(ActivePresets.DoorTypes.Select(t => t.Name).ToArray(), door.Type, t =>
             {
                 if (t == door.Type) return;
