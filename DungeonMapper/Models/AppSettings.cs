@@ -88,10 +88,10 @@ public sealed class PawnTemplate
     }
 
     /// Effective colors for rendering: when ColorOverride is off, resolve from the
-    /// GLOBAL affiliation color table so editing a global affiliation propagates to
+    /// campaign's affiliation color table so editing an affiliation propagates to
     /// every inheriting template at render time. When on, use the template's own
     /// stored colors.
-    public ((int r, int g, int b) outer, (int r, int g, int b) inner) Effective(AppSettings s)
+    public ((int r, int g, int b) outer, (int r, int g, int b) inner) Effective(CampaignPresets s)
     {
         if (!ColorOverride)
         {
@@ -102,7 +102,7 @@ public sealed class PawnTemplate
     }
 }
 
-/// Global affiliation coloring: outer + inner color per affiliation name.
+/// Affiliation coloring of a campaign: outer + inner color per affiliation name.
 /// Configurable in the pawn management menu; templates inherit these unless
 /// they have ColorOverride on.
 public sealed class AffiliationColor
@@ -123,8 +123,9 @@ public sealed class AffiliationColor
     }
 }
 
-/// App-wide settings: grid draw spacing, tool hotkeys, door categories,
-/// default door/label properties. Persisted to settings.json next to the app.
+/// App-wide settings: grid draw spacing, colors, tool hotkeys, default label
+/// text. Persisted to settings.json next to the app. Door presets, pawn
+/// statuses and affiliation colors belong to the campaign (CampaignPresets).
 public sealed class AppSettings
 {
     // Grid is always 5ft (1 cell). This is how many cells between drawn grid
@@ -166,6 +167,7 @@ public sealed class AppSettings
     // walls do not store it.
     [JsonPropertyName("wall_thickness")] public int WallThickness { get; set; } = 3;
     public const int MinWallThickness = 1, MaxWallThickness = 20;
+    public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
     [JsonPropertyName("stair_color_r")] public int StairColorR { get; set; } = 230;
@@ -181,21 +183,6 @@ public sealed class AppSettings
 
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     [JsonPropertyName("tool_hotkeys")] public Dictionary<string, string> ToolHotkeys { get; set; } = new();
-
-    // Door categories shown in the door dropdown, each with a color.
-    [JsonPropertyName("door_types")] public List<DoorType> DoorTypes { get; set; } = new();
-
-    // Pawn status styles shown in the pawn status dropdown, each with a border
-    // color + thickness. "none" = no border. Addable via the UI like door types.
-    [JsonPropertyName("pawn_statuses")] public List<PawnStatus> PawnStatuses { get; set; } = new();
-
-    // Global affiliation coloring (Player/Ally/Enemy/Neutral). Templates inherit
-    // these unless ColorOverride is on. Configurable in the pawn management menu.
-    [JsonPropertyName("affiliation_colors")] public List<AffiliationColor> AffiliationColors { get; set; } = new();
-
-    // New doors take these properties automatically (item 3).
-    [JsonPropertyName("default_door_type")] public string DefaultDoorType { get; set; } = "standard";
-    [JsonPropertyName("default_door_state")] public string DefaultDoorState { get; set; } = "closed";
 
     // New labels start with this text so a placed label is visible (item 1).
     [JsonPropertyName("default_label_text")] public string DefaultLabelText { get; set; } = "label";
@@ -220,42 +207,8 @@ public sealed class AppSettings
             ["Pawn"] = "P",
             ["Polygon"] = "N",
         };
-        // no "locked" door type: locked is a door STATE, a type is redundant.
-        s.DoorTypes = new List<DoorType>
-        {
-            new("standard", 245, 220, 60),
-            new("portcullis", 180, 180, 190),
-            new("bricked", 160, 100, 60),
-            new("magical", 180, 120, 240),
-        };
-        // status scaffolding: "none" is the hard default (black, thickness 1,
-        // un-deletable), plus a few starter styles, addable via the UI.
-        s.PawnStatuses = new List<PawnStatus>
-        {
-            new("none", 0, 0, 0, 1),
-            new("paralyzed", 230, 120, 200, 3),  // pink + thick
-            new("fear", 245, 245, 245, 3),        // white + thick
-        };
-        s.AffiliationColors = new List<AffiliationColor>
-        {
-            new("Player", (60, 120, 220), (30, 60, 160)),
-            new("Ally", (120, 220, 120), (30, 120, 40)),
-            new("Enemy", (220, 120, 120), (120, 30, 30)),
-            new("Neutral", (230, 190, 90), (150, 110, 40)),
-        };
         return s;
     }
-
-    public DoorType FindDoorType(string name)
-        => DoorTypes.Find(t => t.Name == name) ?? DoorTypes[0];
-
-    public PawnStatus FindPawnStatus(string name)
-        => PawnStatuses.Find(t => t.Name == name) ?? PawnStatuses[0];
-
-    public AffiliationColor FindAffiliationColor(string name)
-        => AffiliationColors.Find(c => c.Name == name)
-           ?? AffiliationColors.Find(c => c.Name == "Neutral")
-           ?? new AffiliationColor("Neutral", (230, 190, 90), (150, 110, 40));
 
     public string SettingsPath()
     {
@@ -268,8 +221,10 @@ public sealed class AppSettings
     {
         var path = SettingsPath();
         System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-        System.IO.File.WriteAllText(path, JsonSerializer.Serialize(this, DmJson.Default.AppSettings));
+        System.IO.File.WriteAllText(path, ToJson());
     }
+
+    public string ToJson() => JsonSerializer.Serialize(this, DmJson.Default.AppSettings);
 
     public static AppSettings Load()
     {
@@ -283,24 +238,116 @@ public sealed class AppSettings
             System.IO.File.Move(legacy, path);
         }
         if (!System.IO.File.Exists(path)) return Default();
+        try { return Parse(System.IO.File.ReadAllText(path)) ?? Default(); }
+        catch { return Default(); }
+    }
+
+    // the door presets, pawn statuses and affiliation colors an older
+    // settings.json still holds, from before they moved into the campaign.
+    // null when it has none of them.
+    public static PresetsWire? LegacyPresets()
+    {
         try
         {
-            var s = JsonSerializer.Deserialize(System.IO.File.ReadAllText(path), DmJson.Default.AppSettings);
-            if (s is null) return Default();
-            if (s.ToolHotkeys.Count == 0) s.ToolHotkeys = Default().ToolHotkeys;
-            // settings.json written before a hotkey existed: fill in missing keys
-            foreach (var (k, v) in Default().ToolHotkeys)
-                if (!s.ToolHotkeys.ContainsKey(k)) s.ToolHotkeys[k] = v;
-            if (s.DoorTypes.Count == 0) s.DoorTypes = Default().DoorTypes;
-            if (s.PawnStatuses.Count == 0) s.PawnStatuses = Default().PawnStatuses;
-            // "none" is the hard default status (black, thickness 1, un-deletable):
-            // guarantee it is present even in settings.json written before it existed.
-            if (!s.PawnStatuses.Any(st => st.Name == "none"))
-                s.PawnStatuses.Insert(0, new PawnStatus("none", 0, 0, 0, 1));
-            if (s.AffiliationColors.Count == 0) s.AffiliationColors = Default().AffiliationColors;
-            return s;
+            var path = new AppSettings().SettingsPath();
+            if (!System.IO.File.Exists(path)) return null;
+            var w = CampaignPresets.ReadWire(System.IO.File.ReadAllText(path));
+            if (w.DoorTypes is null && w.PawnStatuses is null && w.AffiliationColors is null) return null;
+            w.Kind = null;
+            return w;
         }
-        catch { return Default(); }
+        catch { return null; }
+    }
+
+    // reads settings json and fills in anything an older or hand edited file
+    // is missing. returns null when the json is not a settings file at all
+    // (no settings keys at its top level), so a map or campaign file picked
+    // by mistake is refused instead of loading as all defaults. throws on
+    // json that does not parse.
+    public static AppSettings? Parse(string json)
+    {
+        using (var doc = JsonDocument.Parse(json))
+        {
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            var known = JsonKeys().ToHashSet();
+            if (!doc.RootElement.EnumerateObject().Any(p => known.Contains(p.Name))) return null;
+        }
+        var s = JsonSerializer.Deserialize(json, DmJson.Default.AppSettings);
+        if (s is null) return null;
+        if (s.ToolHotkeys.Count == 0) s.ToolHotkeys = Default().ToolHotkeys;
+        // settings.json written before a hotkey existed: fill in missing keys
+        foreach (var (k, v) in Default().ToolHotkeys)
+            if (!s.ToolHotkeys.ContainsKey(k)) s.ToolHotkeys[k] = v;
+        return s;
+    }
+
+    // ---- settings import/export ----
+    // settings files are app wide. door presets, pawn statuses and affiliation
+    // colors belong to the campaign, so they never go into or come out of one.
+    // an older settings file still holding them is read, the lists ignored.
+    public const string KindSettings = "settings";
+
+    // every json key AppSettings writes, from the source generated metadata
+    // (no reflection, survives trimming)
+    private static IEnumerable<string> JsonKeys()
+        => DmJson.Default.AppSettings.Properties.Select(p => p.Name);
+
+    public string ExportJson()
+    {
+        var node = JsonSerializer.SerializeToNode(this, DmJson.Default.AppSettings)!.AsObject();
+        var outNode = new System.Text.Json.Nodes.JsonObject { ["kind"] = KindSettings };
+        foreach (var (k, v) in node.ToList())
+        {
+            node.Remove(k);
+            outNode[k] = v;
+        }
+        return outNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    // reads a settings export. returns null when the file is not one: a
+    // "kind" other than settings (campaign, map, ...), or no app wide setting
+    // at its top level. throws on json that does not parse. numbers and
+    // hotkeys a hand edited file could break are put back in range.
+    public static AppSettings? ParseImport(string json)
+    {
+        using (var doc = JsonDocument.Parse(json))
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+            if (root.TryGetProperty("kind", out var k)
+                && !(k.ValueKind == JsonValueKind.String && string.Equals(k.GetString(), KindSettings, StringComparison.OrdinalIgnoreCase)))
+                return null;
+            var appWide = JsonKeys().ToHashSet();
+            if (!root.EnumerateObject().Any(p => appWide.Contains(p.Name))) return null;
+        }
+        var s = Parse(json);
+        if (s is null) return null;
+        var defaults = Default();
+        s.GridDrawSpacing = Math.Clamp(s.GridDrawSpacing, 1, MaxGridSpacing);
+        s.WallThickness = Math.Clamp(s.WallThickness, MinWallThickness, MaxWallThickness);
+        s.AutosaveMinutes = Math.Clamp(s.AutosaveMinutes, 0, MaxAutosaveMinutes);
+        if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
+        // hotkeys: only known tools, each a single letter a to z (what the
+        // hotkeys menu allows); anything else falls back to the default
+        var keys = new Dictionary<string, string>();
+        foreach (var (tool, def) in defaults.ToolHotkeys)
+        {
+            var v = s.ToolHotkeys.GetValueOrDefault(tool, "");
+            keys[tool] = v.Length == 1 && char.IsAsciiLetter(v[0]) ? v.ToUpperInvariant() : def;
+        }
+        s.ToolHotkeys = keys;
+        return s;
+    }
+
+    // takes the app wide values from an imported settings object. the app
+    // keeps one AppSettings that the canvas and panels hold on to, so an
+    // import copies into it instead of swapping it out.
+    public void CopyAppWideFrom(AppSettings other)
+    {
+        foreach (var p in DmJson.Default.AppSettings.Properties)
+            if (p.Get is not null && p.Set is not null)
+                p.Set(this, p.Get(other));
+        ToolHotkeys = new Dictionary<string, string>(other.ToolHotkeys);
     }
 }
 

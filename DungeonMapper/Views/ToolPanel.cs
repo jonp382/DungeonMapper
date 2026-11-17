@@ -7,6 +7,8 @@ using Avalonia.Controls.Shapes;
 using Avalonia.Layout;
 using Avalonia.Media;
 
+using static DungeonMapper.Views.Ui;
+
 namespace DungeonMapper.Views;
 
 /// Right-docked floating panel that hosts per-tool options (erase filter,
@@ -14,12 +16,13 @@ namespace DungeonMapper.Views;
 /// Replaces the modal ConfigDialog. Fields apply live on change.
 public sealed class ToolPanel : Border
 {
-    private readonly TextBlock _title = new() { FontSize = 14, Foreground = Brushes.White };
+    // side panel titles are 14, a step below the modal titles
+    private readonly TextBlock _title = new() { Classes = { "title" }, FontSize = 14 };
     private readonly StackPanel _content = new() { Spacing = 6 };
     private readonly ScrollViewer _scroll;
     // When set, all Add* builders append here instead of _content. Lets the modal
     // popup host the same field builders (color fields, text, number, button).
-    private Panel _target;
+    private Panel? _target;
 
     public void SetTarget(Panel? target) => _target = target;
     public Panel Target => _target ?? _content;
@@ -68,65 +71,96 @@ public sealed class ToolPanel : Border
 
     public void AddHint(string text)
     {
-        Target.Children.Add(new TextBlock
-        {
-            Text = text,
-            Foreground = Brushes.White,
-            TextWrapping = TextWrapping.Wrap,
-            FontSize = 12,
-        });
+        Target.Children.Add(new TextBlock { Text = text, Classes = { "body" }, TextWrapping = TextWrapping.Wrap });
     }
 
-    public CheckBox AddCheck(string label, bool initial, Action<bool> onChange)
+    // a toggle, with an optional muted line under it explaining what it does
+    public CheckBox AddCheck(string label, bool initial, Action<bool> onChange, string? hint = null)
     {
-        var cb = new CheckBox { Content = label, IsChecked = initial, Foreground = Brushes.White };
-        cb.IsCheckedChanged += (_, _) => onChange(cb.IsChecked == true);
-        Target.Children.Add(cb);
+        var cb = ToggleRow(label, initial, onChange);
+        if (hint is null) { Target.Children.Add(cb); return cb; }
+        var sp = new StackPanel { Spacing = 0 };
+        sp.Children.Add(cb);
+        sp.Children.Add(new TextBlock { Text = hint, Classes = { "hint" }, Margin = new Thickness(28, 0, 0, 2) });
+        Target.Children.Add(sp);
         return cb;
     }
 
-    public void AddText(string label, string initial, Action<string> onChange, bool multiline = false)
+    // a read only facts box (counts). returns the text so the caller can update it in place
+    public TextBlock AddInfo(string text)
     {
-        var panel = new StackPanel { Spacing = 2 };
-        panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
-        var tb = new TextBox { Text = initial, AcceptsReturn = multiline };
-        tb.TextChanged += (_, _) => onChange(tb.Text);
-        panel.Children.Add(tb);
-        Target.Children.Add(panel);
+        var tb = new TextBlock { Text = text, Classes = { "body" }, TextWrapping = TextWrapping.Wrap };
+        Target.Children.Add(new Border { Classes = { "infobox" }, Child = tb, Margin = new Thickness(0, 4, 0, 0) });
+        return tb;
     }
 
-    public ComboBox AddChoice(string label, string[] options, string initial, Action<string> onChange)
+    // onChange fires on every keystroke for a live preview. onDone fires when
+    // the edit ends: focus leaves the box or the box is removed from the panel.
+    public TextBox AddText(string label, string initial, Action<string> onChange, bool multiline = false, Action? onDone = null)
     {
         var panel = new StackPanel { Spacing = 2 };
-        panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
-        var cb = new ComboBox
+        panel.Children.Add(FieldLabel(label));
+        var tb = new TextBox { Text = initial, AcceptsReturn = multiline, Classes = { "field" } };
+        tb.TextChanged += (_, _) => onChange(tb.Text ?? "");
+        if (onDone is not null)
         {
-            ItemsSource = options,
-            SelectedItem = Array.IndexOf(options, initial) >= 0 ? initial : options[0],
-        };
-        cb.SelectionChanged += (_, _) => onChange((string?)cb.SelectedItem ?? options[0]);
-        panel.Children.Add(cb);
-        Target.Children.Add(panel);
-        return cb;
-    }
-
-    public TextBox AddNumber(string label, int initial, Action<int> onChange)
-    {
-        var panel = new StackPanel { Spacing = 2 };
-        panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
-        var tb = new TextBox { Text = initial.ToString() };
-        tb.TextChanged += (_, _) =>
-        {
-            if (int.TryParse(tb.Text, out int v)) onChange(v);
-        };
+            tb.LostFocus += (_, _) => onDone();
+            tb.DetachedFromVisualTree += (_, _) => onDone();
+        }
         panel.Children.Add(tb);
         Target.Children.Add(panel);
         return tb;
     }
 
+    // onChange fires on every parsed keystroke for a live preview. onDone fires
+    // when the edit ends: enter, focus leaving the box, or the box being removed.
+    public TextBox AddNumber(string label, int initial, Action<int> onChange, Action? onDone = null)
+    {
+        var panel = new StackPanel { Spacing = 2 };
+        panel.Children.Add(FieldLabel(label));
+        var tb = new TextBox { Text = initial.ToString(), Classes = { "field", "number" }, HorizontalAlignment = HorizontalAlignment.Left };
+        tb.TextChanged += (_, _) =>
+        {
+            if (int.TryParse(tb.Text, out int v)) onChange(v);
+        };
+        if (onDone is not null)
+        {
+            tb.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) { onDone(); e.Handled = true; } };
+            tb.LostFocus += (_, _) => onDone();
+            tb.DetachedFromVisualTree += (_, _) => onDone();
+        }
+        panel.Children.Add(tb);
+        Target.Children.Add(panel);
+        return tb;
+    }
+
+    // a row of chips where exactly one is active, clicking one makes it active.
+    // label puts a field label above the row, dot gives a chip a leading marker.
+    public void AddChips(string[] options, string current, Action<string> onChange, string? label = null, Func<string, Control?>? dot = null)
+    {
+        if (label is not null) Target.Children.Add(FieldLabel(label));
+        var row = new WrapPanel();
+        void Build(string active)
+        {
+            row.Children.Clear();
+            foreach (var o in options)
+            {
+                var opt = o;
+                row.Children.Add(Chip(opt, opt == active, dot?.Invoke(opt), () =>
+                {
+                    ButtonHook?.Invoke();
+                    Build(opt);
+                    onChange(opt);
+                }));
+            }
+        }
+        Build(current);
+        Target.Children.Add(row);
+    }
+
     public void AddButton(string label, Action onClick)
     {
-        var b = new Button { Content = label };
+        var b = Btn(label);
         b.Click += (_, _) =>
         {
             // a panel button click counts as a cancel of an armed move (restores
@@ -152,7 +186,7 @@ public sealed class ToolPanel : Border
     public StackPanel AddColorField(string label, int r, int g, int b, IReadOnlyList<(int r, int g, int b)> presets, Action<(int r, int g, int b)> onChange)
     {
         var panel = new StackPanel { Spacing = 2 };
-        panel.Children.Add(new TextBlock { Text = label, Foreground = Brushes.White });
+        panel.Children.Add(FieldLabel(label));
         panel.Children.Add(ColorCell(r, g, b, presets, onChange));
         Target.Children.Add(panel);
         return panel;
@@ -216,16 +250,4 @@ public sealed class ToolPanel : Border
     }
 
     public void RemoveControl(Control c) => Target.Children.Remove(c);
-
-    private static bool TryHexColor(string hex, out (int r, int g, int b) c)
-    {
-        c = (0, 0, 0);
-        var s = hex.Trim().TrimStart('#');
-        if (s.Length != 6) return false;
-        int r, g, b;
-        try { r = Convert.ToInt32(s.Substring(0, 2), 16); g = Convert.ToInt32(s.Substring(2, 2), 16); b = Convert.ToInt32(s.Substring(4, 2), 16); }
-        catch { return false; }
-        c = (r, g, b);
-        return true;
-    }
 }

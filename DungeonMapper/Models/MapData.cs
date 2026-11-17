@@ -169,11 +169,18 @@ public sealed class MapLabel
     // Per-label overrides. FontSize 0 = auto: the default size for a single
     // cell, or the size that fits the text in the range. Color -1 = inherit
     // the settings label color. oversized text may leak into neighboring
-    // cells, which is allowed.
-    public int FontSize { get; set; } = 0;
+    // cells, which is allowed. clamped to 0..MaxFontSize so a silly typed or
+    // loaded value cannot break text rendering.
+    public const int MaxFontSize = 500;
+    private int _fontSize;
+    public int FontSize { get => _fontSize; set => _fontSize = Math.Clamp(value, 0, MaxFontSize); }
     public int R { get; set; } = -1;
     public int G { get; set; } = -1;
     public int B { get; set; } = -1;
+
+    /// true when the label has its own color, false when it follows the
+    /// settings label color
+    public bool HasOwnColor => R >= 0 && G >= 0 && B >= 0;
 
     public bool IsRange => W > 1 || H > 1;
 
@@ -431,6 +438,41 @@ public sealed class MapDocument
     public void RemoveDoor(EdgeKey edge)
     {
         Doors.Remove(EdgeKey.Normalize(edge.Cell, edge.Side));
+    }
+
+    // where a door sits: an EdgeKey, a VertexDoorKey or an (AngledWall, index)
+    // pair. undo swaps in new door objects, the spot finds the same door again
+    public object? DoorSpotOf(IDoorConfig door)
+    {
+        foreach (var (k, d) in Doors) if (ReferenceEquals(d, door)) return k;
+        foreach (var (k, d) in VertexDoors) if (ReferenceEquals(d, door)) return k;
+        foreach (var (w, list) in AngledDoors)
+            for (int i = 0; i < list.Count; i++)
+                if (ReferenceEquals(list[i], door)) return (w, i);
+        return null;
+    }
+
+    public IDoorConfig? DoorAtSpot(object? spot) => spot switch
+    {
+        EdgeKey e => Doors.GetValueOrDefault(e),
+        VertexDoorKey v => VertexDoors.GetValueOrDefault(v),
+        (AngledWall w, int i) => AngledDoors.TryGetValue(w, out var l) && i < l.Count ? l[i] : null,
+        _ => null,
+    };
+
+    // removes just the door, its wall stays. returns false when the door is not on this map
+    public bool RemoveDoorConfig(IDoorConfig door)
+    {
+        switch (DoorSpotOf(door))
+        {
+            case EdgeKey e: Doors.Remove(e); return true;
+            case VertexDoorKey v: VertexDoors.Remove(v); return true;
+            case (AngledWall w, int i):
+                AngledDoors[w].RemoveAt(i);
+                if (AngledDoors[w].Count == 0) AngledDoors.Remove(w);
+                return true;
+            default: return false;
+        }
     }
 
     /// Adds a rectangular room: fills cells, sets walls on the outer boundary,

@@ -13,6 +13,8 @@ using Avalonia.Styling;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
+using static DungeonMapper.Views.Ui;
+
 namespace DungeonMapper.Views;
 
 public partial class MainWindow : Window
@@ -53,6 +55,30 @@ public partial class MainWindow : Window
         }
         return lib;
     }
+    // door presets, pawn statuses and affiliation colors of each campaign,
+    // keyed like the libraries. they persist with the campaign file. a
+    // campaign without its own (a new one, or a file from before they moved
+    // into the campaign) gets the built-in starters.
+    private readonly Dictionary<MapProject, CampaignPresets> _presets = new();
+    private CampaignPresets ActivePresets => PresetsFor(_project);
+    private CampaignPresets PresetsFor(MapProject p)
+    {
+        if (!_presets.TryGetValue(p, out var pr))
+        {
+            pr = CampaignPresets.Default();
+            _presets[p] = pr;
+        }
+        return pr;
+    }
+    // hands the open campaign's library and presets to the canvas. a default
+    // door type the campaign lacks goes back to standard.
+    private void SyncCampaign()
+    {
+        Canvas.Library = ActiveLibrary;
+        Canvas.Presets = ActivePresets;
+        if (!ActivePresets.DoorTypes.Any(t => t.Name == Canvas.DefaultDoorType))
+            Canvas.DefaultDoorType = CampaignPresets.StandardDoor;
+    }
     // settings dirty flag: fields mutate live, the json write flushes once at
     // modal close / tool switch / menu open / autosave tick (avoids hundreds of
     // writes during color-wheel drags)
@@ -69,11 +95,16 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        AddHandler(PointerPressedEvent, DisarmDeleteOnPress, Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
 
         Canvas.Document = _doc;
         Canvas.Settings = _settings;
-        Canvas.Library = ActiveLibrary;
+        // the door presets, statuses and affiliations used to live in
+        // settings.json. the first start after they moved into the campaign
+        // seeds the campaign it opens with them. settings.json drops them the
+        // next time it is written.
+        if (AppSettings.LegacyPresets() is { } legacy)
+            _presets[_project] = CampaignPresets.ForCampaign(legacy);
+        SyncCampaign();
         HistoryFor(_project.Maps[0]); // snapshot the starting map at startup
 
         // hotbar icons. tools without a png yet get a drawn placeholder.
@@ -101,10 +132,6 @@ public partial class MainWindow : Window
             int idx = MapList.SelectedIndex;
             if (idx >= 0 && idx != _project.ActiveIndex) SwitchMap(idx);
         };
-        BtnManageMaps.Click += (_, _) => ToggleMaps();
-        MapsClose.Click += (_, _) => { MapsOverlay.IsVisible = false; FocusCanvas(); };
-        MapsAdd.Click += (_, _) => { AddMap(); ShowMaps(); };
-        MapsImport.Click += (_, _) => ImportMaps();
 
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
@@ -149,6 +176,7 @@ public partial class MainWindow : Window
         InitSettings();
         InitDoorPresets();
         InitHotkeys();
+        InitMaps();
 
         // autosave: ticks every minute; writes to maps/autosaves when the
         // configured interval has elapsed (0 = off). Flushes pending settings.
@@ -162,7 +190,7 @@ public partial class MainWindow : Window
             var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
             System.IO.Directory.CreateDirectory(dir);
             var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
-            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary);
+            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, ActivePresets);
             StatusText.Text = $"autosaved {name}";
         };
         _autosaveTimer.Start();
@@ -170,6 +198,8 @@ public partial class MainWindow : Window
         Canvas.ActionCompleted += () =>
         {
             ActiveHistory.Commit(_doc);
+            RefreshMaps();
+            RefreshToolInfo();
         };
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
@@ -182,6 +212,8 @@ public partial class MainWindow : Window
             ActiveLibrary.NoteRecent(id);
             PawnViewsChanged();
             RefreshDoorPresets();
+            RefreshMaps();
+            RefreshToolInfo();
         };
         Canvas.TakeHeroFromOtherMaps = id =>
         {
@@ -245,11 +277,14 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Escape)
         {
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
             if (HotkeysOverlay.IsVisible) { CloseHotkeys(); e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
+            // the maps panel is not modal, so an armed move is cancelled first
+            if (MapsOverlay.IsVisible) { CloseMaps(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Polygon && !IsTyping())
             { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Wall && !IsTyping())
@@ -369,11 +404,12 @@ public partial class MainWindow : Window
         FlushSettings();
         ModalOverlay.IsVisible = false;
         _modalKind = null;
+        _presetImportBack = null;
         SettingsOverlay.IsVisible = false;
         DoorPresetsOverlay.IsVisible = false;
         HotkeysOverlay.IsVisible = false;
+        FinishMapRename(true);
         MapsOverlay.IsVisible = false;
-        DisarmDelete();
     }
 
     private void SetTool(ToolMode mode)
@@ -408,94 +444,6 @@ public partial class MainWindow : Window
         FocusCanvas(); // restore hotkey focus after the tool button click
     }
 
-    // Builds the floating panel's options for the active tool.
-    private void PopulatePanel(ToolMode mode)
-    {
-        switch (mode)
-        {
-            case ToolMode.Erase:
-                ToolPanel.Clear("Erase options");
-                ToolPanel.AddHint("choose what the eraser removes:");
-                ToolPanel.AddCheck("cells / flooring", Canvas.EraseFilter.Cells, v => Canvas.EraseFilter.Cells = v);
-                ToolPanel.AddCheck("walls (and doors on them)", Canvas.EraseFilter.Walls, v => Canvas.EraseFilter.Walls = v);
-                ToolPanel.AddCheck("stairs", Canvas.EraseFilter.Stairs, v => Canvas.EraseFilter.Stairs = v);
-                ToolPanel.AddCheck("labels", Canvas.EraseFilter.Labels, v => Canvas.EraseFilter.Labels = v);
-                ToolPanel.AddCheck("pawns", Canvas.EraseFilter.Pawns, v => Canvas.EraseFilter.Pawns = v);
-                ToolPanel.AddCheck("adjust walls (re-seal rooms: the new outer edge gets walls after erasing)", Canvas.EraseAdjustWalls, v => { Canvas.EraseAdjustWalls = v; FocusCanvas(); });
-                break;
-
-            case ToolMode.Select:
-                ToolPanel.Clear("Select options");
-                ToolPanel.AddHint("copy/paste the selection with Ctrl+C / Ctrl+V. the paste ghost follows the cursor.");
-                break;
-
-            case ToolMode.Move:
-                ToolPanel.Clear("Move options");
-                ToolPanel.AddHint("click + drag on empty space to select a region, then click the destination point. drag a pawn directly to move just that pawn.");
-                ToolPanel.AddCheck("move pawns only", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
-                ToolPanel.AddCheck("show destination ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
-                break;
-
-            case ToolMode.Room:
-                ToolPanel.Clear("Room settings");
-                ToolPanel.AddHint("drawing over an existing room merges them. use the options below for fine control.");
-                ToolPanel.AddCheck("strict outer walls", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
-                ToolPanel.AddCheck("merge adjacent walls", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
-                break;
-
-            case ToolMode.Door:
-                // placement options only (type + state); the category editor lives
-                // in the Manage Door Presets modal. Placed doors inherit these
-                // defaults (MapCanvas reads Settings.DefaultDoorType/State).
-                ToolPanel.Clear("Door settings");
-                ToolPanel.AddHint("defaults apply to every door you place next.");
-                var names = new List<string>();
-                foreach (var t in _settings.DoorTypes) names.Add(t.Name);
-                ToolPanel.AddChoice("default door type", names.ToArray(), _settings.DefaultDoorType, t =>
-                {
-                    _settings.DefaultDoorType = t;
-                    MarkSetting();
-                });
-                ToolPanel.AddChoice("default door state", new[] { "open", "closed", "locked" },
-                    _settings.DefaultDoorState, s =>
-                    {
-                        _settings.DefaultDoorState = s;
-                        MarkSetting();
-                    });
-                ToolPanel.AddButton("manage door presets", () => { CloseModals(); ShowDoorPresets(); });
-                break;
-
-            case ToolMode.Pawn:
-                BuildPawnPanel();
-                break;
-
-            case ToolMode.Polygon:
-                ToolPanel.Clear("Polygon");
-                ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polgyon, or hit enter to auto-complete.");
-                ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
-                ToolPanel.AddCheck("merge adjacent walls", Canvas.PolygonMergeNearby, v => { Canvas.PolygonMergeNearby = v; FocusCanvas(); });
-                ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
-                break;
-
-            case ToolMode.Floor:
-                ToolPanel.Clear("Floor");
-                ToolPanel.AddHint("manual: drag a rectangle. flood fill: click a cell to fill the room it is in, bounded by walls, doors and stairs");
-                ToolPanel.AddButton("manual rectangle", () => { Canvas.FloorFloodFill = false; FocusCanvas(); });
-                ToolPanel.AddButton("flood fill", () => { Canvas.FloorFloodFill = true; FocusCanvas(); });
-                break;
-
-            case ToolMode.Wall:
-                ToolPanel.Clear("Wall");
-                ToolPanel.AddHint("click on your starting grid point and release on your end point to draw a line");
-                break;
-
-            default:
-                ToolPanel.Clear("Tool options");
-                ToolPanel.AddHint("no options for this tool.");
-                break;
-        }
-    }
-
     // Rebuilds the map dropdown from the project, keeping the active map selected.
     // Deselects before mutating items so the selection model never enumerates a
     // stale index against a cleared list (avoids ArgumentOutOfRangeException), and
@@ -528,6 +476,7 @@ public partial class MainWindow : Window
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
+        RefreshToolInfo();
         FocusCanvas(); // combo kept focus; restore it so hotkeys/paste work
     }
 
@@ -543,299 +492,39 @@ public partial class MainWindow : Window
         RefreshMapList();
         PawnViewsChanged();
         RefreshDoorPresets();
+        RefreshToolInfo();
         StatusText.Text = $"added {name}";
         Canvas.Refresh();
         FocusCanvas();
     }
 
-    // ---- maps panel: floating list of the campaign's maps ----
-
-
-    // the map whose name is being edited inline
-    private MapEntry? _renamingMap;
-
-    // delete takes two clicks: x arms a red "delete?" button in its place. it
-    // disarms after 10 seconds, on a click anywhere else, or when the panel
-    // rebuilds or reopens. disarming flips visibility in place instead of
-    // rebuilding, so the click that disarmed it still lands on its target.
-    private MapEntry? _confirmDeleteMap;
-    private Button? _confirmDeleteButton, _deleteArmButton;
-    private Avalonia.Threading.DispatcherTimer? _confirmDeleteTimer;
-
-    private void ArmDelete(MapEntry entry, Button arm, Button confirm)
-    {
-        DisarmDelete();
-        _confirmDeleteMap = entry;
-        _deleteArmButton = arm;
-        _confirmDeleteButton = confirm;
-        arm.IsVisible = false;
-        confirm.IsVisible = true;
-        if (_confirmDeleteTimer is null)
-        {
-            _confirmDeleteTimer = new Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
-            _confirmDeleteTimer.Tick += (_, _) => DisarmDelete();
-        }
-        _confirmDeleteTimer.Stop();
-        _confirmDeleteTimer.Start();
-    }
-
-    private void DisarmDelete()
-    {
-        _confirmDeleteTimer?.Stop();
-        if (_deleteArmButton is not null) _deleteArmButton.IsVisible = true;
-        if (_confirmDeleteButton is not null) _confirmDeleteButton.IsVisible = false;
-        _confirmDeleteMap = null;
-        _deleteArmButton = _confirmDeleteButton = null;
-    }
-
-    // tunnels ahead of every control: a press anywhere but the armed "delete?"
-    // button disarms it
-    private void DisarmDeleteOnPress(object? sender, PointerPressedEventArgs e)
-    {
-        if (_confirmDeleteButton is null) return;
-        for (var v = e.Source as Avalonia.Visual; v is not null; v = Avalonia.VisualTree.VisualExtensions.GetVisualParent(v))
-            if (ReferenceEquals(v, _confirmDeleteButton)) return;
-        DisarmDelete();
-    }
-
-    private void ToggleMaps()
-    {
-        if (MapsOverlay.IsVisible) { MapsOverlay.IsVisible = false; FocusCanvas(); return; }
-        CloseModals();
-        ShowMaps();
-    }
-
-    // rebuilds the rows. each row: the name (click to switch, the active map is
-    // highlighted), then rename, move up, move down, export and delete.
-    private void ShowMaps()
-    {
-        MapsOverlay.IsVisible = true;
-        DisarmDelete();
-        MapsRows.Children.Clear();
-        for (int i = 0; i < _project.Maps.Count; i++)
-        {
-            int idx = i;
-            var entry = _project.Maps[i];
-            bool active = idx == _project.ActiveIndex;
-            var row = new Grid
-            {
-                ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto,Auto,Auto"),
-                ColumnSpacing = 2,
-            };
-
-            Control nameCell;
-            if (ReferenceEquals(_renamingMap, entry))
-            {
-                var box = new TextBox { Text = entry.Name, VerticalAlignment = VerticalAlignment.Center };
-                bool done = false;
-                void Finish(bool commit)
-                {
-                    if (done) return;
-                    done = true;
-                    _renamingMap = null;
-                    var v = box.Text?.Trim();
-                    if (commit && !string.IsNullOrEmpty(v) && v != entry.Name)
-                    {
-                        entry.Name = _project.UniqueName(v, idx);
-                        StatusText.Text = $"renamed to {entry.Name}";
-                        RefreshMapList();
-                    }
-                    ShowMaps();
-                }
-                box.KeyDown += (_, e) =>
-                {
-                    if (e.Key == Key.Enter) { Finish(true); FocusCanvas(); e.Handled = true; }
-                    else if (e.Key == Key.Escape) { Finish(false); FocusCanvas(); e.Handled = true; }
-                };
-                box.LostFocus += (_, _) => Finish(true);
-                box.AttachedToVisualTree += (_, _) => { box.Focus(); box.SelectAll(); };
-                nameCell = box;
-            }
-            else
-            {
-                var name = new Button
-                {
-                    Content = new TextBlock { Text = entry.Name, TextTrimming = TextTrimming.CharacterEllipsis },
-                    HorizontalAlignment = HorizontalAlignment.Stretch,
-                    HorizontalContentAlignment = HorizontalAlignment.Left,
-                    Background = active ? new SolidColorBrush(Color.Parse("#3a4a6a")) : Brushes.Transparent,
-                    FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal,
-                };
-                ToolTip.SetTip(name, active ? "Current map" : "Switch to this map");
-                name.Click += (_, _) => { if (idx != _project.ActiveIndex) SwitchMap(idx); };
-                name.DoubleTapped += (_, _) => { _renamingMap = entry; ShowMaps(); };
-                nameCell = name;
-            }
-            row.Children.Add(nameCell);
-
-            Button Small(int col, string icon, string tip, Action click, bool enabled = true)
-            {
-                var b = new Button
-                {
-                    Content = PngIcon(icon, 14),
-                    Width = 28, Height = 28, Padding = new Thickness(0),
-                    HorizontalContentAlignment = HorizontalAlignment.Center,
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    IsEnabled = enabled,
-                };
-                ToolTip.SetTip(b, tip);
-                b.Click += (_, _) => click();
-                Grid.SetColumn(b, col);
-                row.Children.Add(b);
-                return b;
-            }
-
-            Small(1, "DMRename", "Rename", () => { _renamingMap = entry; ShowMaps(); });
-            Small(2, "DMUp", "Move up", () => { _project.MoveMap(idx, idx - 1); RefreshMapList(); ShowMaps(); }, idx > 0);
-            Small(3, "DMDown", "Move down", () => { _project.MoveMap(idx, idx + 1); RefreshMapList(); ShowMaps(); }, idx < _project.Maps.Count - 1);
-            Small(4, "DMExport", "Export this map to a file", () => ExportMap(entry));
-
-            // second step: an explicit red button, so a stray click never deletes
-            var confirm = new Button
-            {
-                Content = "delete?",
-                Height = 28, Padding = new Thickness(6, 0),
-                Background = new SolidColorBrush(Color.Parse("#8a2a2a")),
-                Foreground = Brushes.White,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                IsVisible = false,
-            };
-            ToolTip.SetTip(confirm, "Click again to delete this map");
-            confirm.Click += (_, _) => DeleteMap(entry);
-            Grid.SetColumn(confirm, 5);
-            row.Children.Add(confirm);
-            Button? arm = null;
-            arm = Small(5, "DMDelete", _project.Maps.Count > 1 ? "Delete" : "A campaign keeps at least one map",
-                () => ArmDelete(entry, arm!, confirm), _project.Maps.Count > 1);
-
-            MapsRows.Children.Add(row);
-        }
-    }
-
-    private void DeleteMap(MapEntry entry)
-    {
-        int idx = _project.Maps.IndexOf(entry);
-        _confirmDeleteMap = null;
-        if (idx < 0 || _project.Maps.Count <= 1) { ShowMaps(); return; }
-        bool wasActive = idx == _project.ActiveIndex;
-        var keepActive = _project.Maps[_project.ActiveIndex];
-        _project.RemoveMap(idx);
-        if (!wasActive) _project.SetActive(_project.Maps.IndexOf(keepActive));
-        _histories.Remove(entry);
-        // the clipboard or selection may point into the deleted map
-        Canvas.ClearSelection();
-        Canvas.ResetClipboard();
-        Canvas.Document = _doc;
-        HistoryFor(_project.Maps[_project.ActiveIndex]);
-        if (wasActive) Canvas.AutoFit();
-        RefreshMapList();
-        StatusText.Text = $"deleted {entry.Name}";
-        Canvas.Refresh();
-        ShowMaps();
-    }
-
-    private static string MapsDir()
-    {
-        var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps");
-        System.IO.Directory.CreateDirectory(dir);
-        return dir;
-    }
-
-    // writes one map (and the pawn templates it uses) to its own file
-    private async void ExportMap(MapEntry entry)
-    {
-        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(MapsDir() + "/"));
-        var safe = string.Concat(entry.Name.Split(System.IO.Path.GetInvalidFileNameChars()));
-        var file = await this.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
-        {
-            Title = "Export map",
-            SuggestedFileName = $"{(string.IsNullOrWhiteSpace(safe) ? "Map" : safe)}.json",
-            DefaultExtension = "json",
-            SuggestedStartLocation = startFolder,
-            FileTypeChoices = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
-        });
-        if (file is null) return;
-        try
-        {
-            var path = file.Path.LocalPath;
-            MapSerializer.SaveMapFile(entry, path, ActiveLibrary);
-            StatusText.Text = $"exported {entry.Name} to {path}";
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = $"export failed: {ex.Message}";
-        }
-    }
-
-    // adds maps from map files or campaign files to the current campaign. a
-    // campaign file brings all of its maps. pawn templates that look the same
-    // as ones already in the library are reused instead of duplicated.
-    private async void ImportMaps()
-    {
-        var startFolder = await this.StorageProvider.TryGetFolderFromPathAsync(new Uri(MapsDir() + "/"));
-        var files = await this.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-        {
-            Title = "Import maps",
-            AllowMultiple = true,
-            SuggestedStartLocation = startFolder,
-            FileTypeFilter = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
-        });
-        if (files.Count == 0) return;
-        int added = 0, firstNew = _project.Maps.Count;
-        var failed = new List<string>();
-        foreach (var f in files)
-        {
-            var path = f.Path.LocalPath;
-            try
-            {
-                var text = System.IO.File.ReadAllText(path);
-                var imported = MapSerializer.ImportFromJson(text, System.IO.Path.GetFileNameWithoutExtension(path));
-                var idMap = ActiveLibrary.MergeImport(MapSerializer.LibraryFromDtos(imported.Library));
-                foreach (var m in imported.Maps)
-                {
-                    foreach (var p in m.Doc.Pawns.Values)
-                        if (idMap.TryGetValue(p.TemplateId, out var nid)) p.TemplateId = nid;
-                    m.Name = _project.UniqueName(m.Name);
-                    _project.Maps.Add(m);
-                    added++;
-                }
-            }
-            catch (Exception ex)
-            {
-                failed.Add($"{System.IO.Path.GetFileName(path)} ({ex.Message})");
-            }
-        }
-        if (added > 0)
-        {
-            Canvas.Library = ActiveLibrary;
-            Canvas.InvalidateImageCache();
-            SwitchMap(firstNew);
-        }
-        if (MapsOverlay.IsVisible || added > 0) ShowMaps();
-        StatusText.Text = failed.Count == 0
-            ? $"imported {added} map{(added == 1 ? "" : "s")}"
-            : $"imported {added}, failed: {string.Join(", ", failed)}";
-    }
-
     private void DoUndo()
     {
+        FlushPendingEdits();
         var snap = ActiveHistory.Undo();
         if (snap is null) { StatusText.Text = "nothing to undo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
+        RefreshMaps();
+        RefreshToolInfo();
+        ReopenConfigView();
         StatusText.Text = "undo";
     }
 
     private void DoRedo()
     {
+        FlushPendingEdits();
         var snap = ActiveHistory.Redo();
         if (snap is null) { StatusText.Text = "nothing to redo"; return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
+        RefreshMaps();
+        RefreshToolInfo();
+        ReopenConfigView();
         StatusText.Text = "redo";
     }
 
@@ -858,7 +547,7 @@ public partial class MainWindow : Window
         });
         if (file is null) return;
         var path = file.Path.LocalPath;
-        MapSerializer.SaveProject(_project, path, ActiveLibrary);
+        MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets);
         _currentMapPath = path; // Ctrl+S saves over this file from now on
         StatusText.Text = $"saved {path}";
     }
@@ -869,7 +558,7 @@ public partial class MainWindow : Window
     private void SaveCurrent()
     {
         if (_currentMapPath is null) { SaveMap(); return; }
-        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary);
+        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets);
         StatusText.Text = $"saved {_currentMapPath}";
     }
 
@@ -901,13 +590,18 @@ public partial class MainWindow : Window
             if (project.Maps.Count == 0) project.Maps.Add(new MapEntry());
             project.ActiveIndex = Math.Clamp(imported.Active, 0, project.Maps.Count - 1);
             _project = project;
+            // a campaign file keeps its own presets. a map file opened as a new
+            // campaign gets the ones it carries plus the built-in starters.
+            _presets[project] = kind == SaveFileKind.Campaign
+                ? CampaignPresets.ForCampaign(imported.Presets)
+                : CampaignPresets.ForMapFile(imported.Presets);
             // the embedded library goes into the new campaign's (empty) library,
             // pawn references remapped through the id map. images travel as
             // base64 on the templates, so nothing is written to disk.
             var templates = MapSerializer.LibraryFromDtos(imported.Library);
             var idMap = ActiveLibrary.MergeAppend(templates);
             RemapPawns(_project, idMap);
-            Canvas.Library = ActiveLibrary;
+            SyncCampaign();
             Canvas.InvalidateImageCache();
             // Ctrl+S saves over the opened campaign. a map file is not a
             // campaign, so the first save asks where to put the new campaign.
@@ -920,6 +614,7 @@ public partial class MainWindow : Window
             Canvas.AutoFit();
             RefreshMapList();
             if (MapsOverlay.IsVisible) ShowMaps();
+            RefreshToolInfo();
             StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
         }
         catch (Exception ex)
@@ -941,50 +636,6 @@ public partial class MainWindow : Window
     // (no : / etc). yyyy-MM-dd_HH-mm-ss.
     private static string Stamp() => DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
 
-    private void ShowDoorConfig(IDoorConfig door)
-    {
-        ToolPanel.Clear("Door");
-        var names = new List<string>();
-        foreach (var t in _settings.DoorTypes) names.Add(t.Name);
-        ToolPanel.AddChoice("Type", names.ToArray(), door.Type, t =>
-        {
-            door.Type = t;
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-        });
-        ToolPanel.AddChoice("State", new[] { "open", "closed", "locked" },
-            door.State.ToString().ToLowerInvariant(), s =>
-            {
-                door.State = Enum.Parse<DoorState>(s, ignoreCase: true);
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-            });
-    }
-
-    private void ShowStairConfig(Stair stair)
-    {
-        // find the cell this stair lives on so we can update its connected group
-        var cell = default(CellKey);
-        foreach (var kv in _doc.Stairs)
-            if (ReferenceEquals(kv.Value, stair)) { cell = kv.Key; break; }
-
-        ToolPanel.Clear("Stair");
-        ToolPanel.AddHint("changing direction updates all connected stairs.");
-        // direction dropdown (user request: axis-aligned up/down/left/right,
-        // drag sets the default, the dropdown overrides). Selecting a direction
-        // SETS every connected stair to it, so a group that drifted out of sync
-        // re-syncs on one choice.
-        ToolPanel.AddChoice("Direction", new[] { "Up", "Down", "Left", "Right" },
-            stair.Direction.ToString(), v =>
-            {
-                var target = (StairDirection)Enum.Parse<StairDirection>(v);
-                foreach (var s2 in _doc.ConnectedStairs(cell))
-                    s2.Direction = target;
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-            });
-    }
-
     // ---- in place label editing: a text box laid over the label on the map,
     // like editing a cell in a spreadsheet. enter keeps the text, shift+enter
     // or alt+enter starts a new line, escape puts the old text back, and
@@ -992,6 +643,7 @@ public partial class MainWindow : Window
 
     private TextBox? _labelEditor;
     private MapLabel? _editingLabel;
+    private bool _labelBoxWrap;
     private string _editOriginal = "";
 
     private TextBox LabelEditor()
@@ -1029,11 +681,7 @@ public partial class MainWindow : Window
             {
                 e.Handled = true;
                 if ((e.KeyModifiers & (KeyModifiers.Shift | KeyModifiers.Alt)) == 0) { EndLabelEdit(true); return; }
-                var t = tb.Text ?? "";
-                int a = Math.Min(tb.SelectionStart, tb.SelectionEnd), b = Math.Max(tb.SelectionStart, tb.SelectionEnd);
-                a = Math.Clamp(a, 0, t.Length); b = Math.Clamp(b, a, t.Length);
-                tb.Text = t[..a] + "\n" + t[b..];
-                tb.SelectionStart = tb.SelectionEnd = tb.CaretIndex = a + 1;
+                InsertNewline(tb);
             }
         }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
         tb.TextChanged += (_, _) =>
@@ -1048,6 +696,16 @@ public partial class MainWindow : Window
         var host = (Panel)Canvas.Parent!;
         host.Children.Insert(host.Children.IndexOf(Canvas) + 1, tb);
         return _labelEditor = tb;
+    }
+
+    // replaces the selection with a line break and puts the caret after it
+    private static void InsertNewline(TextBox tb)
+    {
+        var t = tb.Text ?? "";
+        int a = Math.Min(tb.SelectionStart, tb.SelectionEnd), b = Math.Max(tb.SelectionStart, tb.SelectionEnd);
+        a = Math.Clamp(a, 0, t.Length); b = Math.Clamp(b, a, t.Length);
+        tb.Text = t[..a] + "\n" + t[b..];
+        tb.SelectionStart = tb.SelectionEnd = tb.CaretIndex = a + 1;
     }
 
     private void BeginLabelEdit(MapLabel label)
@@ -1097,148 +755,6 @@ public partial class MainWindow : Window
         ShowLabelConfig(label);
         FocusCanvas();
     }
-
-    private void ShowLabelConfig(MapLabel label)
-    {
-        ToolPanel.Clear(label.IsRange ? $"Label ({label.W}x{label.H})" : "Label");
-        // the size box shows the size the label draws at. while the label has
-        // no size of its own that is its default, which for a range depends on
-        // the text, so the box follows the text until a number is typed in.
-        TextBox? sizeBox = null;
-        bool settingSize = false;
-        void ShowSize()
-        {
-            if (sizeBox is null) return;
-            settingSize = true;
-            sizeBox.Text = ((int)Math.Round(MapCanvas.LabelSize(label))).ToString();
-            settingSize = false;
-        }
-        ToolPanel.AddText("Text (double click the label to edit it on the map)", label.Text, t =>
-        {
-            label.Text = t.Replace("\r\n", "\n");
-            if (label.FontSize == 0) ShowSize();
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-        }, multiline: true);
-        // font size at 100% zoom, it scales with the map. color uses the
-        // standard color picker, -1 = inherit the settings label color.
-        sizeBox = ToolPanel.AddNumber("Font size", (int)Math.Round(MapCanvas.LabelSize(label)), v =>
-        {
-            if (settingSize) return;
-            label.FontSize = Math.Max(0, v);
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-        });
-        ToolPanel.AddChoice("Alignment", new[] { "Left", "Center", "Right" }, label.Align.ToString(), v =>
-        {
-            if (!Enum.TryParse<LabelAlign>(v, out var a) || a == label.Align) return;
-            label.Align = a;
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-        });
-        ToolPanel.AddColorField("Color (inherit = settings label color)",
-            label.R, label.G, label.B, PresetColors(), c =>
-            {
-                label.R = c.r; label.G = c.g; label.B = c.b;
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-            });
-        ToolPanel.AddButton("reset to defaults", () =>
-        {
-            label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
-            label.Align = LabelAlign.Center;
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-            // rebuild so every field shows the defaults
-            ShowLabelConfig(label);
-        });
-    }
-
-    // Parses "#RRGGBB" into RGB components.
-    private static bool TryHex(string hex, out (int r, int g, int b) c)
-    {
-        c = default;
-        if (hex.Length == 7 && hex[0] == '#')
-        {
-            c = (Convert.ToInt32(hex.Substring(1, 2), 16),
-                 Convert.ToInt32(hex.Substring(3, 2), 16),
-                 Convert.ToInt32(hex.Substring(5, 2), 16));
-            return true;
-        }
-        return false;
-    }
-
-    // Placed-pawn click: READ-ONLY info view (name, affiliation, instance count,
-    // status) + Delete + Change Pawn. Editing the template is done in the
-    // management menu, not here (the select tool must not modify the pawn).
-    private void ShowPawnInfo(Pawn pawn)
-    {
-        var t = ActiveLibrary.Find(pawn.TemplateId);
-        ToolPanel.Clear("Pawn");
-        int count = 0;
-        foreach (var p in _doc.Pawns.Values)
-            if (p.TemplateId == pawn.TemplateId) count++;
-
-        if (t is null)
-        {
-            ToolPanel.AddHint("broken reference - this pawn's template is missing from the library (shown as X).");
-            ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
-            ToolPanel.AddButton("delete pawn", () =>
-            {
-                _doc.RemovePawn(pawn.Cell);
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-                StatusText.Text = "pawn deleted";
-            });
-            return;
-        }
-
-        ToolPanel.AddHint($"name: {t.Name}");
-        ToolPanel.AddHint($"affiliation: {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
-        ToolPanel.AddHint($"instances on map: {count}");
-        // per-instance status: the placed pawn overrides its template's status.
-        // "inherit" clears the override; picking a status sets it. Undoable.
-        var statusNames = new List<string> { "inherit" };
-        foreach (var st in _settings.PawnStatuses) statusNames.Add(st.Name);
-        ToolPanel.AddChoice("status", statusNames.ToArray(),
-            pawn.Status ?? "inherit", s =>
-            {
-                pawn.Status = s == "inherit" ? null : s;
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-            });
-        ToolPanel.AddButton("change pawn", () => ShowChangePawn(pawn));
-        ToolPanel.AddButton("delete pawn", () =>
-        {
-            _doc.RemovePawn(pawn.Cell);
-            ActiveHistory.Commit(_doc);
-            Canvas.Refresh();
-            StatusText.Text = "pawn deleted";
-        });
-    }
-
-    // Change Pawn: replace this placed pawn's template reference with a different
-    // library template. The placed pawn keeps its cell; only the reference changes.
-    private void ShowChangePawn(Pawn pawn)
-    {
-        ToolPanel.Clear("Change pawn");
-        ToolPanel.AddHint("pick a template to replace this pawn with:");
-        foreach (var t in ActiveLibrary.Pawns)
-        {
-            var captured = t;
-            var label = string.IsNullOrWhiteSpace(captured.Name) ? "pawn" : captured.Name;
-            ToolPanel.AddButton(label, () =>
-            {
-                pawn.TemplateId = captured.Id;
-                ActiveHistory.Commit(_doc);
-                Canvas.Refresh();
-                StatusText.Text = $"pawn changed to {captured.Name}";
-                ShowPawnInfo(pawn);
-            });
-        }
-        ToolPanel.AddButton("back", () => ShowPawnInfo(pawn));
-    }
-
 
     // Delete a template, warning if live pawns reference it. Counting live pawns
     // from the canvas document; a confirmation flyout requires an explicit "delete".
@@ -1304,8 +820,7 @@ public partial class MainWindow : Window
                     t.Affiliation = "Neutral";
                     if (!t.ColorOverride) t.ApplyAffiliationDefaults();
                 }
-            _settings.AffiliationColors.Remove(ac);
-            _settings.Save();
+            ActivePresets.AffiliationColors.Remove(ac);
             PawnsChanged();
             ShowPawnManagement();
         }
@@ -1348,8 +863,7 @@ public partial class MainWindow : Window
         {
             foreach (var t in ActiveLibrary.Pawns)
                 if (t.Status == st.Name) t.Status = "none";
-            _settings.PawnStatuses.Remove(st);
-            _settings.Save();
+            ActivePresets.PawnStatuses.Remove(st);
             PawnsChanged();
             ShowPawnManagement();
             RefreshStatusCombo();
@@ -1381,14 +895,6 @@ public partial class MainWindow : Window
         flyout.ShowAt(anchor);
     }
 
-    // The 10 preset colors for the color picker popup (MS Paint palette style):
-    // red, orange, yellow, green, blue, purple, white, black, gray, brown.
-    private static List<(int r, int g, int b)> PresetColors() => new()
-    {
-        (255, 0, 0), (255, 128, 0), (255, 255, 0), (0, 128, 0), (0, 0, 255),
-        (128, 0, 128), (255, 255, 255), (0, 0, 0), (128, 128, 128), (128, 64, 0),
-    };
-
     // re-points every pawn in the project through the id remap from a library merge.
     private void RemapPawns(MapProject project, Dictionary<string, string> map)
     {
@@ -1405,7 +911,7 @@ public partial class MainWindow : Window
     {
         if (_statusCombo is null || _statusComboTemplate is null) return;
         var names = new List<string>();
-        foreach (var st in _settings.PawnStatuses) names.Add(st.Name);
+        foreach (var st in ActivePresets.PawnStatuses) names.Add(st.Name);
         var opts = names.ToArray();
         _statusCombo.ItemsSource = opts;
         _statusCombo.SelectedItem = Array.IndexOf(opts, _statusComboTemplate.Status) >= 0
@@ -1417,7 +923,7 @@ public partial class MainWindow : Window
     private bool IsInvalid(PawnTemplate t)
     {
         var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
-        if (!_settings.AffiliationColors.Any(a => a.Name == aff)) return true;
+        if (!ActivePresets.AffiliationColors.Any(a => a.Name == aff)) return true;
         var nm = (t.Name ?? "").Trim().ToLowerInvariant();
         int same = 0;
         foreach (var o in ActiveLibrary.Pawns)

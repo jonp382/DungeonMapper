@@ -7,6 +7,8 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using DungeonMapper.Models;
 
+using static DungeonMapper.Views.Ui;
+
 namespace DungeonMapper.Views;
 
 // hotkeys modal. the frame is fixed in MainWindow.axaml and styled by
@@ -60,9 +62,6 @@ public partial class MainWindow
             FixedKeyRows.Children.Add(g);
         }
     }
-
-    private static Border KeyCap(string text) =>
-        new() { Classes = { "keycap" }, Child = new TextBlock { Text = text } };
 
     private void ShowHotkeys()
     {

@@ -12,59 +12,26 @@ using Avalonia.Platform.Storage;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
+using static DungeonMapper.Views.Ui;
+
 namespace DungeonMapper.Views;
 
 // pawn ui: the pawn tool side panel, the pawn management modal (pawns,
 // affiliations and status styles tabs) and the import picker.
 public partial class MainWindow
 {
-    // ---------- shared look ----------
+    // ---------- pawn bits (the shared builders live in Ui.cs) ----------
 
-    private static SolidColorBrush Hx(string hex) => new(Color.Parse(hex));
-    private static SolidColorBrush Rgb((int r, int g, int b) c) => new(Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b));
-    private static string HexOf((int r, int g, int b) c) => $"#{c.r:x2}{c.g:x2}{c.b:x2}";
     private static string PawnName(PawnTemplate t) => string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name;
     private static bool IsDefaultAffiliation(string n) => n is "Player" or "Ally" or "Enemy" or "Neutral";
-
-    private static TextBlock Txt(string text, double size = 12, string color = "#e6e6ee") =>
-        new() { Text = text, FontSize = size, Foreground = Hx(color), VerticalAlignment = VerticalAlignment.Center };
-
-    private static Button Btn(string label, bool primary = false, bool danger = false)
-    {
-        var b = new Button
-        {
-            Content = label,
-            FontSize = 12,
-            Padding = new Thickness(10, 3),
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            Foreground = Hx(danger ? "#ffb0b0" : primary ? "#ffffff" : "#e6e6ee"),
-            Background = Hx(danger ? "#00000000" : primary ? "#3d5aa0" : "#3a3a46"),
-            BorderBrush = Hx(danger ? "#6a3a40" : primary ? "#5a7fd0" : "#50505c"),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        return b;
-    }
-
-    // a two-tone dot in the given colors (affiliation chips, group headers)
-    private static Control TwoTone((int r, int g, int b) outer, (int r, int g, int b) inner, double size)
-    {
-        var g = new Grid { Width = size, Height = size, VerticalAlignment = VerticalAlignment.Center };
-        g.Children.Add(new Ellipse { Width = size, Height = size, Fill = Rgb(outer) });
-        g.Children.Add(new Ellipse { Width = size / 2, Height = size / 2, Fill = Rgb(inner), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        return g;
-    }
-
-    private static Control AffDot(AffiliationColor ac, double size) =>
-        TwoTone((ac.OuterR, ac.OuterG, ac.OuterB), (ac.InnerR, ac.InnerG, ac.InnerB), size);
 
     // the pawn as drawn on the map: outer circle (or its image), inner circle,
     // status ring. ownColors draws the template's stored colors instead of the
     // effective ones (the import picker shows a file's pawns before they exist).
     private Control PawnIcon(PawnTemplate t, double size, bool ownColors = false)
     {
-        var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(_settings);
-        var st = _settings.FindPawnStatus(t.Status);
+        var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(ActivePresets);
+        var st = ActivePresets.FindPawnStatus(t.Status);
         var bmp = ownColors || string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
         IBrush outerFill = Rgb(eo);
         if (bmp is not null)
@@ -107,107 +74,6 @@ public partial class MainWindow
     }
 
     private static int Get(Dictionary<string, int> d, string id) => d.TryGetValue(id, out var n) ? n : 0;
-
-    // a rounded filter chip, optionally with an affiliation dot
-    private static Button Chip(string label, bool active, Control? dot, Action onClick)
-    {
-        var sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        if (dot is not null) sp.Children.Add(dot);
-        sp.Children.Add(Txt(label, 11));
-        var b = new Button
-        {
-            Content = sp,
-            Padding = new Thickness(7, 2),
-            CornerRadius = new CornerRadius(10),
-            BorderThickness = new Thickness(1),
-            Background = Hx(active ? "#3a3a46" : "#00000000"),
-            BorderBrush = Hx(active ? "#6a6a7a" : "#50505c"),
-            Margin = new Thickness(0, 0, 4, 4),
-        };
-        b.Click += (_, _) => onClick();
-        return b;
-    }
-
-    // a small crosshair drawn with shapes so it does not depend on font glyphs
-    private static Button LocateButton(string tip, Action onClick)
-    {
-        var g = new Grid { Width = 12, Height = 12 };
-        g.Children.Add(new Ellipse { Width = 10, Height = 10, Stroke = Hx("#b0b0be"), StrokeThickness = 1.2, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        g.Children.Add(new Ellipse { Width = 3, Height = 3, Fill = Hx("#b0b0be"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        var b = new Button { Content = g, Padding = new Thickness(3), Background = Hx("#00000000"), BorderThickness = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
-        ToolTip.SetTip(b, tip);
-        b.Click += (_, _) => onClick();
-        return b;
-    }
-
-    private static Button StarButton(bool on, Action onClick, double size = 13)
-    {
-        var b = new Button
-        {
-            Content = new TextBlock { Text = "★", FontSize = size, Foreground = Hx(on ? "#ffcc33" : "#4a4a56") },
-            Padding = new Thickness(2, 0),
-            Background = Hx("#00000000"),
-            BorderThickness = new Thickness(0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        ToolTip.SetTip(b, on ? "remove from favorites" : "add to favorites");
-        b.Click += (_, _) => onClick();
-        return b;
-    }
-
-    // swatch + hex button that opens the preset grid and color picker
-    private Button ColorButton((int r, int g, int b) c, Action<(int r, int g, int b)> onChange, bool enabled = true)
-    {
-        var sw = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(3), Background = Rgb(c) };
-        var hex = Txt(HexOf(c), 11, "#b0b0be");
-        var sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        sp.Children.Add(sw);
-        sp.Children.Add(hex);
-        var b = new Button
-        {
-            Content = sp,
-            Padding = new Thickness(5, 3),
-            Background = Hx("#00000000"),
-            BorderBrush = Hx("#50505c"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            IsEnabled = enabled,
-            Opacity = enabled ? 1 : 0.45,
-        };
-        void Set((int r, int g, int b) v)
-        {
-            sw.Background = Rgb(v);
-            hex.Text = HexOf(v);
-            onChange(v);
-        }
-        var grid = new UniformGrid { Rows = 2, Columns = 5 };
-        var picker = new ColorPicker { Color = Color.FromRgb((byte)c.r, (byte)c.g, (byte)c.b), IsAlphaVisible = false };
-        foreach (var p in PresetColors())
-        {
-            var cell = new Rectangle { Width = 26, Height = 26, Margin = new Thickness(2), Fill = Rgb(p) };
-            cell.PointerPressed += (_, _) => { picker.Color = Color.FromRgb((byte)p.r, (byte)p.g, (byte)p.b); Set(p); };
-            grid.Children.Add(cell);
-        }
-        picker.ColorChanged += (_, _) => { var k = picker.Color; Set((k.R, k.G, k.B)); };
-        var pop = new StackPanel { Spacing = 6 };
-        pop.Children.Add(grid);
-        pop.Children.Add(picker);
-        b.Flyout = new Flyout { Content = pop };
-        return b;
-    }
-
-    private static TextBox SearchBox(string watermark, string text) => new()
-    {
-        Text = text,
-        PlaceholderText = watermark,
-        FontSize = 12,
-        Background = Hx("#14141a"),
-        BorderBrush = Hx("#50505c"),
-        Foreground = Hx("#e6e6ee"),
-        MinHeight = 28,
-        Padding = new Thickness(6, 4),
-        VerticalContentAlignment = VerticalAlignment.Center,
-    };
 
     private void ArmPawn(PawnTemplate t)
     {
@@ -254,7 +120,7 @@ public partial class MainWindow
 
     private void BuildPawnPanel()
     {
-        ToolPanel.Clear("Pawn");
+        ToolPanel.Clear("pawn");
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4 };
         _pawnSearchBox = SearchBox("search pawns (ctrl+f)", _pawnSearch);
         _pawnSearchBox.TextChanged += (_, _) => { _pawnSearch = _pawnSearchBox.Text ?? ""; RefreshPawnList(); };
@@ -296,7 +162,7 @@ public partial class MainWindow
         _pawnChipHost!.Children.Clear();
         _pawnChipHost.Children.Add(Chip("all", _pawnFilter == "all", null, () => SetPawnFilter("all")));
         _pawnChipHost.Children.Add(Chip("on map", _pawnFilter == "on map", null, () => SetPawnFilter("on map")));
-        foreach (var ac in _settings.AffiliationColors)
+        foreach (var ac in ActivePresets.AffiliationColors)
         {
             var name = ac.Name;
             _pawnChipHost.Children.Add(Chip(name, _pawnFilter == name, AffDot(ac, 10), () => SetPawnFilter(name)));
@@ -366,8 +232,8 @@ public partial class MainWindow
         if (favs.Count > 0)
             AddPawnGroup("★ favorites", new Ellipse { Width = 8, Height = 8, Fill = Hx("#ffcc33") }, $"{favs.Count}", favs, counts);
 
-        var known = new HashSet<string>(_settings.AffiliationColors.Select(a => a.Name));
-        foreach (var ac in _settings.AffiliationColors)
+        var known = new HashSet<string>(ActivePresets.AffiliationColors.Select(a => a.Name));
+        foreach (var ac in ActivePresets.AffiliationColors)
         {
             var list = shown.Where(t => PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name).ToList();
             if (list.Count == 0) continue;
@@ -483,26 +349,7 @@ public partial class MainWindow
         int col = 1;
         foreach (var (key, label) in new[] { ("pawns", "Pawns"), ("affiliations", "Affiliations"), ("statuses", "Status styles") })
         {
-            bool on = _manageTab == key;
-            var tab = new Button
-            {
-                Content = label,
-                FontSize = 12,
-                Padding = new Thickness(12, 6),
-                CornerRadius = new CornerRadius(4, 4, 0, 0),
-                Foreground = Hx(on ? "#ffffff" : "#9a9aaa"),
-                Background = Hx(on ? "#2e2e3a" : "#00000000"),
-                BorderBrush = Hx(on ? "#444450" : "#00000000"),
-                BorderThickness = on ? new Thickness(1, 1, 1, 2) : new Thickness(1),
-                VerticalAlignment = VerticalAlignment.Bottom,
-            };
-            if (on) tab.BorderBrush = new LinearGradientBrush
-            {
-                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-                GradientStops = { new GradientStop(Color.Parse("#444450"), 0.9), new GradientStop(Color.Parse("#5a7fd0"), 0.9) },
-            };
-            tab.Click += (_, _) => { _manageTab = key; ShowPawnManagement(); };
+            var tab = Tab(label, _manageTab == key, () => { _manageTab = key; ShowPawnManagement(); });
             Grid.SetColumn(tab, col++);
             header.Children.Add(tab);
         }
@@ -517,13 +364,24 @@ public partial class MainWindow
 
         Control body = _manageTab switch
         {
-            "affiliations" => BuildAffiliationsTab(),
-            "statuses" => BuildStatusesTab(),
+            "affiliations" => PresetTab(BuildAffiliationsTab(), CampaignPresets.Part.Affiliations),
+            "statuses" => PresetTab(BuildStatusesTab(), CampaignPresets.Part.Statuses),
             _ => BuildPawnsTab(),
         };
         root.Children.Add(body);
         ModalOverlay.Child = root;
         ModalOverlay.IsVisible = true;
+    }
+
+    // the affiliations and status styles tabs with their import / export footer
+    private Control PresetTab(Control tab, CampaignPresets.Part part)
+    {
+        var dock = new DockPanel();
+        var foot = PresetTabFooter(part);
+        DockPanel.SetDock(foot, Dock.Bottom);
+        dock.Children.Add(foot);
+        dock.Children.Add(tab);
+        return dock;
     }
 
     private void CloseManage()
@@ -709,7 +567,7 @@ public partial class MainWindow
         _manageChipHost.Children.Add(affs);
         foreach (var f in new[] { "all", "favorites", "on map", "unused" })
             views.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
-        foreach (var ac in _settings.AffiliationColors)
+        foreach (var ac in ActivePresets.AffiliationColors)
         {
             var n = ac.Name;
             affs.Children.Add(Chip(n, _manageFilter == n, AffDot(ac, 10), () => { _manageFilter = n; RefreshManageList(); }));
@@ -797,7 +655,7 @@ public partial class MainWindow
     private string InvalidReason(PawnTemplate t)
     {
         var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
-        if (!_settings.AffiliationColors.Any(a => a.Name == aff)) return $"affiliation \"{aff}\" no longer exists";
+        if (!ActivePresets.AffiliationColors.Any(a => a.Name == aff)) return $"affiliation \"{aff}\" no longer exists";
         return "another pawn has the same name and affiliation";
     }
 
@@ -823,24 +681,6 @@ public partial class MainWindow
             ? $"delete {ids.Count} pawns from the library?"
             : $"delete {ids.Count} pawns? {placed} placed pawn(s) across the campaign will render as X (broken reference) and can be replaced with Change Pawn.", doDelete);
     }
-
-    private static void ConfirmFlyout(Control anchor, string message, Action onYes, string yesLabel = "delete")
-    {
-        var popup = new StackPanel { Spacing = 6 };
-        popup.Children.Add(new TextBlock { Text = message, Foreground = Brushes.White, TextWrapping = TextWrapping.Wrap, MaxWidth = 260 });
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        var flyout = new Flyout { Content = popup };
-        var yes = new Button { Content = yesLabel };
-        var no = new Button { Content = "cancel" };
-        yes.Click += (_, _) => { flyout.Hide(); onYes(); };
-        no.Click += (_, _) => flyout.Hide();
-        row.Children.Add(yes);
-        row.Children.Add(no);
-        popup.Children.Add(row);
-        flyout.ShowAt(anchor);
-    }
-
-    private static TextBlock FieldLabel(string text) => new() { Text = text, FontSize = 10, Foreground = Hx("#8a8a9a"), Margin = new Thickness(0, 6, 0, 2) };
 
     private void RefreshManageEditor()
     {
@@ -890,7 +730,7 @@ public partial class MainWindow
         var pair = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8 };
         var affCol = new StackPanel();
         affCol.Children.Add(FieldLabel("affiliation"));
-        var affNames = _settings.AffiliationColors.Select(a => a.Name).ToList();
+        var affNames = ActivePresets.AffiliationColors.Select(a => a.Name).ToList();
         var curAff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
         if (!affNames.Contains(curAff)) affNames.Add(curAff);
         var aff = new ComboBox { ItemsSource = affNames, SelectedItem = curAff, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -905,7 +745,7 @@ public partial class MainWindow
         pair.Children.Add(affCol);
         var stCol = new StackPanel();
         stCol.Children.Add(FieldLabel("status"));
-        var stNames = _settings.PawnStatuses.Select(s => s.Name).ToArray();
+        var stNames = ActivePresets.PawnStatuses.Select(s => s.Name).ToArray();
         var status = new ComboBox { ItemsSource = stNames, SelectedItem = Array.IndexOf(stNames, t.Status) >= 0 ? t.Status : null, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         status.SelectionChanged += (_, _) =>
         {
@@ -948,7 +788,7 @@ public partial class MainWindow
         sp.Children.Add(FieldLabel("colors"));
         var useAff = new CheckBox { Content = Txt("use affiliation colors"), IsChecked = !t.ColorOverride };
         sp.Children.Add(useAff);
-        var (eo, ei) = t.Effective(_settings);
+        var (eo, ei) = t.Effective(ActivePresets);
         var colors = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto"), ColumnSpacing = 6 };
         colors.Children.Add(Txt("outer", 11, "#9a9aaa"));
         AddCell(colors, ColorButton(eo, c => { t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b; Redraw(); }, t.ColorOverride), 1);
@@ -962,7 +802,7 @@ public partial class MainWindow
             if (own)
             {
                 // start the pawn's own colors from what it looks like now
-                var (o, i) = t.Effective(_settings);
+                var (o, i) = t.Effective(ActivePresets);
                 t.OuterR = o.r; t.OuterG = o.g; t.OuterB = o.b;
                 t.InnerR = i.r; t.InnerG = i.g; t.InnerB = i.b;
             }
@@ -1093,20 +933,19 @@ public partial class MainWindow
         sp.Children.Add(new Border { Child = head, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) });
 
         var rows = new StackPanel { Spacing = 6 };
-        foreach (var ac in _settings.AffiliationColors.ToList())
+        foreach (var ac in ActivePresets.AffiliationColors.ToList())
             rows.Children.Add(AffiliationRow(ac));
-        sp.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 430, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        sp.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
 
         var add = Btn("+ add affiliation");
         add.HorizontalAlignment = HorizontalAlignment.Left;
         add.Margin = new Thickness(0, 6, 0, 0);
         add.Click += (_, _) =>
         {
-            var n = _settings.AffiliationColors.Count;
+            var n = ActivePresets.AffiliationColors.Count;
             var name = $"Affiliation {n + 1}";
-            while (_settings.AffiliationColors.Any(a => a.Name == name)) { n++; name = $"Affiliation {n + 1}"; }
-            _settings.AffiliationColors.Add(new AffiliationColor(name, (180, 180, 180), (110, 110, 110)));
-            _settings.Save();
+            while (ActivePresets.AffiliationColors.Any(a => a.Name == name)) { n++; name = $"Affiliation {n + 1}"; }
+            ActivePresets.AffiliationColors.Add(new AffiliationColor(name, (180, 180, 180), (110, 110, 110)));
             PawnsChanged();
             ShowPawnManagement();
         };
@@ -1122,7 +961,6 @@ public partial class MainWindow
         void Changed()
         {
             look.Child = AffDot(ac, 30);
-            MarkSetting();
             PawnsChanged();
         }
 
@@ -1131,7 +969,7 @@ public partial class MainWindow
         name.TextChanged += (_, _) =>
         {
             var nn = (name.Text ?? "").Trim();
-            bool ok = nn.Length > 0 && !IsDefaultAffiliation(nn) && !_settings.AffiliationColors.Any(a => a != ac && a.Name == nn);
+            bool ok = nn.Length > 0 && !IsDefaultAffiliation(nn) && !ActivePresets.AffiliationColors.Any(a => a != ac && a.Name == nn);
             name.BorderBrush = Hx(ok ? "#50505c" : "#d05a5a");
             if (!ok || nn == ac.Name) return;
             // renaming carries the pawns along with it
@@ -1141,7 +979,6 @@ public partial class MainWindow
             if (_pawnFilter == ac.Name) _pawnFilter = nn;
             if (_manageFilter == ac.Name) _manageFilter = nn;
             ac.Name = nn;
-            MarkSetting();
             PawnsChanged();
         };
         AddCell(g, name, 1);
@@ -1191,7 +1028,7 @@ public partial class MainWindow
             }
         }
 
-        foreach (var st in _settings.PawnStatuses.ToList())
+        foreach (var st in ActivePresets.PawnStatuses.ToList())
         {
             var g = new Grid { ColumnDefinitions = new ColumnDefinitions(StatusCols), ColumnSpacing = 10 };
             var look = new Border();
@@ -1215,18 +1052,16 @@ public partial class MainWindow
                 // templates reference statuses by name, so they follow the rename
                 foreach (var t in ActiveLibrary.Pawns) if (t.Status == old) t.Status = nn;
                 st.Name = nn;
-                MarkSetting();
                 PawnsChanged();
                 UpdateDuplicates();
             };
             AddCell(g, name, 1);
-            AddCell(g, ColorButton((st.R, st.G, st.B), c => { st.R = c.r; st.G = c.g; st.B = c.b; Look(); MarkSetting(); PawnsChanged(); }), 2);
+            AddCell(g, ColorButton((st.R, st.G, st.B), c => { st.R = c.r; st.G = c.g; st.B = c.b; Look(); PawnsChanged(); }), 2);
             var thick = new NumericUpDown { Value = st.Thickness, Minimum = 0, Maximum = 20, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
             thick.ValueChanged += (_, _) =>
             {
                 st.Thickness = (int)Math.Max(0, thick.Value ?? 0);
                 Look();
-                MarkSetting();
                 PawnsChanged();
             };
             AddCell(g, thick, 3);
@@ -1240,7 +1075,7 @@ public partial class MainWindow
             rowsHost.Children.Add(new Border { Child = g, Height = 44, Padding = new Thickness(8, 0), CornerRadius = new CornerRadius(4), Background = Hx("#262632") });
         }
         UpdateDuplicates();
-        sp.Children.Add(new ScrollViewer { Content = rowsHost, MaxHeight = 430, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        sp.Children.Add(new ScrollViewer { Content = rowsHost, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
 
         var add = Btn("+ add status style");
         add.HorizontalAlignment = HorizontalAlignment.Left;
@@ -1249,9 +1084,8 @@ public partial class MainWindow
         {
             string nm = "new";
             int i = 1;
-            while (_settings.PawnStatuses.Any(s => s.Name == nm)) nm = "new " + i++;
-            _settings.PawnStatuses.Add(new PawnStatus(nm, 245, 220, 60, 2));
-            _settings.Save();
+            while (ActivePresets.PawnStatuses.Any(s => s.Name == nm)) nm = "new " + i++;
+            ActivePresets.PawnStatuses.Add(new PawnStatus(nm, 245, 220, 60, 2));
             ShowPawnManagement();
         };
         sp.Children.Add(add);
@@ -1369,12 +1203,12 @@ public partial class MainWindow
             chips.Children.Clear();
             chips.Children.Add(Chip("all", filter == "all", null, () => { filter = "all"; Rebuild(); }));
             var fileAffs = incoming.Select(t => PawnTemplate.NormalizeAffiliation(t.Affiliation)).Distinct().ToList();
-            foreach (var ac in _settings.AffiliationColors.Where(a => fileAffs.Contains(a.Name)))
+            foreach (var ac in ActivePresets.AffiliationColors.Where(a => fileAffs.Contains(a.Name)))
             {
                 var n = ac.Name;
                 chips.Children.Add(Chip(n, filter == n, AffDot(ac, 10), () => { filter = n; Rebuild(); }));
             }
-            foreach (var n in fileAffs.Where(a => !_settings.AffiliationColors.Any(x => x.Name == a)))
+            foreach (var n in fileAffs.Where(a => !ActivePresets.AffiliationColors.Any(x => x.Name == a)))
             {
                 var nn = n;
                 chips.Children.Add(Chip(nn, filter == nn, null, () => { filter = nn; Rebuild(); }));

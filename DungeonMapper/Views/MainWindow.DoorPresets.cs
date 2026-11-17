@@ -7,6 +7,8 @@ using Avalonia.Layout;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
+using static DungeonMapper.Views.Ui;
+
 namespace DungeonMapper.Views;
 
 // door presets modal. the frame and the editor are fixed in MainWindow.axaml
@@ -29,10 +31,12 @@ public partial class MainWindow
         DoorMakeDefault.Click += (_, _) =>
         {
             if (_doorSel is null) return;
-            _settings.DefaultDoorType = _doorSel.Name;
+            Canvas.DefaultDoorType = _doorSel.Name;
             DoorSettingsChanged();
         };
         DoorDelete.Click += (_, _) => DeleteSelectedDoorType();
+        DoorImport.Click += (_, _) => ShowPresetImport(CampaignPresets.Part.Doors);
+        DoorExport.Click += (_, _) => ExportPresets(CampaignPresets.Part.Doors);
 
         // rename is applied on enter or when the box loses focus, not per key,
         // so half typed names never reach the doors
@@ -47,8 +51,8 @@ public partial class MainWindow
     private void ShowDoorPresets()
     {
         FlushSettings();
-        if (_doorSel is null || !_settings.DoorTypes.Contains(_doorSel))
-            _doorSel = _settings.DoorTypes.FirstOrDefault();
+        if (_doorSel is null || !ActivePresets.DoorTypes.Contains(_doorSel))
+            _doorSel = ActivePresets.DoorTypes.FirstOrDefault();
         DoorPresetsOverlay.IsVisible = true;
         RefreshDoorPresets();
     }
@@ -80,14 +84,14 @@ public partial class MainWindow
     {
         DoorRows.Children.Clear();
         int totalMap = 0, totalCampaign = 0;
-        foreach (var t in _settings.DoorTypes)
+        foreach (var t in ActivePresets.DoorTypes)
         {
             var (map, campaign) = DoorCounts(t.Name);
             totalMap += map;
             totalCampaign += campaign;
             DoorRows.Children.Add(DoorRow(t, map, campaign));
         }
-        int n = _settings.DoorTypes.Count;
+        int n = ActivePresets.DoorTypes.Count;
         DoorFooter.Text = $"{n} door type{(n == 1 ? "" : "s")} · {totalMap} doors on this map · {totalCampaign} in the campaign";
     }
 
@@ -104,7 +108,7 @@ public partial class MainWindow
 
         var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         name.Children.Add(new TextBlock { Text = t.Name, Classes = { "body" }, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis });
-        if (t.Name == _settings.DefaultDoorType) name.Children.Add(new TextBlock { Text = "DEFAULT", Classes = { "tag" } });
+        if (t.Name == Canvas.DefaultDoorType) name.Children.Add(new TextBlock { Text = "DEFAULT", Classes = { "tag" } });
         Grid.SetColumn(name, 1);
         g.Children.Add(name);
 
@@ -148,11 +152,10 @@ public partial class MainWindow
             t.R = c.r; t.G = c.g; t.B = c.b;
             DoorPreview.Background = Rgb(c);
             Canvas.Refresh();
-            MarkSetting();
             RefreshDoorRows();
         });
 
-        bool isDefault = t.Name == _settings.DefaultDoorType;
+        bool isDefault = t.Name == Canvas.DefaultDoorType;
         DoorMakeDefault.IsEnabled = !isDefault;
         DoorMakeDefault.Content = isDefault ? "this is the default" : "set as default";
         DoorDefaultNote.IsVisible = isDefault;
@@ -172,26 +175,24 @@ public partial class MainWindow
     private string UniqueDoorName(string baseName)
     {
         string name = baseName;
-        for (int i = 2; _settings.DoorTypes.Any(t => t.Name == name); i++) name = $"{baseName} {i}";
+        for (int i = 2; ActivePresets.DoorTypes.Any(t => t.Name == name); i++) name = $"{baseName} {i}";
         return name;
     }
 
     private void AddDoorType(DoorType t)
     {
         ApplyDoorRename();
-        _settings.DoorTypes.Add(t);
+        ActivePresets.DoorTypes.Add(t);
         _doorSel = t;
         DoorSettingsChanged();
         DoorName.Focus();
         DoorName.SelectAll();
     }
 
-    // settings changed: save, redraw, and rebuild the door tool panel whose
-    // default type dropdown lists the names
+    // door types changed: redraw and rebuild the door tool panel whose default
+    // type dropdown lists the names. the types save with the campaign
     private void DoorSettingsChanged()
     {
-        MarkSetting();
-        FlushSettings();
         Canvas.Refresh();
         if (Canvas.Mode == ToolMode.Door) PopulatePanel(ToolMode.Door);
         RefreshDoorPresets();
@@ -207,7 +208,7 @@ public partial class MainWindow
         if (to == from) return;
 
         string? error = to.Length == 0 ? "a door type needs a name."
-            : _settings.DoorTypes.Any(o => o != t && o.Name == to) ? $"there is already a type called '{to}'."
+            : ActivePresets.DoorTypes.Any(o => o != t && o.Name == to) ? $"there is already a type called '{to}'."
             : null;
         if (error is not null)
         {
@@ -223,7 +224,7 @@ public partial class MainWindow
             HistoryFor(m).Rewrite(d => d.RetypeDoors(from, to));
         }
         t.Name = to;
-        if (_settings.DefaultDoorType == from) _settings.DefaultDoorType = to;
+        if (Canvas.DefaultDoorType == from) Canvas.DefaultDoorType = to;
         StatusText.Text = $"renamed door type '{from}' to '{to}'";
         DoorSettingsChanged();
     }
@@ -241,10 +242,10 @@ public partial class MainWindow
             foreach (var m in _project.Maps)
                 if (m.Doc.RetypeDoors(t.Name, StandardDoor) > 0)
                     HistoryFor(m).Commit(m.Doc);
-            if (_settings.DefaultDoorType == t.Name) _settings.DefaultDoorType = StandardDoor;
-            int i = _settings.DoorTypes.IndexOf(t);
-            _settings.DoorTypes.Remove(t);
-            _doorSel = _settings.DoorTypes.Count == 0 ? null : _settings.DoorTypes[Math.Clamp(i, 0, _settings.DoorTypes.Count - 1)];
+            if (Canvas.DefaultDoorType == t.Name) Canvas.DefaultDoorType = StandardDoor;
+            int i = ActivePresets.DoorTypes.IndexOf(t);
+            ActivePresets.DoorTypes.Remove(t);
+            _doorSel = ActivePresets.DoorTypes.Count == 0 ? null : ActivePresets.DoorTypes[Math.Clamp(i, 0, ActivePresets.DoorTypes.Count - 1)];
             StatusText.Text = $"deleted door type '{t.Name}'";
             DoorSettingsChanged();
         }

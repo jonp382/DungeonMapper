@@ -1,7 +1,13 @@
 using System;
+using System.IO;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Platform.Storage;
+using DungeonMapper.Controls;
 using DungeonMapper.Models;
+
+using static DungeonMapper.Views.Ui;
 
 namespace DungeonMapper.Views;
 
@@ -12,7 +18,7 @@ namespace DungeonMapper.Views;
 public partial class MainWindow
 {
     private static readonly AppSettings SettingDefaults = new();
-    private const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999;
+    private const int MaxGridSpacing = AppSettings.MaxGridSpacing, MaxAutosaveMinutes = AppSettings.MaxAutosaveMinutes;
 
     private sealed record ColorSetting(ContentControl Host, Button Reset,
         Func<AppSettings, (int r, int g, int b)> Get, Action<AppSettings, (int r, int g, int b)> Set);
@@ -110,6 +116,8 @@ public partial class MainWindow
         SettingsResetAll.Click += (_, _) => ConfirmFlyout(SettingsResetAll,
             "put every setting on this page back to its default? door presets and hotkeys are not touched.",
             ResetAllSettings, "reset all");
+        SettingsExport.Click += async (_, _) => await ExportSettings();
+        SettingsImport.Click += async (_, _) => await ImportSettings();
     }
 
     private void ShowSettings()
@@ -225,5 +233,88 @@ public partial class MainWindow
         SettingChanged();
         RefreshSettings();
         StatusText.Text = "settings reset to defaults";
+    }
+
+    // every app wide setting: this page, the default label text and the
+    // hotkeys. door presets, pawn statuses and affiliation colors live in the
+    // campaign file and have their own import and export.
+    private async Task ExportSettings()
+    {
+        foreach (var n in _numberSettings) ApplyNumber(n);
+        ApplyLabelText();
+        FlushSettings();
+        var dir = Path.GetDirectoryName(_settings.SettingsPath())!;
+        Directory.CreateDirectory(dir);
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Export settings",
+            SuggestedFileName = "dungeon mapper settings.json",
+            DefaultExtension = "json",
+            SuggestedStartLocation = await StorageProvider.TryGetFolderFromPathAsync(new Uri(dir + "/")),
+            FileTypeChoices = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
+        });
+        if (file is null) return;
+        try
+        {
+            File.WriteAllText(file.Path.LocalPath, _settings.ExportJson());
+            StatusText.Text = $"settings exported to {Path.GetFileName(file.Path.LocalPath)}";
+        }
+        catch (Exception ex) { StatusText.Text = $"settings export failed: {ex.Message}"; }
+    }
+
+    private async Task ImportSettings()
+    {
+        var dir = Path.GetDirectoryName(_settings.SettingsPath())!;
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Import settings",
+            AllowMultiple = false,
+            SuggestedStartLocation = Directory.Exists(dir)
+                ? await StorageProvider.TryGetFolderFromPathAsync(new Uri(dir + "/")) : null,
+            FileTypeFilter = new[] { new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } } },
+        });
+        if (files.Count == 0) return;
+        var path = files[0].Path.LocalPath;
+        var name = Path.GetFileName(path);
+        AppSettings? read;
+        try { read = AppSettings.ParseImport(File.ReadAllText(path)); }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"could not read {name}: {ex.Message}";
+            return;
+        }
+        if (read is null)
+        {
+            StatusText.Text = $"{name} is not a settings file";
+            return;
+        }
+        ConfirmFlyout(SettingsImport,
+            $"replace the app settings and hotkeys with the ones in {name}? door presets, pawn statuses and affiliation colors are not touched. the current settings are kept as settings before import.json.",
+            () => ApplyImportedSettings(read, name), "import");
+    }
+
+    private void ApplyImportedSettings(AppSettings read, string name)
+    {
+        try
+        {
+            FlushSettings();
+            var current = _settings.SettingsPath();
+            if (File.Exists(current))
+                File.Copy(current, Path.Combine(Path.GetDirectoryName(current)!, "settings before import.json"), true);
+        }
+        catch (Exception ex)
+        {
+            // the confirm promised a backup, so no backup means no import
+            StatusText.Text = $"settings not imported, could not keep the current ones: {ex.Message}";
+            return;
+        }
+        _settings.CopyAppWideFrom(read);
+        MarkSetting();
+        FlushSettings();
+        Canvas.Refresh();
+        RefreshToolLabels();
+        RefreshSettings();
+        if (Canvas.Mode == ToolMode.Pawn) BuildPawnPanel(); else PopulatePanel(Canvas.Mode);
+        StatusText.Text = $"settings imported from {name}";
     }
 }

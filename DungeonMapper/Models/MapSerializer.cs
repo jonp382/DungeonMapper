@@ -139,6 +139,18 @@ public sealed class ProjectFileDto
     // the pawn library travels with the project file (v3). older project files
     // have no field and load with an empty embedded library.
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+    // the campaign's door presets, pawn statuses and affiliation colors. a
+    // campaign file holds all of them, a map file the ones its map uses.
+    // older files have none and get the built-in starters on load.
+    [JsonPropertyName("door_types")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<DoorType>? DoorTypes { get; set; }
+    [JsonPropertyName("pawn_statuses")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PawnStatus>? PawnStatuses { get; set; }
+    [JsonPropertyName("affiliation_colors")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AffiliationColor>? AffiliationColors { get; set; }
 }
 
 /// Wire format for one exported map: the map, its name and the pawn
@@ -150,6 +162,18 @@ public sealed class MapExportDto
     [JsonPropertyName("name")] public string Name { get; set; } = "Map 1";
     [JsonPropertyName("map")] public MapFileDto Map { get; set; } = new();
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+    // the campaign's door presets, pawn statuses and affiliation colors. a
+    // campaign file holds all of them, a map file the ones its map uses.
+    // older files have none and get the built-in starters on load.
+    [JsonPropertyName("door_types")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<DoorType>? DoorTypes { get; set; }
+    [JsonPropertyName("pawn_statuses")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<PawnStatus>? PawnStatuses { get; set; }
+    [JsonPropertyName("affiliation_colors")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<AffiliationColor>? AffiliationColors { get; set; }
 }
 
 /// What a file holds, read from its "kind" field or, for older files, its shape.
@@ -162,6 +186,8 @@ public sealed class ImportedMaps
     public List<MapEntry> Maps { get; } = new();
     public int Active { get; set; }
     public List<PawnTemplateDto> Library { get; set; } = new();
+    // the presets the file carries, each list null when it has none
+    public PresetsWire Presets { get; set; } = new();
 }
 
 public sealed class NamedMapDto
@@ -430,12 +456,17 @@ public static class MapSerializer
 
     public static MapDocument Load(string path) => FromJson(File.ReadAllText(path));
 
-    public static string ProjectToJson(MapProject project, PawnLibrary? library = null)
+    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null)
     {
         var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         if (library is not null) dto.PawnLibrary = LibraryToDtos(library);
+        if (presets is not null)
+        {
+            var w = presets.ToWire();
+            dto.DoorTypes = w.DoorTypes; dto.PawnStatuses = w.PawnStatuses; dto.AffiliationColors = w.AffiliationColors;
+        }
         return JsonSerializer.Serialize(dto, DmJson.Default.ProjectFileDto);
     }
 
@@ -487,9 +518,14 @@ public static class MapSerializer
 
     /// One map as a map file. Only the templates its pawns point at are
     /// embedded, so the file is complete without dragging the whole library.
-    public static string MapToJson(MapEntry entry, PawnLibrary? library = null)
+    public static string MapToJson(MapEntry entry, PawnLibrary? library = null, CampaignPresets? presets = null)
     {
         var dto = new MapExportDto { Name = entry.Name, Map = ToDto(entry.Doc) };
+        if (presets is not null)
+        {
+            var w = presets.UsedBy([entry.Doc], library).ToWire();
+            dto.DoorTypes = w.DoorTypes; dto.PawnStatuses = w.PawnStatuses; dto.AffiliationColors = w.AffiliationColors;
+        }
         if (library is not null)
         {
             var used = new HashSet<string>(entry.Doc.Pawns.Values.Select(p => p.TemplateId));
@@ -514,6 +550,8 @@ public static class MapSerializer
                 result.Maps.AddRange(project.Maps);
                 result.Active = project.ActiveIndex;
                 result.Library = ExtractLibrary(json);
+                result.Presets = CampaignPresets.ReadWire(json);
+                result.Presets.Kind = null;
                 break;
             }
             case SaveFileKind.Map:
@@ -523,6 +561,7 @@ public static class MapSerializer
                 var name = string.IsNullOrWhiteSpace(dto.Name) ? fallbackName : dto.Name;
                 result.Maps.Add(new MapEntry { Name = name, Doc = FromDto(dto.Map) });
                 result.Library = dto.PawnLibrary ?? new List<PawnTemplateDto>();
+                result.Presets = new PresetsWire { DoorTypes = dto.DoorTypes, PawnStatuses = dto.PawnStatuses, AffiliationColors = dto.AffiliationColors };
                 break;
             }
             case SaveFileKind.BareMap:
@@ -534,8 +573,8 @@ public static class MapSerializer
         return result;
     }
 
-    public static void SaveMapFile(MapEntry entry, string path, PawnLibrary? library = null)
-        => File.WriteAllText(path, MapToJson(entry, library));
+    public static void SaveMapFile(MapEntry entry, string path, PawnLibrary? library = null, CampaignPresets? presets = null)
+        => File.WriteAllText(path, MapToJson(entry, library, presets));
 
     // ---- pawn library wire format (shared by project embedding and import/export files) ----
 
@@ -594,8 +633,8 @@ public static class MapSerializer
         [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> pawn_library { get; set; } = new();
     }
 
-    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null)
-        => File.WriteAllText(path, ProjectToJson(project, library));
+    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null, CampaignPresets? presets = null)
+        => File.WriteAllText(path, ProjectToJson(project, library, presets));
 
     public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
 

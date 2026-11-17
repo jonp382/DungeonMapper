@@ -48,6 +48,13 @@ public sealed class MapCanvas : Control
     public ToolMode Mode { get; set; } = ToolMode.Select;
     public AppSettings Settings { get; set; } = AppSettings.Default();
     public PawnLibrary Library { get; set; } = new();
+    // door presets, pawn statuses and affiliation colors of the open campaign
+    public CampaignPresets Presets { get; set; } = CampaignPresets.Default();
+    // what a new door gets. session only: every start begins with a standard
+    // closed door, and a campaign switch or preset delete that leaves the type
+    // missing puts it back to standard.
+    public string DefaultDoorType { get; set; } = CampaignPresets.StandardDoor;
+    public string DefaultDoorState { get; set; } = "closed";
     /// Template armed for placement from the floating submenu. Clicking a cell
     /// places a pawn referencing this template. Null = no pawn armed.
     public PawnTemplate? ArmedPawn { get; set; }
@@ -115,7 +122,6 @@ public sealed class MapCanvas : Control
     private CellKey _pawnDragStart, _pawnDragEnd;
     private bool _pawnDragging;
     private Point? _pasteCursor; // world cursor for paste ghost
-    private bool _ghostVisible;  // paste ghost shows only on hover, not during click/drag
     public bool GhostEnabled { get; set; } = true; // user toggle for the paste ghost
     // armed move + rotation: after a move region is dragged, the snapshot stays
     // armed so the destination ghost persists (and can be re-placed). _rotTurns
@@ -258,7 +264,7 @@ public sealed class MapCanvas : Control
 
     /// Removes every other copy of a hero template, on this map and the others,
     /// leaving only the one at keep. Returns one removed copy, or null if none.
-    private Pawn? TakeHeroCopies(CellKey keep, string templateId)
+    public Pawn? TakeHeroCopies(CellKey keep, string templateId)
     {
         Pawn? taken = null;
         foreach (var (c, p) in Document.Pawns.ToList())
@@ -388,7 +394,6 @@ public sealed class MapCanvas : Control
         _clipboard = null;
         _cutSource = null;
         _pasteCursor = null;
-        _ghostVisible = false;
         _moveArmed = false;
         _rotTurns = 0;
         _moveSourceRect = null;
@@ -536,11 +541,11 @@ public sealed class MapCanvas : Control
         }
     }
 
-    // Door color per type, from the configurable DoorTypes list; unknown types
-    // fall back to the first category.
+    // Door color per type, from the campaign's door presets; unknown types
+    // fall back to standard.
     private IBrush DoorBrush(string type)
     {
-        var t = Settings.FindDoorType(type);
+        var t = Presets.FindDoorType(type);
         return new SolidColorBrush(Color.FromRgb((byte)t.R, (byte)t.G, (byte)t.B));
     }
 
@@ -1135,7 +1140,7 @@ public sealed class MapCanvas : Control
         return Math.Max(Math.Min(10, size), size * _scale / MapLabel.RefScale);
     }
 
-    public IBrush LabelTextBrush(MapLabel l) => (l.R >= 0 && l.G >= 0 && l.B >= 0)
+    public IBrush LabelTextBrush(MapLabel l) => l.HasOwnColor
         ? new SolidColorBrush(Color.FromRgb((byte)l.R, (byte)l.G, (byte)l.B))
         : LabelBrush;
 
@@ -1199,10 +1204,10 @@ public sealed class MapCanvas : Control
             if (Mode == ToolMode.Door && Document.GetDoor(pe) is null && _previewVertex is null)
             {
                 var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
-                var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                var st = Enum.TryParse<DoorState>(DefaultDoorState, true, out var s)
                     ? s : DoorState.Closed;
                 DrawDoorGlyph(ctx, mid, Math.Abs(b.Y - a.Y) < 0.001 ? 0 : Math.PI / 2,
-                    GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                    GhostBrush((SolidColorBrush)DoorBrush(DefaultDoorType)), st);
             }
         }
         // angled door ghost: hover near an angled segment shows the rotated door
@@ -1220,10 +1225,10 @@ public sealed class MapCanvas : Control
                 {
                     double ux = (wb.X - wa.X) / len, uy = (wb.Y - wa.Y) / len;
                     var mid = new Point(wa.X + ux * t * _scale, wa.Y + uy * t * _scale);
-                    var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                    var st = Enum.TryParse<DoorState>(DefaultDoorState, true, out var s)
                         ? s : DoorState.Closed;
                     DrawDoorGlyph(ctx, mid, Math.Atan2(uy, ux),
-                        GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                        GhostBrush((SolidColorBrush)DoorBrush(DefaultDoorType)), st);
                 }
             }
         }
@@ -1235,10 +1240,10 @@ public sealed class MapCanvas : Control
             if (Document.GetVertexDoor(new VertexDoorKey(vx, vy, hor)) is null)
             {
                 var v = WorldToScreen(vx, vy);
-                var st = Enum.TryParse<DoorState>(Settings.DefaultDoorState, true, out var s)
+                var st = Enum.TryParse<DoorState>(DefaultDoorState, true, out var s)
                     ? s : DoorState.Closed;
                 DrawDoorGlyph(ctx, v, hor ? 0 : Math.PI / 2,
-                    GhostBrush((SolidColorBrush)DoorBrush(Settings.DefaultDoorType)), st);
+                    GhostBrush((SolidColorBrush)DoorBrush(DefaultDoorType)), st);
             }
         }
 
@@ -1406,7 +1411,7 @@ public sealed class MapCanvas : Control
             }
             else
             {
-                var (effOuter, effInner) = t.Effective(Settings);
+                var (effOuter, effInner) = t.Effective(Presets);
                 var outerBrush = new SolidColorBrush(Color.FromRgb((byte)effOuter.r, (byte)effOuter.g, (byte)effOuter.b));
                 var innerBrush = new SolidColorBrush(Color.FromRgb((byte)effInner.r, (byte)effInner.g, (byte)effInner.b));
                 ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
@@ -1414,7 +1419,7 @@ public sealed class MapCanvas : Control
             }
             // status border ring on the outer edge. per-instance override wins,
             // null inherits the template's status.
-            var st = Settings.FindPawnStatus(instanceStatus ?? t.Status);
+            var st = Presets.FindPawnStatus(instanceStatus ?? t.Status);
             if (st.Thickness > 0)
             {
                 var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
@@ -1573,8 +1578,6 @@ public sealed class MapCanvas : Control
         if (!props.IsLeftButtonPressed) return;
         _pressClicks = e.ClickCount;
 
-        _ghostVisible = false; // hide paste ghost on click/drag
-
         var world = ScreenToWorld(e.GetPosition(this));
         var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
 
@@ -1671,7 +1674,7 @@ public sealed class MapCanvas : Control
                     {
                         DoorConfigRequested?.Invoke(near);
                     }
-                    else if (Document.TryPlaceAngledDoor(wall, t, Settings.DefaultDoorType, Settings.DefaultDoorState, out var ad))
+                    else if (Document.TryPlaceAngledDoor(wall, t, DefaultDoorType, DefaultDoorState, out var ad))
                     {
                         Commit();
                         DoorConfigRequested?.Invoke(ad);
@@ -1702,7 +1705,7 @@ public sealed class MapCanvas : Control
                     else
                     {
                         // door implies wall: TryPlaceVertexDoor auto-creates both straddled walls
-                        Document.TryPlaceVertexDoor(vdxx, vdy, orient.Value, Settings.DefaultDoorType, Settings.DefaultDoorState, out var vdoor);
+                        Document.TryPlaceVertexDoor(vdxx, vdy, orient.Value, DefaultDoorType, DefaultDoorState, out var vdoor);
                         Commit();
                         DoorConfigRequested?.Invoke(vdoor);
                     }
@@ -1720,7 +1723,7 @@ public sealed class MapCanvas : Control
                     // door implies wall: auto-create the wall if missing, then place the door
                     if (!Document.HasWall(doorEdge))
                         Document.SetWall(doorEdge, true);
-                    Document.TryPlaceDoor(doorEdge, Settings.DefaultDoorType, Settings.DefaultDoorState, out var d);
+                    Document.TryPlaceDoor(doorEdge, DefaultDoorType, DefaultDoorState, out var d);
                     Commit();
                     DoorConfigRequested?.Invoke(d);
                 }
@@ -1818,7 +1821,6 @@ public sealed class MapCanvas : Control
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
         {
-            _ghostVisible = true;
             // redraw so the paste ghost tracks the cursor on hover
             if (_clipboard is not null && !_clipboard.Empty && (Mode == ToolMode.Select || Mode == ToolMode.Move))
                 InvalidateVisual();
@@ -1946,7 +1948,6 @@ public sealed class MapCanvas : Control
         if (_selectDragging)
         {
             _selectDragging = false;
-            _ghostVisible = false;
             e.Pointer.Capture(null);
             var world = ScreenToWorld(e.GetPosition(this));
             var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));

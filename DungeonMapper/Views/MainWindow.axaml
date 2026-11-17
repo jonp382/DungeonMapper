@@ -150,10 +150,14 @@
                             </Grid>
                         </Border>
                         <Border Classes="footer" DockPanel.Dock="Bottom" Margin="14,0,14,10">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center"
-                                           Text="changes show on the map right away and are saved when you close." />
-                                <Button x:Name="SettingsResetAll" Grid.Column="1" Classes="btn" Content="reset all" Margin="10,0,0,0" />
+                            <Grid ColumnDefinitions="*,Auto,Auto,Auto">
+                                <TextBlock Classes="muted" FontSize="11" VerticalAlignment="Center" TextWrapping="Wrap"
+                                           Text="changes show right away and are saved when you close." />
+                                <Button x:Name="SettingsImport" Grid.Column="1" Classes="btn" Content="import..." Margin="10,0,0,0"
+                                        ToolTip.Tip="replace the app settings and hotkeys with ones from a file. door presets, pawn statuses and affiliation colors stay as they are" />
+                                <Button x:Name="SettingsExport" Grid.Column="2" Classes="btn" Content="export..." Margin="6,0,0,0"
+                                        ToolTip.Tip="save the app settings and hotkeys to a file" />
+                                <Button x:Name="SettingsResetAll" Grid.Column="3" Classes="btn" Content="reset all" Margin="6,0,0,0" />
                             </Grid>
                         </Border>
                         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -295,7 +299,15 @@
                                     </Grid>
                                 </Border>
                                 <Border DockPanel.Dock="Bottom" Classes="footer">
-                                    <TextBlock x:Name="DoorFooter" Classes="muted" />
+                                    <StackPanel Spacing="8">
+                                        <TextBlock x:Name="DoorFooter" Classes="muted" TextTrimming="CharacterEllipsis" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                            <Button x:Name="DoorImport" Classes="btn" Content="import..."
+                                                    ToolTip.Tip="add door types from a presets, campaign or map file. names you already have are never changed." />
+                                            <Button x:Name="DoorExport" Classes="btn" Content="export all"
+                                                    ToolTip.Tip="save this campaign's door types to a file" />
+                                        </StackPanel>
+                                    </StackPanel>
                                 </Border>
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                                     <StackPanel x:Name="DoorRows" />
@@ -333,25 +345,28 @@
                 </Border>
             </ThemeVariantScope>
             <!-- floating maps panel over the bottom left of the map, opened from
-                 the map strip. not modal: the map stays usable behind it. rows
-                 are built in code (ShowMaps) into MapsRows. -->
+                 the map strip. not modal: the map stays usable behind it. the
+                 frame is fixed here, MainWindow.Maps.cs builds the rows into
+                 MapsRows. -->
             <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="8,0,0,8">
-                <Border x:Name="MapsOverlay" IsVisible="False"
-                        Background="#22222c" BorderBrush="#444450" BorderThickness="1" CornerRadius="6"
-                        Width="420" Padding="10">
-                    <StackPanel Spacing="8">
-                        <DockPanel>
-                            <Button x:Name="MapsClose" Content="close" DockPanel.Dock="Right" />
-                            <TextBlock Text="Maps in this campaign" FontSize="15" Foreground="White" VerticalAlignment="Center" />
-                        </DockPanel>
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380">
-                            <StackPanel x:Name="MapsRows" Spacing="2" />
+                <Border x:Name="MapsOverlay" Classes="modal" IsVisible="False" Width="500">
+                    <DockPanel>
+                        <Border Classes="header" DockPanel.Dock="Top">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBlock Classes="title" Text="Maps in this campaign" />
+                                <Button x:Name="MapsClose" Grid.Column="1" Classes="btn" Content="close" />
+                            </Grid>
+                        </Border>
+                        <Border Classes="footer" DockPanel.Dock="Bottom" Margin="14,0,14,10">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <Button x:Name="MapsAdd" Classes="btn primary" Content="+ new map" />
+                                <Button x:Name="MapsImport" Classes="btn" Content="import maps..." />
+                            </StackPanel>
+                        </Border>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="380" Margin="14,10,14,7">
+                            <StackPanel x:Name="MapsRows" />
                         </ScrollViewer>
-                        <StackPanel Orientation="Horizontal" Spacing="6">
-                            <Button x:Name="MapsAdd" Content="+ new map" />
-                            <Button x:Name="MapsImport" Content="import maps..." />
-                        </StackPanel>
-                    </StackPanel>
+                    </DockPanel>
                 </Border>
             </ThemeVariantScope>
             <!-- hotkeys modal: one letter per tool, then the fixed shortcuts.

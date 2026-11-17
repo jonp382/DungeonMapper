@@ -256,11 +256,121 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     var s = AppSettings.Default();
     Check(s.GridDrawSpacing == 1, "settings: default grid spacing 1");
     Check(s.ToolHotkeys["Room"] == "R", "settings: room hotkey R");
-    Check(s.DoorTypes.Count == 4, "settings: 4 default door types (locked type removed)");
-    Check(!s.DoorTypes.Any(t => t.Name == "locked"), "settings: no locked door type (state covers it)");
-    Check(s.FindDoorType("portcullis").R == 180, "settings: door color lookup");
-    Check(s.FindDoorType("nonexistent").Name == "standard", "settings: unknown type falls back");
+    var cp = CampaignPresets.Default();
+    Check(cp.DoorTypes.Count == 4, "presets: 4 default door types (locked type removed)");
+    Check(!cp.DoorTypes.Any(t => t.Name == "locked"), "presets: no locked door type (state covers it)");
+    Check(cp.FindDoorType("portcullis").R == 180, "presets: door color lookup");
+    Check(cp.FindDoorType("nonexistent").Name == "standard", "presets: unknown type falls back");
     Check(s.DefaultLabelText == "label", "settings: default label text non-blank");
+}
+
+// --- campaign presets (door types, pawn statuses, affiliation colors per campaign) ---
+{
+    var d = CampaignPresets.Default();
+    Check(d.PawnStatuses[0].Name == "none" && d.AffiliationColors.Select(a => a.Name).SequenceEqual(CampaignPresets.FixedAffiliations),
+        "presets: starters hold none and the four fixed affiliations");
+
+    var n = new CampaignPresets
+    {
+        DoorTypes = { new DoorType("gate", 300, -5, 20), new DoorType("gate", 1, 1, 1), new DoorType("  ", 1, 1, 1) },
+        PawnStatuses = { new PawnStatus("stunned", 1, 2, 3, 99) },
+        AffiliationColors = { new AffiliationColor("Cult", (1, 1, 1), (2, 2, 2)) },
+    }.Normalize();
+    Check(n.DoorTypes.Count == 2 && n.DoorTypes[0].Name == "standard" && n.DoorTypes[1].R == 255 && n.DoorTypes[1].G == 0,
+        "presets: normalize drops blank and repeated names, clamps colors, adds standard first");
+    Check(n.PawnStatuses[0].Name == "none" && n.PawnStatuses[1].Thickness == CampaignPresets.MaxThickness, "presets: normalize adds none and clamps thickness");
+    Check(CampaignPresets.FixedAffiliations.All(f => n.AffiliationColors.Any(a => a.Name == f)) && n.AffiliationColors.Any(a => a.Name == "Cult"),
+        "presets: normalize adds the fixed affiliations and keeps custom ones");
+
+    var t = new CampaignPresets { DoorTypes = { new DoorType("gate", 1, 2, 3) } }.Tidy();
+    Check(t.DoorTypes.Count == 1 && t.PawnStatuses.Count == 0 && t.AffiliationColors.Count == 0, "presets: tidy adds nothing");
+
+    Check(d.Classify(new DoorType("portcullis", 180, 180, 190)) == PawnLibrary.ImportKind.Have, "presets: same name same look is have");
+    Check(d.Classify(new DoorType("portcullis", 1, 2, 3)) == PawnLibrary.ImportKind.NewLook, "presets: same name new look");
+    Check(d.Classify(new DoorType("gate", 1, 2, 3)) == PawnLibrary.ImportKind.New, "presets: unknown name is new");
+    Check(d.Classify(new PawnStatus("fear", 245, 245, 245, 1)) == PawnLibrary.ImportKind.NewLook, "presets: status thickness counts as look");
+    Check(d.Classify(new AffiliationColor("Enemy", (220, 120, 120), (120, 30, 31))) == PawnLibrary.ImportKind.NewLook, "presets: affiliation inner color counts as look");
+
+    var m = CampaignPresets.Default();
+    int added = m.AddMissing(new[] { new DoorType("portcullis", 1, 1, 1), new DoorType("gate", 4, 5, 6), new DoorType("gate", 7, 7, 7) });
+    Check(added == 1 && m.FindDoorType("portcullis").R == 180 && m.FindDoorType("gate").R == 4, "presets: add missing never overwrites and counts only new names");
+    var other = new CampaignPresets { PawnStatuses = { new PawnStatus("fear", 0, 0, 0, 9), new PawnStatus("asleep", 1, 1, 1, 2) } };
+    Check(m.MergeMissing(other) == 1 && m.PawnStatuses.Find(x => x.Name == "fear")!.Thickness == 3, "presets: merge missing keeps the existing look");
+    var src = new DoorType("arch", 1, 1, 1);
+    m.AddMissing(new[] { src });
+    src.R = 99;
+    Check(m.FindDoorType("arch").R == 1, "presets: added entries are copies");
+
+    var cl = m.Clone();
+    cl.DoorTypes[0].R = 0;
+    Check(m.DoorTypes[0].R == 245, "presets: clone is deep");
+
+    // used by: only what a map's doors and pawns point at
+    var lib = new PawnLibrary();
+    var tp = new PawnTemplate { Name = "Cultist", Affiliation = "Cult", Status = "asleep" };
+    lib.Add(tp);
+    var pdoc = new MapDocument();
+    pdoc.Doors[EdgeKey.Normalize(new CellKey(0, 0), Side.East)] = new Door { Type = "gate", State = DoorState.Closed };
+    pdoc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = tp.Id, Status = "paralyzed" });
+    m.AddMissing(new[] { new AffiliationColor("Cult", (5, 5, 5), (6, 6, 6)), new AffiliationColor("Spare", (1, 1, 1), (1, 1, 1)) });
+    var used = m.UsedBy(new[] { pdoc }, lib);
+    Check(used.DoorTypes.Select(x => x.Name).SequenceEqual(new[] { "gate" }), "presets: used by holds only the door types on the map");
+    Check(used.PawnStatuses.Select(x => x.Name).OrderBy(x => x).SequenceEqual(new[] { "asleep", "paralyzed" }), "presets: used by holds pawn and template statuses");
+    Check(used.AffiliationColors.Select(x => x.Name).SequenceEqual(new[] { "Cult" }), "presets: used by holds the template affiliations");
+
+    // opening a campaign
+    var fc = CampaignPresets.ForCampaign(null);
+    Check(fc.DoorTypes.Count == 4 && fc.PawnStatuses.Count == 3, "presets: a campaign without lists gets the starters");
+    var fc2 = CampaignPresets.ForCampaign(new PresetsWire { DoorTypes = new() { new DoorType("gate", 1, 1, 1) }, PawnStatuses = new() });
+    Check(fc2.DoorTypes.Select(x => x.Name).SequenceEqual(new[] { "standard", "gate" }) && fc2.PawnStatuses.Count == 3,
+        "presets: a campaign list is used as it is (standard added), an empty list counts as missing");
+    var fm = CampaignPresets.ForMapFile(new PresetsWire { DoorTypes = new() { new DoorType("portcullis", 1, 1, 1) } });
+    Check(fm.FindDoorType("portcullis").R == 1 && fm.DoorTypes.Any(x => x.Name == "magical") && fm.PawnStatuses.Count == 3,
+        "presets: a map file's own entries win, starters fill in the rest");
+
+    // export one list per file, import reads any file holding it
+    foreach (var (part, kind, key) in new[] {
+        (CampaignPresets.Part.Doors, CampaignPresets.KindDoors, "door_types"),
+        (CampaignPresets.Part.Statuses, CampaignPresets.KindStatuses, "pawn_statuses"),
+        (CampaignPresets.Part.Affiliations, CampaignPresets.KindAffiliations, "affiliation_colors") })
+    {
+        var js = m.ExportJson(part);
+        using var jd = System.Text.Json.JsonDocument.Parse(js);
+        var keys = jd.RootElement.EnumerateObject().Select(x => x.Name).OrderBy(x => x).ToArray();
+        Check(jd.RootElement.GetProperty("kind").GetString() == kind && keys.SequenceEqual(new[] { key, "kind" }.OrderBy(x => x)),
+            $"presets export: {kind} holds only its own list");
+    }
+    var ri = CampaignPresets.ReadImport(m.ExportJson(CampaignPresets.Part.Doors));
+    Check(ri.DoorTypes.Count == m.DoorTypes.Count && ri.PawnStatuses.Count == 0 && ri.AffiliationColors.Count == 0, "presets import: a door export gives doors only");
+    var ri2 = CampaignPresets.ReadImport("{\"door_types\":[{\"name\":\"x\",\"r\":1,\"g\":2,\"b\":3},{\"name\":\"\"}]}");
+    Check(ri2.DoorTypes.Count == 1 && !ri2.DoorTypes.Any(x => x.Name == "standard"), "presets import: tidied, fixed entries not added");
+    Check(CampaignPresets.ReadImport("[1]").DoorTypes.Count == 0, "presets import: a json array has nothing");
+    bool threw = false;
+    try { CampaignPresets.ReadImport("nope"); } catch { threw = true; }
+    Check(threw, "presets import: broken json throws for the caller to report");
+
+    // campaign file round trip and map file carrying
+    var proj = new MapProject();
+    proj.Maps[0].Doc = pdoc;
+    var pj = MapSerializer.ProjectToJson(proj, lib, m);
+    var back = CampaignPresets.ForCampaign(CampaignPresets.ReadWire(pj));
+    Check(back.FindDoorType("gate").R == 4 && back.PawnStatuses.Any(x => x.Name == "asleep") && back.AffiliationColors.Any(a => a.Name == "Spare"),
+        "presets: whole lists survive a campaign round trip");
+    var ri3 = CampaignPresets.ReadImport(pj);
+    Check(ri3.DoorTypes.Count == m.DoorTypes.Count && ri3.AffiliationColors.Count == m.AffiliationColors.Count, "presets import: a campaign file can be picked as the source");
+    var imC = MapSerializer.ImportFromJson(pj, "x");
+    Check(imC.Presets.DoorTypes!.Count == m.DoorTypes.Count && imC.Presets.Kind is null, "presets: campaign import carries all its presets");
+    var mj = MapSerializer.MapToJson(proj.Maps[0], lib, m);
+    var imM = MapSerializer.ImportFromJson(mj, "x");
+    Check(imM.Presets.DoorTypes!.Select(x => x.Name).SequenceEqual(new[] { "gate" }) && imM.Presets.AffiliationColors!.Single().Name == "Cult",
+        "presets: map file carries only the presets its map uses");
+    var plain = MapSerializer.MapToJson(proj.Maps[0], lib);
+    var imP = MapSerializer.ImportFromJson(plain, "x");
+    Check(imP.Presets.DoorTypes is null && imP.Presets.PawnStatuses is null, "presets: a map file without presets carries none");
+    var target = CampaignPresets.Default();
+    target.AddMissing(new[] { new DoorType("gate", 50, 50, 50) });
+    target.MergeMissing(CampaignPresets.FromWire(imM.Presets));
+    Check(target.FindDoorType("gate").R == 50 && target.AffiliationColors.Any(a => a.Name == "Cult"), "presets: map import adds missing names and keeps the campaign's own look");
 }
 
 // --- floor mod (grid spacing boundary for negative coords) ---
@@ -353,6 +463,26 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     var l2 = lback.Labels.First(l => l.Cell == new CellKey(4, 4));
     Check(l1.FontSize == 24 && l1.R == 200 && l1.G == 10 && l1.B == 50, "label: size + color round-trip");
     Check(l2.FontSize == 0 && l2.R == -1 && l2.G == -1 && l2.B == -1, "label: inherit defaults round-trip");
+}
+
+// --- label own color flag: -1 on any channel follows the settings color ---
+{
+    Check(!new MapLabel().HasOwnColor, "label color: new label follows settings");
+    Check(new MapLabel { R = 0, G = 0, B = 0 }.HasOwnColor, "label color: black is an own color");
+    Check(!new MapLabel { R = 0, G = -1, B = 0 }.HasOwnColor, "label color: partial -1 follows settings");
+}
+
+// --- label font size clamp: negative or huge values cannot reach rendering ---
+{
+    var cl = new MapLabel { FontSize = -40 };
+    Check(cl.FontSize == 0, "label size: negative clamps to 0 (auto)");
+    cl.FontSize = int.MaxValue;
+    Check(cl.FontSize == MapLabel.MaxFontSize, "label size: huge clamps to the max");
+    string cjson = MapSerializer.ToJson(new MapDocument { Labels = { new MapLabel { Cell = new CellKey(0, 0), Text = "x", FontSize = 30 } } })
+        .Replace("\"font_size\": 30", "\"font_size\": 999999");
+    var cback = MapSerializer.FromJson(cjson);
+    Check(cjson.Contains("999999") && cback.Labels[0].FontSize == MapLabel.MaxFontSize, "label size: huge size in a file clamps on load");
+    Check(MapCanvas.LabelSize(cback.Labels[0]) == MapLabel.MaxFontSize, "label size: clamped size is what draws");
 }
 
 // --- delete hotkey (erase selection with all categories on) ---
@@ -577,9 +707,9 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(lib.Pawns.Count == 1 && lib.Find("p2")!.Name == "Boss2", "Add replaces same-Id template");
 }
 
-// --- global affiliation color propagates to inheriting templates at render time ---
+// --- campaign affiliation color propagates to inheriting templates at render time ---
 {
-    var s = AppSettings.Default();
+    var s = CampaignPresets.Default();
     var t = new PawnTemplate { Name = "grunt", Affiliation = "Enemy", ColorOverride = false };
     t.ApplyAffiliationDefaults();
     Check(t.Effective(s).outer.r == 220, "inheriting template uses global Enemy outer (220)");
@@ -2112,19 +2242,61 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     Check(freshLib.Find("p1")!.Name == "Skeleton" && freshLib.Find("p5")!.Name == "Ghost", "probe: embedded ids keep their ids in a fresh project library");
     Check(idMap2["p1"] == "p1" && idMap2["p5"] == "p5", "probe: free ids map to themselves (identity remap)");
     Check(freshLib.NewId() == "p6", "probe: counter bumps past embedded ids");
-    // AppSettings real Save/Load: door types + statuses + affiliations persist
+    // an older settings.json still holding the lists: read once as legacy
+    // presets, then the next settings write drops them
+    var legacyPath = new AppSettings().SettingsPath();
+    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(legacyPath)!);
+    System.IO.File.WriteAllText(legacyPath, "{\"grid_draw_spacing\":1,\"default_door_type\":\"gate\",\"door_types\":[{\"name\":\"gate\",\"r\":10,\"g\":20,\"b\":30}],\"pawn_statuses\":[{\"name\":\"stunned\",\"r\":1,\"g\":2,\"b\":3,\"thickness\":4}]}");
+    var lp = AppSettings.LegacyPresets();
+    Check(lp is not null && lp.DoorTypes!.Any(d => d.Name == "gate" && d.R == 10) && lp.PawnStatuses!.Any(x => x.Name == "stunned") && lp.AffiliationColors is null,
+        "legacy presets: lists read from an old settings.json, missing ones stay null");
+    Check(AppSettings.Load().GridDrawSpacing == 1, "legacy presets: old settings.json still loads as settings");
+    // AppSettings real Save/Load: app wide values persist, preset lists are not written
     var st = AppSettings.Default();
-    st.DoorTypes.Add(new DoorType("gate", 10, 20, 30));
-    st.PawnStatuses.Add(new PawnStatus("stunned", 1, 2, 3, 4));
-    st.AffiliationColors.Add(new AffiliationColor("Cult", (11, 12, 13), (21, 22, 23)));
     st.GridDrawSpacing = 2;
     st.Save();
+    var savedJson = System.IO.File.ReadAllText(st.SettingsPath());
+    Check(!savedJson.Contains("door_types") && !savedJson.Contains("pawn_statuses") && !savedJson.Contains("affiliation_colors") && !savedJson.Contains("default_door"),
+        "probe: settings.json has no preset lists and no default door");
+    Check(AppSettings.LegacyPresets() is null, "probe: settings.json without lists gives no legacy presets");
     var st2 = AppSettings.Load();
-    Check(st2.DoorTypes.Any(d => d.Name == "gate" && d.R == 10), "probe: door type survives settings disk round-trip");
-    Check(st2.PawnStatuses.Any(s2 => s2.Name == "stunned" && s2.Thickness == 4), "probe: pawn status survives settings disk round-trip");
-    Check(st2.AffiliationColors.Any(a => a.Name == "Cult" && a.InnerB == 23), "probe: affiliation color survives settings disk round-trip");
     Check(st2.GridDrawSpacing == 2, "probe: scalar setting survives settings disk round-trip");
     Check(st2.ToolHotkeys["Wall"] == "W", "probe: hotkeys survive settings disk round-trip");
+    // settings import/export: app wide only, campaign keys never travel
+    var expJson = st2.ExportJson();
+    using (var expDoc = System.Text.Json.JsonDocument.Parse(expJson))
+    {
+        var r = expDoc.RootElement;
+        Check(r.GetProperty("kind").GetString() == AppSettings.KindSettings, "settings export: marked kind settings");
+        Check(!r.TryGetProperty("door_types", out _) && !r.TryGetProperty("pawn_statuses", out _) && !r.TryGetProperty("affiliation_colors", out _),
+            "settings export: door presets, pawn statuses and affiliation colors left out");
+        Check(r.GetProperty("grid_draw_spacing").GetInt32() == 2 && r.GetProperty("tool_hotkeys").GetProperty("Wall").GetString() == "W",
+            "settings export: values and hotkeys written");
+    }
+    Check(expJson.Contains('\n'), "settings export: file is indented");
+    Check(AppSettings.ParseImport("{\"kind\":\"campaign\",\"maps\":[]}") is null, "settings import: a campaign file is refused");
+    Check(AppSettings.ParseImport("{\"kind\":\"map\",\"grid_draw_spacing\":3}") is null, "settings import: any other kind is refused");
+    Check(AppSettings.ParseImport("{\"maps\":[],\"name\":\"x\"}") is null, "settings import: an old campaign without kind is refused");
+    Check(AppSettings.ParseImport("{\"door_types\":[{\"name\":\"x\"}]}") is null, "settings import: a file with only campaign keys is refused");
+    Check(AppSettings.ParseImport("[1,2]") is null, "settings import: a json array is refused");
+    bool threw = false;
+    try { AppSettings.ParseImport("not json"); } catch { threw = true; }
+    Check(threw, "settings import: broken json throws for the caller to report");
+    Check(AppSettings.ParseImport(st2.ToJson()) is { GridDrawSpacing: 2 }, "settings import: a plain settings.json (the before import backup) is accepted");
+    var imp = AppSettings.ParseImport("{\"grid_draw_spacing\":0,\"wall_thickness\":999,\"autosave_minutes\":-5,\"default_label_text\":\"  \",\"default_door_state\":\"ajar\",\"tool_hotkeys\":{\"Wall\":\"q\",\"Room\":\"F1\",\"Bogus\":\"Z\"}}")!;
+    Check(imp is not null && imp.GridDrawSpacing == 1 && imp.WallThickness == AppSettings.MaxWallThickness && imp.AutosaveMinutes == 0,
+        "settings import: out of range numbers are clamped");
+    Check(imp!.DefaultLabelText == AppSettings.Default().DefaultLabelText,
+        "settings import: blank label text falls back to default, an old default_door_state key is ignored");
+    Check(imp.ToolHotkeys["Wall"] == "Q" && imp.ToolHotkeys["Room"] == "R" && imp.ToolHotkeys["Select"] == "S" && !imp.ToolHotkeys.ContainsKey("Bogus"),
+        "settings import: letters kept upper case, bad or missing hotkeys back to default, unknown tools dropped");
+    var liveSet = AppSettings.Default();
+    var liveRef = liveSet;
+    var src = AppSettings.ParseImport(st2.ExportJson())!;
+    liveSet.CopyAppWideFrom(src);
+    Check(ReferenceEquals(liveSet, liveRef) && liveSet.GridDrawSpacing == 2, "settings import: copy fills the existing object");
+    src.ToolHotkeys["Wall"] = "K";
+    Check(liveSet.ToolHotkeys["Wall"] == "W", "settings import: hotkeys copied, not shared with the imported object");
     // legacy library (ids p1..pN, no counter): BumpNextId must not re-issue a live id
     var legacy = new PawnLibrary();
     legacy.Pawns.Add(new PawnTemplate { Id = "p1", Name = "old1" });
@@ -2600,6 +2772,77 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(back is not null && back.AllDoors().Count(x => x.Type == "steel") == 3 && back.AllDoors().All(x => x.Type != "iron"),
         "door types: undo after a rename keeps the new name");
     Check(back is not null && back.Doors.Values.First().State == DoorState.Closed, "door types: rewrite keeps the rest of the snapshot");
+}
+
+// ---- tool side panel info box counts ----
+{
+    var td = new MapDocument();
+    Check(DungeonMapper.Views.MainWindow.ToolInfoText(DungeonMapper.Controls.ToolMode.Stair, td, "standard") == "0 stairs on this map", "tool info: empty map says 0 stairs");
+    td.Cells.Add(new CellKey(0, 0));
+    Check(DungeonMapper.Views.MainWindow.ToolInfoText(DungeonMapper.Controls.ToolMode.Floor, td, "standard") == "1 floor cell on this map", "tool info: one floor cell is singular");
+    var e1 = EdgeKey.Normalize(new CellKey(0, 0), Side.North);
+    var e2 = EdgeKey.Normalize(new CellKey(0, 0), Side.South);
+    td.Doors[e1] = new Door { Type = "iron" };
+    td.Doors[e2] = new Door { Type = "standard" };
+    Check(DungeonMapper.Views.MainWindow.ToolInfoText(DungeonMapper.Controls.ToolMode.Door, td, "iron") == "2 doors on this map\n1 of them iron", "tool info: door count with the default type");
+    Check(DungeonMapper.Views.MainWindow.ToolInfoText(DungeonMapper.Controls.ToolMode.Erase, td, "iron") == "", "tool info: erase has no info");
+}
+
+// ---- config views: door spots survive undo, delete keeps the wall ----
+{
+    var cd = new MapDocument();
+    var ce = EdgeKey.Normalize(new CellKey(0, 0), Side.North);
+    cd.Walls[ce] = true;
+    var edgeDoor = new Door { Type = "iron" };
+    cd.Doors[ce] = edgeDoor;
+    var vk = new VertexDoorKey(3, 3, true);
+    var vDoor = new VertexDoor();
+    cd.VertexDoors[vk] = vDoor;
+    var aw = new AngledWall(0, 0, 4, 4);
+    cd.AngledWalls.Add(aw);
+    var a0 = new AngledDoor { T = 0.25 };
+    var a1 = new AngledDoor { T = 0.75, Type = "iron" };
+    cd.AngledDoors[aw] = new List<AngledDoor> { a0, a1 };
+
+    Check(ReferenceEquals(cd.DoorAtSpot(cd.DoorSpotOf(edgeDoor)), edgeDoor), "config views: edge door spot round trips");
+    Check(ReferenceEquals(cd.DoorAtSpot(cd.DoorSpotOf(vDoor)), vDoor), "config views: vertex door spot round trips");
+    Check(ReferenceEquals(cd.DoorAtSpot(cd.DoorSpotOf(a1)), a1), "config views: angled door spot round trips");
+    Check(cd.DoorSpotOf(new Door()) is null && cd.DoorAtSpot(null) is null, "config views: a door not on the map has no spot");
+
+    // a lone vertex door would not survive the json undo snapshot (no walls
+    // around it), so it is deleted before the round trip
+    Check(cd.RemoveDoorConfig(cd.VertexDoors[vk]) && cd.VertexDoors.Count == 0, "config views: deleting a vertex door");
+
+    // undo swaps in copies, the spot finds the copy of the same door
+    var hist = new History();
+    hist.Initialize(cd);
+    var spot = cd.DoorSpotOf(a1);
+    cd.AngledDoors[aw][1].State = DoorState.Open;
+    hist.Commit(cd);
+    cd.ApplyFrom(hist.Undo()!);
+    Check(cd.DoorAtSpot(spot) is AngledDoor again && !ReferenceEquals(again, a1) && again.T == 0.75 && again.State == DoorState.Closed,
+        "config views: after undo the spot finds the restored door");
+
+    var e2 = cd.Doors[ce];
+    Check(cd.RemoveDoorConfig(e2) && !cd.Doors.ContainsKey(ce) && cd.HasWall(ce), "config views: deleting an edge door keeps its wall");
+    var first = cd.AngledDoors[aw][0];
+    Check(cd.RemoveDoorConfig(first) && cd.AngledDoors[aw].Count == 1 && cd.AngledDoors[aw][0].T == 0.75, "config views: deleting one angled door keeps the other");
+    Check(cd.RemoveDoorConfig(cd.AngledDoors[aw][0]) && !cd.AngledDoors.ContainsKey(aw) && cd.AngledWalls.Contains(aw),
+        "config views: deleting the last angled door drops the entry, the wall stays");
+    Check(!cd.RemoveDoorConfig(first), "config views: deleting a door twice does nothing");
+
+    // info boxes
+    var m1 = new MapDocument();
+    m1.Doors[EdgeKey.Normalize(new CellKey(0, 0), Side.North)] = new Door { Type = "iron" };
+    m1.Doors[EdgeKey.Normalize(new CellKey(1, 0), Side.North)] = new Door { Type = "iron" };
+    var m2 = new MapDocument();
+    m2.VertexDoors[new VertexDoorKey(0, 0, false)] = new VertexDoor { Type = "iron" };
+    Check(DungeonMapper.Views.MainWindow.DoorConfigInfo("iron", m1, new[] { m1, m2 }) == "2 doors of this type on this map, 3 in the campaign",
+        "config views: door info counts this map and the campaign");
+    Check(DungeonMapper.Views.MainWindow.DoorConfigInfo("iron", m2, new[] { m1 }) == "1 door of this type on this map, 3 in the campaign",
+        "config views: door info counts an unlisted open map once");
+    Check(DungeonMapper.Views.MainWindow.StairConfigInfo(3) == "3 connected stairs, all change direction together", "config views: stair info for a group");
+    Check(DungeonMapper.Views.MainWindow.StairConfigInfo(1) == "a single stair, no others are connected to it", "config views: stair info for a lone stair");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");
