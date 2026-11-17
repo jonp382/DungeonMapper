@@ -177,6 +177,7 @@ public partial class MainWindow : Window
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
+        InitModal();
 
         // autosave: ticks every minute; writes to maps/autosaves when the
         // configured interval has elapsed (0 = off). Flushes pending settings.

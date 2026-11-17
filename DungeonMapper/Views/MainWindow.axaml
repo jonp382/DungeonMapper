@@ -132,11 +132,31 @@
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />
             <views:ToolPanel x:Name="ToolPanel" />
-            <!-- pawn management and import picker: built in code (MainWindow.Pawns.cs) -->
-            <Border x:Name="ModalOverlay" IsVisible="False"
-                    Background="#22222c" BorderBrush="#444450" BorderThickness="1" CornerRadius="6"
-                    Width="760" Height="640"
-                    HorizontalAlignment="Center" VerticalAlignment="Center" />
+            <!-- pawn management and the import pickers. the frame, header and
+                 tabs are fixed here, MainWindow.Pawns.cs and PresetImport.cs
+                 build the body. the tabs and close only show for management. -->
+            <ThemeVariantScope RequestedThemeVariant="Dark" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Border x:Name="ModalOverlay" Classes="modal" IsVisible="False" Width="760" Height="640">
+                    <DockPanel>
+                        <Border x:Name="ModalHeader" Classes="header" DockPanel.Dock="Top">
+                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                <StackPanel x:Name="ModalTitleStack" VerticalAlignment="Center">
+                                    <TextBlock x:Name="ModalTitle" Classes="title" />
+                                    <TextBlock x:Name="ModalSubtitle" Classes="muted" TextWrapping="NoWrap"
+                                               TextTrimming="CharacterEllipsis" IsVisible="False" />
+                                </StackPanel>
+                                <StackPanel x:Name="ModalTabs" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom">
+                                    <Button x:Name="ManageTabPawns" Classes="tab" Content="Pawns" />
+                                    <Button x:Name="ManageTabAffiliations" Classes="tab" Content="Affiliations" />
+                                    <Button x:Name="ManageTabStatuses" Classes="tab" Content="Status styles" />
+                                </StackPanel>
+                                <Button x:Name="ModalClose" Grid.Column="3" Classes="btn" Content="close" />
+                            </Grid>
+                        </Border>
+                        <Border x:Name="ModalBody" />
+                    </DockPanel>
+                </Border>
+            </ThemeVariantScope>
             <!-- settings modal on the shared look in Styles/Ui.axaml. every row
                  is fixed here, MainWindow.Settings.cs fills the values and puts
                  the color buttons into the hosts. -->

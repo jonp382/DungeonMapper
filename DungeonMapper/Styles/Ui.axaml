@@ -30,6 +30,18 @@
         <SolidColorBrush x:Key="Ui.Danger.Text" Color="#ffb0b0" />
         <SolidColorBrush x:Key="Ui.Danger.Line" Color="#6a3a40" />
         <SolidColorBrush x:Key="Ui.Danger.Hover" Color="#3a2428" />
+        <SolidColorBrush x:Key="Ui.Danger.Field" Color="#d05a5a" />
+        <SolidColorBrush x:Key="Ui.Bg.Tab" Color="#2e2e3a" />
+        <SolidColorBrush x:Key="Ui.Text.Faint" Color="#7a7a88" />
+        <SolidColorBrush x:Key="Ui.Star.On" Color="#ffcc33" />
+        <SolidColorBrush x:Key="Ui.Star.Off" Color="#4a4a56" />
+        <SolidColorBrush x:Key="Ui.Ok" Color="#8fd18f" />
+        <!-- active tab: avalonia has no per side border color, so a hard stop
+             at 0.9 paints the 2px bottom edge in the accent -->
+        <LinearGradientBrush x:Key="Ui.Tab.Line" StartPoint="0%,0%" EndPoint="0%,100%">
+            <GradientStop Color="#444450" Offset="0.9" />
+            <GradientStop Color="#5a7fd0" Offset="0.9" />
+        </LinearGradientBrush>
     </Styles.Resources>
 
     <!-- frames -->
@@ -268,5 +280,267 @@
     <Style Selector="CheckBox.toggle">
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+    </Style>
+
+    <!-- pawn menu. more text tones -->
+    <Style Selector="TextBlock.faint">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Faint}" />
+    </Style>
+    <Style Selector="TextBlock.warn">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Star.On}" />
+    </Style>
+    <Style Selector="TextBlock.ok">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Ok}" />
+    </Style>
+    <Style Selector="TextBlock.dim">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Dim}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="TextBlock.small">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Label}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- filter chip: a pill that is filled when on -->
+    <Style Selector="Button.chip">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="7,2" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Control}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+        <Setter Property="Margin" Value="0,0,4,4" />
+    </Style>
+    <Style Selector="Button.chip.on">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Button}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+    </Style>
+    <Style Selector="Button.chip:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.ButtonHover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+    </Style>
+    <Style Selector="Button.chip:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+
+    <!-- modal tabs: the active one joins the header line with an accent edge -->
+    <Style Selector="Button.tab">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="CornerRadius" Value="4,4,0,0" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Muted}" />
+        <Setter Property="VerticalAlignment" Value="Bottom" />
+    </Style>
+    <Style Selector="Button.tab.on">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Tab}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Tab.Line}" />
+        <Setter Property="BorderThickness" Value="1,1,1,2" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Strong}" />
+    </Style>
+    <Style Selector="Button.tab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text}" />
+    </Style>
+    <Style Selector="Button.tab.on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Tab}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Tab.Line}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Strong}" />
+    </Style>
+    <Style Selector="Button.tab:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Tab}" />
+    </Style>
+
+    <!-- small icon buttons: favorite star and locate on map -->
+    <Style Selector="Button.star">
+        <Setter Property="Padding" Value="2,0" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Star.Off}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.star.on">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Star.On}" />
+    </Style>
+    <Style Selector="Button.star:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.ButtonHover}" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Star.Off}" />
+    </Style>
+    <Style Selector="Button.star.on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource Ui.Star.On}" />
+    </Style>
+    <Style Selector="Button.star:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+
+    <Style Selector="Button.locate">
+        <Setter Property="Padding" Value="3" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.locate:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.ButtonHover}" />
+    </Style>
+    <Style Selector="Button.locate:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+    <Style Selector="Button.locate Ellipse.ring">
+        <Setter Property="Stroke" Value="{StaticResource Ui.Text.Dim}" />
+        <Setter Property="StrokeThickness" Value="1.2" />
+    </Style>
+    <Style Selector="Button.locate Ellipse.dot">
+        <Setter Property="Fill" Value="{StaticResource Ui.Text.Dim}" />
+    </Style>
+
+    <!-- color swatch button that opens the color flyout -->
+    <Style Selector="Button.color">
+        <Setter Property="Padding" Value="5,3" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Control}" />
+    </Style>
+    <Style Selector="Button.color:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+    </Style>
+    <Style Selector="Button.color:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+    <Style Selector="Button.color:disabled">
+        <Setter Property="Opacity" Value="0.45" />
+    </Style>
+    <Style Selector="Button.color:disabled /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Control}" />
+    </Style>
+    <Style Selector="TextBlock.hex">
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource Ui.Text.Dim}" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <!-- recently placed pawn: a square icon button, armed when it is the pen -->
+    <Style Selector="Button.recent">
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.recent.armed">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Armed}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+    <Style Selector="Button.recent:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Line.Hover}" />
+    </Style>
+    <Style Selector="Button.recent.armed:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Armed}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+    <Style Selector="Button.recent:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+
+    <!-- row variants. each one restates hover and selected after its base,
+         since the later matching style wins -->
+    <Style Selector="Border.row.compact">
+        <Setter Property="Height" Value="24" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="4,0,0,0" />
+        <Setter Property="CornerRadius" Value="3" />
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.row.compact:pointerover">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+    </Style>
+    <Style Selector="Border.row.compact.selected">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Armed}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+
+    <Style Selector="Border.row.dense">
+        <Setter Property="Height" Value="27" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Padding" Value="6,0" />
+    </Style>
+    <Style Selector="Border.row.dense.faded">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="Border.row.dense:pointerover">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+    </Style>
+    <Style Selector="Border.row.dense.selected">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Armed}" />
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Accent}" />
+    </Style>
+    <Style Selector="Border.row.dense.inert">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+
+    <Style Selector="Border.row.tall">
+        <Setter Property="Height" Value="44" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+    <Style Selector="Border.row.tall:pointerover">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.Row}" />
+    </Style>
+
+    <Style Selector="Ellipse.fav">
+        <Setter Property="Fill" Value="{StaticResource Ui.Star.On}" />
+    </Style>
+    <!-- grey pawn body behind a status ring preview -->
+    <Style Selector="Ellipse.look">
+        <Setter Property="Fill" Value="{StaticResource Ui.Count.Zero}" />
+    </Style>
+
+    <!-- collapsible group heading in the pawn list -->
+    <Style Selector="Grid.grouphead">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Margin" Value="0,6,0,2" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+
+    <!-- bar that appears over the list when several rows are selected -->
+    <Style Selector="Border.bulkbar">
+        <Setter Property="Background" Value="{StaticResource Ui.Bg.RowHover}" />
+        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="Margin" Value="0,6,0,0" />
+    </Style>
+
+    <!-- header with tabs sitting on its bottom line -->
+    <Style Selector="Border.header.tabbed">
+        <Setter Property="Padding" Value="12,10,12,0" />
+    </Style>
+    <Style Selector="Border.header.tabbed TextBlock.title">
+        <Setter Property="Margin" Value="0,0,16,8" />
+    </Style>
+    <Style Selector="Border.header.tabbed Button.btn">
+        <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+
+    <!-- name field that clashes with another, red even while focused -->
+    <Style Selector="TextBox.field.clash /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Field}" />
     </Style>
 </Styles>

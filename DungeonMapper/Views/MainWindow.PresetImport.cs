@@ -79,8 +79,7 @@ public partial class MainWindow
         return new Border
         {
             Child = foot,
-            BorderBrush = Hx("#33333e"),
-            BorderThickness = new Thickness(0, 1, 0, 0),
+            Classes = { "footer" },
             Padding = new Thickness(14, 8, 14, 12),
         };
     }
@@ -93,7 +92,7 @@ public partial class MainWindow
     private static Control StatusLook(PawnStatus s)
     {
         var g = new Grid { Width = 18, Height = 18 };
-        g.Children.Add(new Ellipse { Width = 18, Height = 18, Fill = Hx("#8a8a98") });
+        g.Children.Add(new Ellipse { Width = 18, Height = 18, Classes = { "look" } });
         if (s.Thickness > 0) g.Children.Add(new Ellipse { Width = 18, Height = 18, Stroke = Rgb((s.R, s.G, s.B)), StrokeThickness = Math.Min(s.Thickness, 4) });
         return g;
     }
@@ -145,44 +144,35 @@ public partial class MainWindow
         if (part == Part.Doors) DoorPresetsOverlay.IsVisible = false;
         _modalKind = "preset-import";
         _presetImportBack = () => PresetImportReturn(part);
-        ModalOverlay.Width = 560;
-        ModalOverlay.Height = 600;
         var root = new DockPanel { Margin = new Thickness(12) };
-
-        var head = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 10) };
-        head.Children.Add(new TextBlock { Text = $"Import {PartLabel(part)}", FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee") });
-        head.Children.Add(new TextBlock { Text = $"from {System.IO.Path.GetFileName(path)} · {items.Count} in file · {fresh.Count} new", FontSize = 12, Foreground = Hx("#9a9aaa"), TextTrimming = TextTrimming.CharacterEllipsis });
-        DockPanel.SetDock(head, Dock.Top);
-        root.Children.Add(head);
 
         Grid RowGrid() => new() { ColumnDefinitions = new ColumnDefinitions("22,36,*,140"), ColumnSpacing = 8 };
         var colHead = RowGrid();
-        colHead.Margin = new Thickness(6, 0, 6, 4);
         var all = new CheckBox { MinWidth = 0, Padding = new Thickness(0), IsEnabled = fresh.Count > 0 };
         ToolTip.SetTip(all, "select all new");
         colHead.Children.Add(all);
-        AddCell(colHead, Txt("look", 10, "#8a8a9a"), 1);
-        AddCell(colHead, Txt("name", 10, "#8a8a9a"), 2);
-        var headB = new Border { Child = colHead, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) };
+        AddCell(colHead, Tx("look", "colhead"), 1);
+        AddCell(colHead, Tx("name", "colhead"), 2);
+        var headB = new Border { Child = colHead, Classes = { "colhead" }, Padding = new Thickness(6, 0, 6, 4), Margin = new Thickness(0) };
         DockPanel.SetDock(headB, Dock.Top);
         root.Children.Add(headB);
 
         var buttons = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 6 };
         var cancel = Btn("cancel");
-        cancel.Background = Hx("#00000000");
+        cancel.Background = Brushes.Transparent;
         buttons.Children.Add(cancel);
         var importAll = Btn($"import all new ({fresh.Count})");
         importAll.IsEnabled = fresh.Count > 0;
         AddCell(buttons, importAll, 2);
         var importSel = Btn("", primary: true);
         AddCell(buttons, importSel, 3);
-        var btnBorder = new Border { Child = buttons, BorderBrush = Hx("#444450"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 10, 0, 0) };
+        var btnBorder = new Border { Child = buttons, Classes = { "footer" }, Padding = new Thickness(0, 10, 0, 0) };
         DockPanel.SetDock(btnBorder, Dock.Bottom);
         root.Children.Add(btnBorder);
         var note = new TextBlock
         {
             Text = "only names this campaign does not have yet can be imported. a name it already has keeps the campaign's look, even when the file's look is different.",
-            FontSize = 11, Foreground = Hx("#8a8a9a"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8),
+            Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Bottom);
         root.Children.Add(note);
@@ -204,19 +194,24 @@ public partial class MainWindow
                 look.Opacity = can ? 1 : 0.45;
                 look.HorizontalAlignment = HorizontalAlignment.Left;
                 AddCell(g, look, 1);
-                AddCell(g, new TextBlock { Text = it.Name, FontSize = 12, Foreground = Hx(can ? "#e6e6ee" : "#7a7a88"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }, 2);
+                var nameTb = Tx(it.Name, "body");
+                nameTb.Classes.Set("faint", !can);
+                nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+                AddCell(g, nameTb, 2);
                 var (nt, nc) = it.Kind switch
                 {
-                    PawnLibrary.ImportKind.Have => ("already in campaign", "#7a7a88"),
-                    PawnLibrary.ImportKind.NewLook => ("same name, new look", "#ffcc33"),
-                    _ => ("new", "#8fd18f"),
+                    PawnLibrary.ImportKind.Have => ("already in campaign", "faint"),
+                    PawnLibrary.ImportKind.NewLook => ("same name, new look", "warn"),
+                    _ => ("new", "ok"),
                 };
-                var tag = Txt(nt, 10, nc);
+                var tag = Tx(nt, nc);
+                tag.FontSize = 10;
                 tag.HorizontalAlignment = HorizontalAlignment.Right;
                 if (it.Kind == PawnLibrary.ImportKind.NewLook)
                     ToolTip.SetTip(tag, "skipped. the campaign keeps its own look for this name. rename one of them to bring it in.");
                 AddCell(g, tag, 3);
-                var row = new Border { Child = g, Height = 27, Padding = new Thickness(6, 0), CornerRadius = new CornerRadius(4), Background = Hx(can ? "#262632" : "#00000000") };
+                var row = new Border { Child = g, Classes = { "row", "dense" } };
+                row.Classes.Set("inert", !can);
                 if (can) row.PointerPressed += (_, _) => { if (!picked.Add(it)) picked.Remove(it); Rebuild(); };
                 list.Children.Add(row);
             }
@@ -250,7 +245,6 @@ public partial class MainWindow
         importSel.Click += (_, _) => DoImport(fresh.Where(picked.Contains).ToList());
         Rebuild();
 
-        ModalOverlay.Child = root;
-        ModalOverlay.IsVisible = true;
+        ShowModal(560, 600, $"Import {PartLabel(part)}", $"from {System.IO.Path.GetFileName(path)} · {items.Count} in file · {fresh.Count} new", root);
     }
 }

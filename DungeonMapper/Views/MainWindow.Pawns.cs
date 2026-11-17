@@ -135,7 +135,7 @@ public partial class MainWindow
         _pawnChipHost = new WrapPanel();
         ToolPanel.Target.Children.Add(_pawnChipHost);
 
-        var names = new CheckBox { Content = Txt("names on map"), IsChecked = _settings.ShowPawnNames, Padding = new Thickness(4, 0) };
+        var names = new CheckBox { Content = "names on map", Classes = { "toggle" }, IsChecked = _settings.ShowPawnNames, Padding = new Thickness(4, 0) };
         names.IsCheckedChanged += (_, _) =>
         {
             _settings.ShowPawnNames = names.IsChecked == true;
@@ -173,23 +173,12 @@ public partial class MainWindow
         _pawnRecentHost.IsVisible = recent.Count > 0;
         if (recent.Count > 0)
         {
-            _pawnRecentHost.Children.Add(Txt("recently placed", 10, "#8a8a9a"));
+            _pawnRecentHost.Children.Add(Tx("recently placed", "colhead"));
             var strip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
             foreach (var t in recent)
             {
-                var armed = Canvas.ArmedPawn == t;
-                var b = new Button
-                {
-                    Content = PawnIcon(t, 22),
-                    Width = 30, Height = 30,
-                    Padding = new Thickness(0),
-                    HorizontalContentAlignment = HorizontalAlignment.Center,
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                    Background = Hx(armed ? "#34406a" : "#262632"),
-                    BorderBrush = Hx(armed ? "#5a7fd0" : "#444450"),
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(4),
-                };
+                var b = new Button { Content = PawnIcon(t, 22), Classes = { "recent" } };
+                if (Canvas.ArmedPawn == t) b.Classes.Add("armed");
                 ToolTip.SetTip(b, PawnName(t));
                 b.Click += (_, _) => ArmPawn(t);
                 strip.Children.Add(b);
@@ -211,7 +200,7 @@ public partial class MainWindow
         _pawnListHost.Children.Clear();
         if (ActiveLibrary.Pawns.Count == 0)
         {
-            _pawnListHost.Children.Add(new TextBlock { Text = "no pawns yet. use manage to add some.", FontSize = 12, Foreground = Hx("#9a9aaa"), TextWrapping = TextWrapping.Wrap });
+            _pawnListHost.Children.Add(new TextBlock { Text = "no pawns yet. use manage to add some.", Classes = { "muted" } });
             return;
         }
         var counts = MapCounts(_doc);
@@ -224,13 +213,13 @@ public partial class MainWindow
             .OrderBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase).ToList();
         if (shown.Count == 0)
         {
-            _pawnListHost.Children.Add(Txt("no pawns match", 12, "#9a9aaa"));
+            _pawnListHost.Children.Add(Tx("no pawns match", "muted"));
             return;
         }
 
         var favs = shown.Where(t => t.Favorite).ToList();
         if (favs.Count > 0)
-            AddPawnGroup("★ favorites", new Ellipse { Width = 8, Height = 8, Fill = Hx("#ffcc33") }, $"{favs.Count}", favs, counts);
+            AddPawnGroup("★ favorites", new Ellipse { Width = 8, Height = 8, Classes = { "fav" } }, $"{favs.Count}", favs, counts);
 
         var known = new HashSet<string>(ActivePresets.AffiliationColors.Select(a => a.Name));
         foreach (var ac in ActivePresets.AffiliationColors)
@@ -248,14 +237,15 @@ public partial class MainWindow
     private void AddPawnGroup(string title, Control? dot, string summary, List<PawnTemplate> list, Dictionary<string, int> counts)
     {
         bool collapsed = _pawnCollapsed.Contains(title);
-        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("14,Auto,*,Auto"), ColumnSpacing = 4, Background = Hx("#00000000"), Margin = new Thickness(0, 6, 0, 2), Cursor = new Cursor(StandardCursorType.Hand) };
-        head.Children.Add(Txt(collapsed ? "▸" : "▾", 11, "#8a8a9a"));
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("14,Auto,*,Auto"), ColumnSpacing = 4, Classes = { "grouphead" } };
+        head.Children.Add(Tx(collapsed ? "▸" : "▾", "small"));
         var tsp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
         if (dot is not null) tsp.Children.Add(dot);
-        tsp.Children.Add(new TextBlock { Text = title, FontSize = 12, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), VerticalAlignment = VerticalAlignment.Center });
+        tsp.Children.Add(Tx(title, "body", "strong"));
         Grid.SetColumn(tsp, 1);
         head.Children.Add(tsp);
-        var sum = Txt(summary, 10, "#8a8a9a");
+        var sum = Tx(summary, "colhead");
+        sum.VerticalAlignment = VerticalAlignment.Center;
         Grid.SetColumn(sum, 3);
         head.Children.Add(sum);
         head.PointerPressed += (_, _) =>
@@ -273,36 +263,29 @@ public partial class MainWindow
         bool armed = Canvas.ArmedPawn == t;
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions("18,*,Auto,Auto,Auto"), ColumnSpacing = 5 };
         g.Children.Add(PawnIcon(t, 16));
-        var name = new TextBlock { Text = PawnName(t), FontSize = 12, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+        var name = Tx(PawnName(t), "body");
+        name.TextTrimming = TextTrimming.CharacterEllipsis;
         Grid.SetColumn(name, 1);
         g.Children.Add(name);
         var star = StarButton(t.Favorite, () => { t.Favorite = !t.Favorite; RefreshPawnList(); RefreshManageModal(); }, 11);
         star.IsVisible = t.Favorite;
         Grid.SetColumn(star, 2);
         g.Children.Add(star);
-        var cnt = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#8a8a98");
+        var cnt = Tx($"×{onMap}", "count");
+        if (onMap == 0) cnt.Classes.Add("zero");
         cnt.MinWidth = 26;
-        cnt.TextAlignment = TextAlignment.Right;
         Grid.SetColumn(cnt, 3);
         g.Children.Add(cnt);
         var loc = LocateButton("find on map", () => LocatePawn(t));
         Grid.SetColumn(loc, 4);
         g.Children.Add(loc);
 
-        var row = new Border
-        {
-            Child = g,
-            Height = 24,
-            Padding = new Thickness(4, 0, 0, 0),
-            CornerRadius = new CornerRadius(3),
-            BorderThickness = new Thickness(1),
-            Background = Hx(armed ? "#34406a" : "#00000000"),
-            BorderBrush = Hx(armed ? "#5a7fd0" : "#00000000"),
-        };
+        var row = new Border { Child = g, Classes = { "row", "compact" } };
+        if (armed) row.Classes.Add("selected");
         ToolTip.SetTip(row, $"{PawnName(t)} · {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
         // the star shows on hover so it can be set without opening the manager
-        row.PointerEntered += (_, _) => { star.IsVisible = true; if (!armed) row.Background = Hx("#2c2c38"); };
-        row.PointerExited += (_, _) => { star.IsVisible = t.Favorite; if (!armed) row.Background = Hx("#00000000"); };
+        row.PointerEntered += (_, _) => star.IsVisible = true;
+        row.PointerExited += (_, _) => star.IsVisible = t.Favorite;
         row.PointerPressed += (_, _) => ArmPawn(t);
         return row;
     }
@@ -337,30 +320,8 @@ public partial class MainWindow
     private void ShowPawnManagement()
     {
         _modalKind = "manage";
-        ModalOverlay.Width = 760;
-        ModalOverlay.Height = 640;
         _statusCombo = null;
         _statusComboTemplate = null;
-
-        var root = new DockPanel();
-        var header = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto,*,Auto"), Margin = new Thickness(12, 10, 12, 0) };
-        var title = new TextBlock { Text = "Pawn management", FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), Margin = new Thickness(0, 0, 16, 8), VerticalAlignment = VerticalAlignment.Center };
-        header.Children.Add(title);
-        int col = 1;
-        foreach (var (key, label) in new[] { ("pawns", "Pawns"), ("affiliations", "Affiliations"), ("statuses", "Status styles") })
-        {
-            var tab = Tab(label, _manageTab == key, () => { _manageTab = key; ShowPawnManagement(); });
-            Grid.SetColumn(tab, col++);
-            header.Children.Add(tab);
-        }
-        var close = Btn("close");
-        close.Margin = new Thickness(0, 0, 0, 8);
-        close.Click += (_, _) => CloseManage();
-        Grid.SetColumn(close, 5);
-        header.Children.Add(close);
-        var headWrap = new Border { Child = header, BorderBrush = Hx("#444450"), BorderThickness = new Thickness(0, 0, 0, 1) };
-        DockPanel.SetDock(headWrap, Dock.Top);
-        root.Children.Add(headWrap);
 
         Control body = _manageTab switch
         {
@@ -368,8 +329,34 @@ public partial class MainWindow
             "statuses" => PresetTab(BuildStatusesTab(), CampaignPresets.Part.Statuses),
             _ => BuildPawnsTab(),
         };
-        root.Children.Add(body);
-        ModalOverlay.Child = root;
+        ShowModal(760, 640, "Pawn management", null, body, tabbed: true);
+    }
+
+    // the modal frame lives in MainWindow.axaml. management shows the tabs and
+    // close, the import pickers show a title and subtitle over their own body.
+    private void InitModal()
+    {
+        ManageTabPawns.Click += (_, _) => { _manageTab = "pawns"; ShowPawnManagement(); };
+        ManageTabAffiliations.Click += (_, _) => { _manageTab = "affiliations"; ShowPawnManagement(); };
+        ManageTabStatuses.Click += (_, _) => { _manageTab = "statuses"; ShowPawnManagement(); };
+        ModalClose.Click += (_, _) => CloseManage();
+    }
+
+    private void ShowModal(double width, double height, string title, string? subtitle, Control body, bool tabbed = false)
+    {
+        ModalOverlay.Width = width;
+        ModalOverlay.Height = height;
+        ModalTitle.Text = title;
+        ModalSubtitle.Text = subtitle ?? "";
+        ModalSubtitle.IsVisible = subtitle is not null;
+        ModalTabs.IsVisible = tabbed;
+        ModalClose.IsVisible = tabbed;
+        ModalHeader.Classes.Set("tabbed", tabbed);
+        Grid.SetColumnSpan(ModalTitleStack, tabbed ? 1 : 3);
+        ManageTabPawns.Classes.Set("on", _manageTab == "pawns");
+        ManageTabAffiliations.Classes.Set("on", _manageTab == "affiliations");
+        ManageTabStatuses.Classes.Set("on", _manageTab == "statuses");
+        ModalBody.Child = body;
         ModalOverlay.IsVisible = true;
     }
 
@@ -456,7 +443,6 @@ public partial class MainWindow
         left.Children.Add(_manageChipHost);
 
         var colHead = ManageRowGrid();
-        colHead.Margin = new Thickness(6, 0, 6, 4);
         _manageAllCheck = new CheckBox { MinWidth = 0, Padding = new Thickness(0) };
         ToolTip.SetTip(_manageAllCheck, "select all shown");
         _manageAllCheck.Click += (_, _) =>
@@ -467,16 +453,16 @@ public partial class MainWindow
             RefreshManageList();
         };
         colHead.Children.Add(_manageAllCheck);
-        AddCell(colHead, Txt("name", 10, "#8a8a9a"), 2);
-        AddCell(colHead, Txt("affiliation", 10, "#8a8a9a"), 3);
-        var hm = Txt("map", 10, "#8a8a9a"); hm.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hm, 4);
-        var hc = Txt("campaign", 10, "#8a8a9a"); hc.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hc, 5);
-        var headBorder = new Border { Child = colHead, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) };
+        AddCell(colHead, Tx("name", "colhead"), 2);
+        AddCell(colHead, Tx("affiliation", "colhead"), 3);
+        var hm = Tx("map", "colhead"); hm.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hm, 4);
+        var hc = Tx("campaign", "colhead"); hc.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hc, 5);
+        var headBorder = new Border { Child = colHead, Classes = { "colhead" }, Padding = new Thickness(6, 0, 6, 4), Margin = new Thickness(0) };
         DockPanel.SetDock(headBorder, Dock.Top);
         left.Children.Add(headBorder);
 
         // footer: import / export all / totals
-        var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"), ColumnSpacing = 6, Margin = new Thickness(0, 8, 0, 0) };
+        var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"), ColumnSpacing = 6 };
         var imp = Btn("import…");
         imp.Click += (_, _) => ShowImportPicker();
         foot.Children.Add(imp);
@@ -484,15 +470,15 @@ public partial class MainWindow
         expAll.Click += (_, _) => ExportPawns(ActiveLibrary, "all pawns");
         Grid.SetColumn(expAll, 1);
         foot.Children.Add(expAll);
-        _manageFooter = Txt("", 11, "#8a8a9a");
+        _manageFooter = Tx("", "small");
         _manageFooter.HorizontalAlignment = HorizontalAlignment.Right;
         Grid.SetColumn(_manageFooter, 2);
         foot.Children.Add(_manageFooter);
-        var footBorder = new Border { Child = foot, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 1, 0, 0) };
+        var footBorder = new Border { Child = foot, Classes = { "footer" } };
         DockPanel.SetDock(footBorder, Dock.Bottom);
         left.Children.Add(footBorder);
 
-        _manageBulkBar = new Border { Background = Hx("#2c2c38"), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 4), Margin = new Thickness(0, 6, 0, 0) };
+        _manageBulkBar = new Border { Classes = { "bulkbar" } };
         DockPanel.SetDock(_manageBulkBar, Dock.Bottom);
         left.Children.Add(_manageBulkBar);
 
@@ -500,7 +486,7 @@ public partial class MainWindow
         left.Children.Add(new ScrollViewer { Content = _manageListHost, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         grid.Children.Add(left);
 
-        var divider = new Border { Background = Hx("#444450") };
+        var divider = new Border { Classes = { "divider" } };
         Grid.SetColumn(divider, 1);
         grid.Children.Add(divider);
 
@@ -577,7 +563,11 @@ public partial class MainWindow
         _manageListHost.Children.Clear();
         foreach (var t in shown) _manageListHost.Children.Add(ManageRow(t, Get(map, t.Id), Get(camp, t.Id)));
         if (shown.Count == 0)
-            _manageListHost.Children.Add(new TextBlock { Text = ActiveLibrary.Pawns.Count == 0 ? "no pawns yet. add one or import a file." : "no pawns match", FontSize = 12, Foreground = Hx("#9a9aaa"), Margin = new Thickness(6) });
+            {
+            var none = Tx(ActiveLibrary.Pawns.Count == 0 ? "no pawns yet. add one or import a file." : "no pawns match", "muted");
+            none.Margin = new Thickness(6);
+            _manageListHost.Children.Add(none);
+        }
 
         if (_manageAllCheck is not null)
             _manageAllCheck.IsChecked = shown.Count > 0 && shown.All(t => _manageSelected.Contains(t.Id));
@@ -590,7 +580,7 @@ public partial class MainWindow
         {
             _manageBulkBar.IsVisible = _manageSelected.Count > 0;
             var bar = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 6 };
-            bar.Children.Add(Txt($"{_manageSelected.Count} selected", 12));
+            bar.Children.Add(Tx($"{_manageSelected.Count} selected", "body"));
             var exp = Btn("export selected");
             exp.Click += (_, _) => ExportPawns(ActiveLibrary.Subset(_manageSelected), $"{_manageSelected.Count} pawns");
             AddCell(bar, exp, 1);
@@ -617,32 +607,32 @@ public partial class MainWindow
         g.Children.Add(check);
         AddCell(g, PawnIcon(t, 18), 1);
         var nameSp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        nameSp.Children.Add(new TextBlock { Text = PawnName(t), FontSize = 12, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-        if (t.Favorite) nameSp.Children.Add(Txt("★", 10, "#ffcc33"));
-        if (t.Hero) nameSp.Children.Add(Txt("hero", 9, "#9ab8ff"));
+        var nameTb = Tx(PawnName(t), "body");
+        nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+        nameSp.Children.Add(nameTb);
+        if (t.Favorite)
+        {
+            var star = Tx("★", "warn");
+            star.FontSize = 10;
+            nameSp.Children.Add(star);
+        }
+        if (t.Hero) nameSp.Children.Add(Tx("hero", "tag"));
         if (IsInvalid(t))
         {
-            var warn = new TextBlock { Text = "!", FontSize = 12, FontWeight = FontWeight.Bold, Foreground = Hx("#ffcc33"), VerticalAlignment = VerticalAlignment.Center };
+            var warn = Tx("!", "body", "warn");
+            warn.FontWeight = FontWeight.Bold;
             ToolTip.SetTip(warn, InvalidReason(t));
             nameSp.Children.Add(warn);
         }
         AddCell(g, nameSp, 2);
-        AddCell(g, new TextBlock { Text = PawnTemplate.NormalizeAffiliation(t.Affiliation), FontSize = 11, Foreground = Hx("#b0b0be"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }, 3);
-        var m = Txt($"×{onMap}", 11, onMap > 0 ? "#c8c8d4" : "#8a8a98"); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
-        var c = Txt($"×{inCampaign}", 11, inCampaign > 0 ? "#c8c8d4" : "#8a8a98"); c.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, c, 5);
+        var aff = Tx(PawnTemplate.NormalizeAffiliation(t.Affiliation), "dim");
+        aff.TextTrimming = TextTrimming.CharacterEllipsis;
+        AddCell(g, aff, 3);
+        var m = Tx($"×{onMap}", "count"); m.Classes.Set("zero", onMap == 0); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
+        var c = Tx($"×{inCampaign}", "count"); c.Classes.Set("zero", inCampaign == 0); c.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, c, 5);
 
-        var row = new Border
-        {
-            Child = g,
-            Height = 27,
-            Padding = new Thickness(6, 0),
-            CornerRadius = new CornerRadius(4),
-            BorderThickness = new Thickness(1),
-            Background = Hx(editing ? "#34406a" : "#262632"),
-            BorderBrush = Hx(editing ? "#5a7fd0" : "#00000000"),
-        };
-        row.PointerEntered += (_, _) => { if (!editing) row.Background = Hx("#2c2c38"); };
-        row.PointerExited += (_, _) => { if (!editing) row.Background = Hx("#262632"); };
+        var row = new Border { Child = g, Classes = { "row", "dense" } };
+        row.Classes.Set("selected", editing);
         row.PointerPressed += (_, _) =>
         {
             _manageEditId = t.Id;
@@ -691,7 +681,7 @@ public partial class MainWindow
         if (t is null)
         {
             _manageEditId = null;
-            _manageEditorHost.Child = new TextBlock { Text = "select a pawn to edit it", FontSize = 12, Foreground = Hx("#9a9aaa") };
+            _manageEditorHost.Child = Tx("select a pawn to edit it", "muted");
             return;
         }
 
@@ -703,9 +693,10 @@ public partial class MainWindow
         var preview = new Border { Child = PawnIcon(t, 56) };
         head.Children.Add(preview);
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var bigName = new TextBlock { Text = PawnName(t), FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis };
+        var bigName = Tx(PawnName(t), "title");
+        bigName.TextTrimming = TextTrimming.CharacterEllipsis;
         titles.Children.Add(bigName);
-        titles.Children.Add(Txt(PawnTemplate.NormalizeAffiliation(t.Affiliation), 12, "#9a9aaa"));
+        titles.Children.Add(Tx(PawnTemplate.NormalizeAffiliation(t.Affiliation), "muted"));
         AddCell(head, titles, 1);
         AddCell(head, StarButton(t.Favorite, () => { t.Favorite = !t.Favorite; PawnsChanged(); RefreshManageEditor(); }, 18), 2);
         sp.Children.Add(head);
@@ -717,7 +708,7 @@ public partial class MainWindow
         }
 
         sp.Children.Add(FieldLabel("name"));
-        var name = new TextBox { Text = t.Name, FontSize = 12, Background = Hx("#14141a"), BorderBrush = Hx("#50505c") };
+        var name = new TextBox { Text = t.Name, Classes = { "field" } };
         name.TextChanged += (_, _) =>
         {
             if (t.Name == name.Text) return;
@@ -761,8 +752,8 @@ public partial class MainWindow
 
         // hero: one copy across the whole campaign. refused while more than one
         // copy is placed, since it could not say which one to keep
-        var hero = new CheckBox { Content = Txt("hero (only one can exist, placing it again moves it)"), IsChecked = t.Hero, Margin = new Thickness(0, 6, 0, 0) };
-        var heroMsg = new TextBlock { FontSize = 11, Foreground = Hx("#ffb0b0"), TextWrapping = TextWrapping.Wrap, IsVisible = false };
+        var hero = new CheckBox { Content = "hero (only one can exist, placing it again moves it)", Classes = { "toggle" }, IsChecked = t.Hero, Margin = new Thickness(0, 6, 0, 0) };
+        var heroMsg = new TextBlock { Classes = { "refusal" }, IsVisible = false };
         hero.IsCheckedChanged += (_, _) =>
         {
             bool on = hero.IsChecked == true;
@@ -786,13 +777,13 @@ public partial class MainWindow
         sp.Children.Add(heroMsg);
 
         sp.Children.Add(FieldLabel("colors"));
-        var useAff = new CheckBox { Content = Txt("use affiliation colors"), IsChecked = !t.ColorOverride };
+        var useAff = new CheckBox { Content = "use affiliation colors", Classes = { "toggle" }, IsChecked = !t.ColorOverride };
         sp.Children.Add(useAff);
         var (eo, ei) = t.Effective(ActivePresets);
         var colors = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto"), ColumnSpacing = 6 };
-        colors.Children.Add(Txt("outer", 11, "#9a9aaa"));
+        colors.Children.Add(Tx("outer", "hint"));
         AddCell(colors, ColorButton(eo, c => { t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b; Redraw(); }, t.ColorOverride), 1);
-        AddCell(colors, Txt("inner", 11, "#9a9aaa"), 2);
+        AddCell(colors, Tx("inner", "hint"), 2);
         AddCell(colors, ColorButton(ei, c => { t.InnerR = c.r; t.InnerG = c.g; t.InnerB = c.b; Redraw(); }, t.ColorOverride), 3);
         sp.Children.Add(colors);
         useAff.IsCheckedChanged += (_, _) =>
@@ -857,7 +848,7 @@ public partial class MainWindow
         sp.Children.Add(FieldLabel("placed"));
         var perMap = _project.Maps.Select(m => (m.Name, n: m.Doc.Pawns.Values.Count(p => p.TemplateId == t.Id))).ToList();
         int here = _doc.Pawns.Values.Count(p => p.TemplateId == t.Id);
-        var counts = new Border { Background = Hx("#262632"), CornerRadius = new CornerRadius(4), Padding = new Thickness(8, 6) };
+        var counts = new Border { Classes = { "infobox" } };
         var cg = new StackPanel { Spacing = 2 };
         cg.Children.Add(CountLine("this map", here, true));
         cg.Children.Add(CountLine("campaign", perMap.Sum(x => x.n), true));
@@ -903,8 +894,13 @@ public partial class MainWindow
     private static Control CountLine(string label, int n, bool strong)
     {
         var g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        g.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = Hx(strong ? "#e6e6ee" : "#9a9aaa"), TextTrimming = TextTrimming.CharacterEllipsis });
-        var v = Txt($"×{n}", 12, n > 0 ? "#c8c8d4" : "#8a8a98");
+        var l = Tx(label, strong ? "body" : "muted");
+        l.TextWrapping = TextWrapping.NoWrap;
+        l.TextTrimming = TextTrimming.CharacterEllipsis;
+        g.Children.Add(l);
+        var v = Tx($"×{n}", "count");
+        v.Classes.Set("zero", n == 0);
+        v.FontSize = 12;
         Grid.SetColumn(v, 1);
         g.Children.Add(v);
         return g;
@@ -920,17 +916,17 @@ public partial class MainWindow
         sp.Children.Add(new TextBlock
         {
             Text = "pawns that use affiliation colors take both rings from here. pawns with their own colors keep them. Player, Ally, Enemy and Neutral cannot be renamed or deleted.",
-            FontSize = 12, Foreground = Hx("#9a9aaa"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
+            Classes = { "muted" }, Margin = new Thickness(0, 0, 0, 6),
         });
-        var head = new Grid { ColumnDefinitions = new ColumnDefinitions(AffCols), ColumnSpacing = 10, Margin = new Thickness(8, 0, 8, 4) };
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions(AffCols), ColumnSpacing = 10 };
         string[] hs = { "look", "name", "outer", "inner", "pawns", "" };
         for (int i = 0; i < hs.Length; i++)
         {
-            var h = Txt(hs[i], 10, "#8a8a9a");
+            var h = Tx(hs[i], "colhead");
             if (i == 4) h.HorizontalAlignment = HorizontalAlignment.Right;
             AddCell(head, h, i);
         }
-        sp.Children.Add(new Border { Child = head, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) });
+        sp.Children.Add(new Border { Child = head, Classes = { "colhead" }, Margin = new Thickness(0) });
 
         var rows = new StackPanel { Spacing = 6 };
         foreach (var ac in ActivePresets.AffiliationColors.ToList())
@@ -965,12 +961,12 @@ public partial class MainWindow
         }
 
         bool fixedName = IsDefaultAffiliation(ac.Name);
-        var name = new TextBox { Text = ac.Name, FontSize = 13, IsReadOnly = fixedName, Background = Hx("#14141a"), BorderBrush = Hx("#50505c"), VerticalAlignment = VerticalAlignment.Center, Opacity = fixedName ? 0.7 : 1 };
+        var name = new TextBox { Text = ac.Name, Classes = { "field" }, FontSize = 13, IsReadOnly = fixedName, VerticalAlignment = VerticalAlignment.Center, Opacity = fixedName ? 0.7 : 1 };
         name.TextChanged += (_, _) =>
         {
             var nn = (name.Text ?? "").Trim();
             bool ok = nn.Length > 0 && !IsDefaultAffiliation(nn) && !ActivePresets.AffiliationColors.Any(a => a != ac && a.Name == nn);
-            name.BorderBrush = Hx(ok ? "#50505c" : "#d05a5a");
+            name.Classes.Set("clash", !ok);
             if (!ok || nn == ac.Name) return;
             // renaming carries the pawns along with it
             foreach (var t in ActiveLibrary.Pawns)
@@ -985,7 +981,7 @@ public partial class MainWindow
         AddCell(g, ColorButton((ac.OuterR, ac.OuterG, ac.OuterB), c => { ac.OuterR = c.r; ac.OuterG = c.g; ac.OuterB = c.b; Changed(); }), 2);
         AddCell(g, ColorButton((ac.InnerR, ac.InnerG, ac.InnerB), c => { ac.InnerR = c.r; ac.InnerG = c.g; ac.InnerB = c.b; Changed(); }), 3);
         int n = ActiveLibrary.Pawns.Count(t => PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name);
-        var cnt = Txt($"{n}", 12, "#c8c8d4");
+        var cnt = Tx($"{n}", "body");
         cnt.HorizontalAlignment = HorizontalAlignment.Right;
         AddCell(g, cnt, 4);
         if (!fixedName)
@@ -994,7 +990,7 @@ public partial class MainWindow
             del.Click += (_, _) => DeleteAffiliationWithWarning(ac, del);
             AddCell(g, del, 5);
         }
-        return new Border { Child = g, Height = 44, Padding = new Thickness(8, 0), CornerRadius = new CornerRadius(4), Background = Hx("#262632") };
+        return new Border { Child = g, Classes = { "row", "tall" } };
     }
 
     // ---------- status styles tab ----------
@@ -1007,12 +1003,12 @@ public partial class MainWindow
         sp.Children.Add(new TextBlock
         {
             Text = "a status draws a colored ring around the pawn. thickness 0 hides the ring. \"none\" cannot be deleted.",
-            FontSize = 12, Foreground = Hx("#9a9aaa"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
+            Classes = { "muted" }, Margin = new Thickness(0, 0, 0, 6),
         });
-        var head = new Grid { ColumnDefinitions = new ColumnDefinitions(StatusCols), ColumnSpacing = 10, Margin = new Thickness(8, 0, 8, 4) };
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions(StatusCols), ColumnSpacing = 10 };
         string[] hs = { "look", "name", "color", "thickness", "" };
-        for (int i = 0; i < hs.Length; i++) AddCell(head, Txt(hs[i], 10, "#8a8a9a"), i);
-        sp.Children.Add(new Border { Child = head, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) });
+        for (int i = 0; i < hs.Length; i++) AddCell(head, Tx(hs[i], "colhead"), i);
+        sp.Children.Add(new Border { Child = head, Classes = { "colhead" }, Margin = new Thickness(0) });
 
         var rowsHost = new StackPanel { Spacing = 6 };
         var dupMarks = new List<(PawnStatus st, TextBox box)>();
@@ -1023,7 +1019,7 @@ public partial class MainWindow
             foreach (var (st, box) in dupMarks)
             {
                 bool dup = counts[st.Name] > 1;
-                box.BorderBrush = Hx(dup ? "#d05a5a" : "#50505c");
+                box.Classes.Set("clash", dup);
                 ToolTip.SetTip(box, dup ? "another status has this name" : null);
             }
         }
@@ -1035,7 +1031,7 @@ public partial class MainWindow
             void Look()
             {
                 var gg = new Grid { Width = 30, Height = 30 };
-                gg.Children.Add(new Ellipse { Width = 30, Height = 30, Fill = Hx("#8a8a98") });
+                gg.Children.Add(new Ellipse { Width = 30, Height = 30, Classes = { "look" } });
                 if (st.Thickness > 0) gg.Children.Add(new Ellipse { Width = 30, Height = 30, Stroke = Rgb((st.R, st.G, st.B)), StrokeThickness = Math.Min(st.Thickness, 6) });
                 look.Child = gg;
             }
@@ -1043,7 +1039,7 @@ public partial class MainWindow
             g.Children.Add(look);
 
             bool isNone = st.Name == "none";
-            var name = new TextBox { Text = st.Name, FontSize = 13, IsReadOnly = isNone, Background = Hx("#14141a"), BorderBrush = Hx("#50505c"), VerticalAlignment = VerticalAlignment.Center, Opacity = isNone ? 0.7 : 1 };
+            var name = new TextBox { Text = st.Name, Classes = { "field" }, FontSize = 13, IsReadOnly = isNone, VerticalAlignment = VerticalAlignment.Center, Opacity = isNone ? 0.7 : 1 };
             name.TextChanged += (_, _) =>
             {
                 var old = st.Name;
@@ -1072,7 +1068,7 @@ public partial class MainWindow
                 AddCell(g, del, 4);
             }
             dupMarks.Add((st, name));
-            rowsHost.Children.Add(new Border { Child = g, Height = 44, Padding = new Thickness(8, 0), CornerRadius = new CornerRadius(4), Background = Hx("#262632") });
+            rowsHost.Children.Add(new Border { Child = g, Classes = { "row", "tall" } });
         }
         UpdateDuplicates();
         sp.Children.Add(new ScrollViewer { Content = rowsHost, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
@@ -1136,20 +1132,12 @@ public partial class MainWindow
         bool hideHave = false;
 
         _modalKind = "import";
-        ModalOverlay.Width = 620;
-        ModalOverlay.Height = 640;
         var root = new DockPanel { Margin = new Thickness(12) };
-
-        var head = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 10) };
-        head.Children.Add(new TextBlock { Text = "Import pawns", FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee") });
-        head.Children.Add(new TextBlock { Text = $"from {System.IO.Path.GetFileName(path)} · {incoming.Count} pawns in file", FontSize = 12, Foreground = Hx("#9a9aaa"), TextTrimming = TextTrimming.CharacterEllipsis });
-        DockPanel.SetDock(head, Dock.Top);
-        root.Children.Add(head);
 
         var tools = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10, Margin = new Thickness(0, 0, 0, 8) };
         var sbox = SearchBox("search", "");
         tools.Children.Add(sbox);
-        var hide = new CheckBox { Content = Txt("hide ones I already have", 12, "#c8c8d4") };
+        var hide = new CheckBox { Content = "hide ones I already have", Classes = { "toggle" } };
         AddCell(tools, hide, 1);
         DockPanel.SetDock(tools, Dock.Top);
         root.Children.Add(tools);
@@ -1160,31 +1148,30 @@ public partial class MainWindow
 
         Grid RowGrid() => new() { ColumnDefinitions = new ColumnDefinitions("22,22,*,78,130"), ColumnSpacing = 8 };
         var colHead = RowGrid();
-        colHead.Margin = new Thickness(6, 0, 6, 4);
         var all = new CheckBox { MinWidth = 0, Padding = new Thickness(0) };
         ToolTip.SetTip(all, "select all shown");
         colHead.Children.Add(all);
-        AddCell(colHead, Txt("name", 10, "#8a8a9a"), 2);
-        AddCell(colHead, Txt("affiliation", 10, "#8a8a9a"), 3);
-        var headB = new Border { Child = colHead, BorderBrush = Hx("#33333e"), BorderThickness = new Thickness(0, 0, 0, 1) };
+        AddCell(colHead, Tx("name", "colhead"), 2);
+        AddCell(colHead, Tx("affiliation", "colhead"), 3);
+        var headB = new Border { Child = colHead, Classes = { "colhead" }, Padding = new Thickness(6, 0, 6, 4), Margin = new Thickness(0) };
         DockPanel.SetDock(headB, Dock.Top);
         root.Children.Add(headB);
 
         var buttons = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto"), ColumnSpacing = 6 };
         var cancel = Btn("cancel");
-        cancel.Background = Hx("#00000000");
+        cancel.Background = Brushes.Transparent;
         buttons.Children.Add(cancel);
         var importAll = Btn($"import all ({incoming.Count})");
         AddCell(buttons, importAll, 2);
         var importSel = Btn("", primary: true);
         AddCell(buttons, importSel, 3);
-        var btnBorder = new Border { Child = buttons, BorderBrush = Hx("#444450"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 10, 0, 0) };
+        var btnBorder = new Border { Child = buttons, Classes = { "footer" }, Padding = new Thickness(0, 10, 0, 0) };
         DockPanel.SetDock(btnBorder, Dock.Bottom);
         root.Children.Add(btnBorder);
         var note = new TextBlock
         {
             Text = "pawns you already have (same name and look) start unticked. a different look under the same name imports as a separate pawn.",
-            FontSize = 11, Foreground = Hx("#8a8a9a"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8),
+            Classes = { "small" }, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Bottom);
         root.Children.Add(note);
@@ -1227,22 +1214,32 @@ public partial class MainWindow
                 var icon = PawnIcon(t, 18, ownColors: true);
                 icon.Opacity = have ? 0.45 : 1;
                 AddCell(g, icon, 1);
-                AddCell(g, new TextBlock { Text = PawnName(t), FontSize = 12, Foreground = Hx(have ? "#7a7a88" : "#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }, 2);
-                AddCell(g, Txt(PawnTemplate.NormalizeAffiliation(t.Affiliation), 11, "#b0b0be"), 3);
+                var nameTb = Tx(PawnName(t), "body");
+                nameTb.Classes.Set("faint", have);
+                nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
+                AddCell(g, nameTb, 2);
+                AddCell(g, Tx(PawnTemplate.NormalizeAffiliation(t.Affiliation), "dim"), 3);
                 var (nt, nc) = kind switch
                 {
-                    PawnLibrary.ImportKind.Have => ("already in library", "#7a7a88"),
-                    PawnLibrary.ImportKind.NewLook => ("same name, new look", "#ffcc33"),
-                    _ => ("new", "#8fd18f"),
+                    PawnLibrary.ImportKind.Have => ("already in library", "faint"),
+                    PawnLibrary.ImportKind.NewLook => ("same name, new look", "warn"),
+                    _ => ("new", "ok"),
                 };
-                var noteTb = Txt(nt, 10, nc);
+                var noteTb = Tx(nt, nc);
+                noteTb.FontSize = 10;
                 noteTb.HorizontalAlignment = HorizontalAlignment.Right;
                 AddCell(g, noteTb, 4);
-                var row = new Border { Child = g, Height = 27, Padding = new Thickness(6, 0), CornerRadius = new CornerRadius(4), Background = Hx(have ? "#00000000" : "#262632") };
+                var row = new Border { Child = g, Classes = { "row", "dense" } };
+                row.Classes.Set("faded", have);
                 row.PointerPressed += (_, _) => { if (!picked.Add(t)) picked.Remove(t); Rebuild(); };
                 list.Children.Add(row);
             }
-            if (shown.Count == 0) list.Children.Add(new TextBlock { Text = "nothing matches", FontSize = 12, Foreground = Hx("#9a9aaa"), Margin = new Thickness(6) });
+            if (shown.Count == 0)
+            {
+                var none = Tx("nothing matches", "muted");
+                none.Margin = new Thickness(6);
+                list.Children.Add(none);
+            }
             all.IsChecked = shown.Count > 0 && shown.All(picked.Contains);
             importSel.Content = $"import selected ({picked.Count})";
             importSel.IsEnabled = picked.Count > 0;
@@ -1274,7 +1271,6 @@ public partial class MainWindow
         importSel.Click += (_, _) => DoImport(incoming.Where(picked.Contains).ToList());
         Rebuild();
 
-        ModalOverlay.Child = root;
-        ModalOverlay.IsVisible = true;
+        ShowModal(620, 640, "Import pawns", $"from {System.IO.Path.GetFileName(path)} · {incoming.Count} pawns in file", root);
     }
 }

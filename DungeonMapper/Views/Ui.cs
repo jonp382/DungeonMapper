@@ -26,6 +26,14 @@ internal static class Ui
     public static TextBlock Txt(string text, double size = 12, string color = "#e6e6ee") =>
         new() { Text = text, FontSize = size, Foreground = Hx(color), VerticalAlignment = VerticalAlignment.Center };
 
+    // text styled only by classes from Styles/Ui.axaml
+    public static TextBlock Tx(string text, params string[] classes)
+    {
+        var t = new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        foreach (var c in classes) t.Classes.Add(c);
+        return t;
+    }
+
     // small grey label that sits above its control
     public static TextBlock FieldLabel(string text) => new() { Text = text, Classes = { "label" } };
 
@@ -63,53 +71,20 @@ internal static class Ui
     {
         var sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         if (dot is not null) sp.Children.Add(dot);
-        sp.Children.Add(Txt(label, 11));
-        var b = new Button
-        {
-            Content = sp,
-            Padding = new Thickness(7, 2),
-            CornerRadius = new CornerRadius(10),
-            BorderThickness = new Thickness(1),
-            Background = Hx(active ? "#3a3a46" : "#00000000"),
-            BorderBrush = Hx(active ? "#6a6a7a" : "#50505c"),
-            Margin = new Thickness(0, 0, 4, 4),
-        };
+        sp.Children.Add(new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center });
+        var b = new Button { Content = sp, Classes = { "chip" } };
+        if (active) b.Classes.Add("on");
         b.Click += (_, _) => onClick();
         return b;
-    }
-
-    // a header tab: the selected one is filled with an accent line at the bottom
-    public static Button Tab(string label, bool on, Action onClick)
-    {
-        var tab = new Button
-        {
-            Content = label,
-            FontSize = 12,
-            Padding = new Thickness(12, 6),
-            CornerRadius = new CornerRadius(4, 4, 0, 0),
-            Foreground = Hx(on ? "#ffffff" : "#9a9aaa"),
-            Background = Hx(on ? "#2e2e3a" : "#00000000"),
-            BorderBrush = Hx(on ? "#444450" : "#00000000"),
-            BorderThickness = on ? new Thickness(1, 1, 1, 2) : new Thickness(1),
-            VerticalAlignment = VerticalAlignment.Bottom,
-        };
-        if (on) tab.BorderBrush = new LinearGradientBrush
-        {
-            StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
-            EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
-            GradientStops = { new GradientStop(Color.Parse("#444450"), 0.9), new GradientStop(Color.Parse("#5a7fd0"), 0.9) },
-        };
-        tab.Click += (_, _) => onClick();
-        return tab;
     }
 
     // a small crosshair drawn with shapes so it does not depend on font glyphs
     public static Button LocateButton(string tip, Action onClick)
     {
         var g = new Grid { Width = 12, Height = 12 };
-        g.Children.Add(new Ellipse { Width = 10, Height = 10, Stroke = Hx("#b0b0be"), StrokeThickness = 1.2, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        g.Children.Add(new Ellipse { Width = 3, Height = 3, Fill = Hx("#b0b0be"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
-        var b = new Button { Content = g, Padding = new Thickness(3), Background = Hx("#00000000"), BorderThickness = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+        g.Children.Add(new Ellipse { Width = 10, Height = 10, Classes = { "ring" }, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        g.Children.Add(new Ellipse { Width = 3, Height = 3, Classes = { "dot" }, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
+        var b = new Button { Content = g, Classes = { "locate" } };
         ToolTip.SetTip(b, tip);
         b.Click += (_, _) => onClick();
         return b;
@@ -117,14 +92,8 @@ internal static class Ui
 
     public static Button StarButton(bool on, Action onClick, double size = 13)
     {
-        var b = new Button
-        {
-            Content = new TextBlock { Text = "★", FontSize = size, Foreground = Hx(on ? "#ffcc33" : "#4a4a56") },
-            Padding = new Thickness(2, 0),
-            Background = Hx("#00000000"),
-            BorderThickness = new Thickness(0),
-            VerticalAlignment = VerticalAlignment.Center,
-        };
+        var b = new Button { Content = "★", FontSize = size, Classes = { "star" } };
+        if (on) b.Classes.Add("on");
         ToolTip.SetTip(b, on ? "remove from favorites" : "add to favorites");
         b.Click += (_, _) => onClick();
         return b;
@@ -205,21 +174,11 @@ internal static class Ui
     public static Button ColorButton((int r, int g, int b) c, Action<(int r, int g, int b)> onChange, bool enabled = true)
     {
         var sw = new Border { Width = 20, Height = 20, CornerRadius = new CornerRadius(3), Background = Rgb(c) };
-        var hex = Txt(HexOf(c), 11, "#b0b0be");
+        var hex = new TextBlock { Text = HexOf(c), Classes = { "hex" } };
         var sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         sp.Children.Add(sw);
         sp.Children.Add(hex);
-        var b = new Button
-        {
-            Content = sp,
-            Padding = new Thickness(5, 3),
-            Background = Hx("#00000000"),
-            BorderBrush = Hx("#50505c"),
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(4),
-            IsEnabled = enabled,
-            Opacity = enabled ? 1 : 0.45,
-        };
+        var b = new Button { Content = sp, Classes = { "color" }, IsEnabled = enabled };
         void Set((int r, int g, int b) v)
         {
             sw.Background = Rgb(v);
