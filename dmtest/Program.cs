@@ -2946,5 +2946,20 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(at != off, "pawns only: the ghost shows the pawn under the cursor");
 }
 
+// --- stair delete takes the whole connected group ---
+{
+    var d = new MapDocument();
+    for (int x = 0; x < 4; x++) d.Stairs[new CellKey(x, 0)] = new Stair();
+    d.Stairs[new CellKey(8, 0)] = new Stair();
+    Check(d.RemoveConnectedStairs(new CellKey(2, 0)) == 4 && d.Stairs.Count == 1 && d.Stairs.ContainsKey(new CellKey(8, 0)),
+        "stair delete: removes the connected group and leaves a separate stair");
+    var w = new MapDocument();
+    for (int x = 0; x < 4; x++) w.Stairs[new CellKey(x, 0)] = new Stair();
+    w.SetWall(EdgeKey.Normalize(new CellKey(1, 0), Side.East), true);
+    Check(w.RemoveConnectedStairs(new CellKey(0, 0)) == 2 && w.Stairs.ContainsKey(new CellKey(2, 0)),
+        "stair delete: a wall splits the group, the far side stays");
+    Check(w.RemoveConnectedStairs(new CellKey(9, 9)) == 0, "stair delete: no stair, nothing removed");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

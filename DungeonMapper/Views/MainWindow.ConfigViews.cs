@@ -167,9 +167,12 @@ public partial class MainWindow
             },
             "direction");
         ToolPanel.AddInfo(StairConfigInfo(_doc.ConnectedStairs(cell).Count));
+        // delete takes the whole connected group, a single stair is removed
+        // with the erase tool instead
         AddActions(("delete", true, () =>
         {
-            if (_doc.Stairs.Remove(cell)) AfterDelete("stair");
+            int n = _doc.RemoveConnectedStairs(cell);
+            if (n > 0) AfterDelete(n == 1 ? "stair" : $"{n} stairs");
         }));
 
         SetReopen(() =>

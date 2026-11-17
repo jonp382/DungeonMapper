@@ -1536,6 +1536,16 @@ public sealed class MapDocument
     /// stair updates every stair in the same contiguous group. A wall on the
     /// shared edge blocks propagation: a stair row split by a wall is two
     /// separate groups. Doors imply walls, so a door on the edge blocks too.
+    /// Removes the stair at start and every stair connected to it (same rules
+    /// as ConnectedStairs). Returns how many were removed.
+    public int RemoveConnectedStairs(CellKey start)
+    {
+        var group = ConnectedStairs(start).ToHashSet(ReferenceEqualityComparer.Instance);
+        var cells = Stairs.Where(kv => group.Contains(kv.Value)).Select(kv => kv.Key).ToList();
+        foreach (var c in cells) Stairs.Remove(c);
+        return cells.Count;
+    }
+
     public List<Stair> ConnectedStairs(CellKey start)
     {
         var result = new List<Stair>();
