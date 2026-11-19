@@ -3581,5 +3581,119 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- measure tool ---
+{
+    // math: straight line is pythagoras, readout gives cells and feet
+    Check(MapCanvas.FormatCells(10) == "10 cells (50 ft)", "measure: whole cells print without a decimal");
+    Check(MapCanvas.FormatCells(Math.Sqrt(18)) == "4.2 cells (21.2 ft)", "measure: one decimal for cells and feet");
+    Check(MapCanvas.FormatCells(1) == "1 cell (5 ft)", "measure: one cell is singular");
+    var r1 = MapCanvas.CellsInRadius(new Point(5.5, 5.5), 1);
+    Check(r1.Count == 5, "measure: radius 1 from a cell center is a plus (center inside or on the circle)");
+    Check(MapCanvas.CellsInRadius(new Point(5.5, 5.5), 2).Count == 13, "measure: radius 2 from a center catches 13 cells");
+    Check(MapCanvas.CellsInRadius(new Point(5, 5), 1).Count == 4, "measure: radius 1 from a corner catches the 4 touching cells");
+    Check(MapCanvas.CellsInRadius(new Point(5.5, 5.5), 0).Count == 0, "measure: radius 0 catches nothing");
+
+    using var h = new CanvasHarness();
+    h.Canvas.Mode = ToolMode.Measure;
+    int commits = h.CommitCount;
+
+    // line, cell centers
+    h.Drag(1, 1, 4, 5);
+    var leg = h.Canvas.MeasureLeg();
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Line && leg.h == 3 && leg.v == 4 && Math.Abs(leg.straight - 5) < 1e-9,
+        "measure: a drag measures horizontal 3, vertical 4, straight 5");
+    Check(h.Canvas.MeasureReadout()[0] == "5 cells (25 ft)", "measure: readout leads with the straight line");
+    Check(h.Canvas.MeasurePoints[0] == new Point(1.5, 1.5), "measure: ends snap to cell centers by default");
+
+    // waypoint
+    h.DragMods(4, 5, 4, 8, Avalonia.Input.RawInputModifiers.Control);
+    Check(h.Canvas.MeasureLegCount == 2 && Math.Abs(h.Canvas.MeasurePathTotal() - 8) < 1e-9 && h.Canvas.MeasureLeg().v == 3,
+        "measure: ctrl+drag adds a leg, path total 8, current leg 3");
+    Check(h.Canvas.MeasureReadout().Any(l => l.StartsWith("path total 8 cells (40 ft)")), "measure: readout shows the path total");
+    h.DragMods(4, 8, 6, 8, Avalonia.Input.RawInputModifiers.Control);
+    Check(h.Canvas.MeasureLegCount == 3, "measure: another ctrl+drag adds a third leg");
+    h.Drag(2, 2, 3, 2);
+    Check(h.Canvas.MeasureLegCount == 1, "measure: a plain drag starts over");
+
+    // corners
+    h.Canvas.MeasureCorners = true;
+    h.Canvas.ClearMeasure();
+    h.PressW(1.1, 1.2); h.MoveToAt(h.ScreenWorld(3.9, 1.1)); h.ReleaseW(3.9, 1.1);
+    Check(h.Canvas.MeasurePoints[0] == new Point(1, 1) && h.Canvas.MeasurePoints[1] == new Point(4, 1), "measure: corners chip snaps ends to grid corners");
+    h.Canvas.MeasureCorners = false;
+
+    // radius from a pawn
+    h.Doc.Pawns[new CellKey(5, 5)] = new Pawn { Cell = new CellKey(5, 5), TemplateId = "a" };
+    h.Doc.Pawns[new CellKey(7, 5)] = new Pawn { Cell = new CellKey(7, 5), TemplateId = "b" };
+    h.Doc.Pawns[new CellKey(8, 8)] = new Pawn { Cell = new CellKey(8, 8), TemplateId = "c" };
+    h.Drag(5, 5, 5, 8);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 3 && h.Canvas.MeasureCenter == new Point(5.5, 5.5),
+        "measure: dragging out from a pawn gives a whole cell radius of 3");
+    var caught = h.Canvas.MeasureCaughtPawns().Select(p => p.TemplateId).OrderBy(x => x).ToList();
+    Check(caught.SequenceEqual(new[] { "a", "b" }), "measure: pawns inside the radius are caught, the one outside is not");
+    Check(h.Canvas.MeasureReadout()[1] == "2 pawns inside", "measure: readout counts the pawns inside");
+
+    // pawn to pawn
+    h.Drag(5, 5, 8, 8);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Line && h.Canvas.MeasureLeg().h == 3 && h.Canvas.MeasureLeg().v == 3,
+        "measure: dragging from a pawn onto another pawn measures the line between them");
+    h.Press(5, 5); h.MoveTo(8, 8); h.MoveTo(5, 9); h.Release(5, 9);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 4, "measure: moving off the other pawn goes back to a radius");
+
+    // shift+drag radius from empty floor
+    h.DragMods(2, 10, 2, 12, Avalonia.Input.RawInputModifiers.Shift);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureCenter == new Point(2.5, 10.5) && h.Canvas.MeasureRadius == 2,
+        "measure: shift+drag from an empty cell gives a radius");
+    h.DragMods(5, 5, 5, 7, Avalonia.Input.RawInputModifiers.Shift);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 2, "measure: shift+drag on a pawn is a radius too");
+
+    // pixels: shaded caught cell, ring
+    h.Drag(5, 5, 5, 7);
+    var bmp = h.Render();
+    var msp = h.ScreenOf(5, 6);
+    var px = h.PixelAt(bmp, (int)msp.X, (int)msp.Y + 8);
+    Check(px.r > px.b + 40, "measure: a caught cell is shaded in the measure color");
+
+    // reading only
+    Check(h.CommitCount == commits && h.Doc.Pawns.Count == 3 && h.Doc.Cells.Count == 0, "measure: no commits (no undo steps) and the map is untouched");
+    h.Canvas.ClearMeasure();
+    Check(!h.Canvas.HasMeasure, "measure: clear removes the measurement");
+
+    // settings
+    var d = AppSettings.Default();
+    Check(d.ToolHotkeys["Measure"] == "G" && d.ToolHotkeys.Values.Count(v => v == "G") == 1, "measure: hotkey G by default, used by nothing else");
+    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"measure_shade_opacity\":500,\"measure_r\":10}")!;
+    Check(imp.MeasureShadeOpacity == 100 && imp.MeasureR == 10, "measure: settings import clamps the shading and keeps the color");
+}
+
+// --- measure tool: window smoke test ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        step = "measure panel"; Call("SetTool", ToolMode.Measure);
+        var info = (Avalonia.Controls.TextBlock?)t.GetField("_measureInfo", flags)!.GetValue(w);
+        Check(info?.Text == "nothing measured yet", "measure: panel builds with an empty readout");
+        canvas.Library.Pawns.Add(new PawnTemplate { Id = "m1", Name = "orc", Affiliation = "Enemy" });
+        canvas.Document.Pawns[new CellKey(3, 3)] = new Pawn { Cell = new CellKey(3, 3), TemplateId = "m1" };
+        step = "settings"; Call("ShowSettings"); Call("CloseSettings");
+        step = "tool switch"; Call("SetTool", ToolMode.Room);
+        Check(!canvas.HasMeasure, "measure: a tool switch clears the measurement");
+        Check(true, "measure: window views build without errors");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"measure: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

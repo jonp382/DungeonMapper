@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -1106,6 +1106,7 @@ public sealed partial class MapCanvas : Control
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
         DrawFormationOverlay(ctx);
+        DrawMeasureOverlay(ctx);
     }
 
     // ---- drag preview ----
@@ -1658,6 +1659,7 @@ public sealed partial class MapCanvas : Control
         var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
         // an area pick or an armed formation takes the click in any tool
         if (FormationPressed(e, cell)) return;
+        if (MeasurePressed(e, world, cell)) return;
 
         switch (Mode)
         {
@@ -1905,6 +1907,7 @@ public sealed partial class MapCanvas : Control
         var world = ScreenToWorld(e.GetPosition(this));
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
+        if (MeasureMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
@@ -1996,6 +1999,7 @@ public sealed partial class MapCanvas : Control
         }
         if (FormationReleased(e)) return;
         if (ObjectReleased(e)) return;
+        if (MeasureReleased(e)) return;
 
         if (_pawnDragging)
         {

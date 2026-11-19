@@ -137,6 +137,14 @@ public partial class MainWindow : Window
             BorderBrush = new SolidColorBrush(Color.FromRgb(216, 216, 224)), BorderThickness = new Thickness(1.5),
         });
         SetIcon(ToolErase, PngIcon("DMErase"));
+        // no png for measure yet: a drawn ruler line with end ticks
+        SetIcon(ToolMeasure, new Avalonia.Controls.Shapes.Path
+        {
+            Width = 20, Height = 20, Stretch = Stretch.None,
+            Data = Geometry.Parse("M4,16 L16,4 M2,14 L6,18 M14,2 L18,6 M8,10 L10,12 M11,7 L13,9"),
+            Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
+            StrokeLineCap = PenLineCap.Round,
+        });
         SetIcon(BtnManageMaps, PngIcon("DMMaps", 18));
         ToolTip.SetTip(BtnManageMaps, "Manage maps");
         ToolTip.SetTip(MapList, "Switch map");
@@ -164,6 +172,7 @@ public partial class MainWindow : Window
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
         ToolObject.Click += (_, _) => SetTool(ToolMode.Object);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
+        ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
 
 
         // file and manage menus
@@ -194,6 +203,7 @@ public partial class MainWindow : Window
 
         // settings, door presets and hotkeys modal popups
         InitSettings();
+        InitMeasure();
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
@@ -316,6 +326,8 @@ public partial class MainWindow : Window
             { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Wall && !IsTyping())
             { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
+            if (Canvas.Mode == ToolMode.Measure && Canvas.HasMeasure && !IsTyping())
+            { Canvas.ClearMeasure(); e.Handled = true; return; }
         }
         else if (e.Key == Key.R && Canvas.FormationArmed && !IsTyping())
         {
@@ -400,6 +412,7 @@ public partial class MainWindow : Window
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
         LabelTool(ToolObject, "Object");
+        LabelTool(ToolMeasure, "Measure");
         // the view menu shows the zoom to fit letter, display only
         MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
             ? new KeyGesture(fit) : null;
@@ -418,6 +431,7 @@ public partial class MainWindow : Window
         ToolMode.Erase => ToolErase,
         ToolMode.Pawn => ToolPawn,
         ToolMode.Object => ToolObject,
+        ToolMode.Measure => ToolMeasure,
         _ => ToolPolygon,
     };
 
@@ -473,6 +487,7 @@ public partial class MainWindow : Window
         Canvas.ArmedPawn = null;
         Canvas.ArmedObject = null;
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
+        Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
@@ -486,6 +501,7 @@ public partial class MainWindow : Window
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
             ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
+            ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. drag out from a pawn (or shift+drag) for a radius. esc clears",
             _ => "",
         };
         PopulatePanel(mode);

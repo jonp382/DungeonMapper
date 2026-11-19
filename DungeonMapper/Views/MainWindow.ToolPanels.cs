@@ -19,6 +19,7 @@ public partial class MainWindow
     private void PopulatePanel(ToolMode mode)
     {
         _toolInfo = null;
+        _measureInfo = null;
         // the resize handles belong to an open object view
         if (Canvas.SelectedObjectId is not null) { Canvas.SelectedObjectId = null; Canvas.Refresh(); }
         switch (mode)
@@ -91,6 +92,10 @@ public partial class MainWindow
 
             case ToolMode.Object:
                 BuildObjectPanel();
+                break;
+
+            case ToolMode.Measure:
+                BuildMeasurePanel();
                 break;
 
             case ToolMode.Polygon:

@@ -184,6 +184,13 @@ public sealed class AppSettings
     [JsonPropertyName("label_r")] public int LabelR { get; set; } = 250;
     [JsonPropertyName("label_g")] public int LabelG { get; set; } = 250;
     [JsonPropertyName("label_b")] public int LabelB { get; set; } = 250;
+    // measure tool (range finder): line, circle and readout color, and how
+    // strongly the cells caught by a radius are shaded (percent, 0 to 100)
+    [JsonPropertyName("measure_r")] public int MeasureR { get; set; } = 255;
+    [JsonPropertyName("measure_g")] public int MeasureG { get; set; } = 200;
+    [JsonPropertyName("measure_b")] public int MeasureB { get; set; } = 40;
+    [JsonPropertyName("measure_shade_opacity")] public int MeasureShadeOpacity { get; set; } = 35;
+    public const int MaxMeasureShadeOpacity = 100;
 
     // Autosave interval in minutes; 0 = autosave off. Writes to
     // maps/autosaves/ with a standardized name (index + datetime stamp).
@@ -220,6 +227,7 @@ public sealed class AppSettings
             ["Polygon"] = "N",
             ["Object"] = "O",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
+            ["Measure"] = "G",
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
         };
@@ -344,6 +352,7 @@ public sealed class AppSettings
         s.AutosaveMinutes = Math.Clamp(s.AutosaveMinutes, 0, MaxAutosaveMinutes);
         s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
         s.DoorWallGap = Math.Clamp(s.DoorWallGap, 0, MaxDoorWallGap);
+        s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
         // hotkeys: only known tools, each a single letter a to z (what the
         // hotkeys menu allows); anything else falls back to the default

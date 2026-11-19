@@ -26,6 +26,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
+| Measure | G | Drag to measure a distance, or drag out from a pawn for a spell radius. See [Measuring](#measuring). |
 
 You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
@@ -74,6 +75,17 @@ Objects are things in a room that take up space, such as statues, paintings or r
 Each type has a look: a solid color, a gradient, a radial fade, stripes, a checker, an outline, or a picture. It can also have a border, with its own color and thickness, and show its name or initials. A picture is saved once in the campaign file however many objects use it. Pictures can be PNG, JPG, WEBP, GIF or BMP, and transparent parts show the map through unless you pick a fill color to go behind them. A placed object uses its type's look unless you turn off "use the type's look" for it and give it its own. A placed object can also have its own name.
 
 The object panel lists your types with how many are on the map and a button that jumps to each one. The select, move, copy and paste, rotate and erase tools work on objects too. Rotating swaps an object's width and height. The eraser removes any object it touches when "objects" is on.
+
+## Measuring
+
+The measure tool only reads the map. It never changes anything, adds an undo step or counts as an unsaved change. Distances show in cells and feet (5 ft per cell).
+
+- **Distance:** drag between two points. The readout shows the straight line distance and its horizontal and vertical parts.
+- **Waypoints:** Ctrl+click or Ctrl+drag adds another leg from the end of the line. The readout shows the current leg and the path total.
+- **Spell radius:** drag out from a pawn, or Shift+drag from any spot. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, and the pawns in them get a ring. The side panel lists those pawns by affiliation.
+- **Pawn to pawn:** drag from one pawn onto another to get the distance between them.
+- Ends snap to cell centers. The "cell corners" chip in the side panel snaps them to grid corners instead.
+- A measurement stays on screen until you press Esc, switch tools, start a new one or click **clear**. The color and shading strength are in settings.
 
 ## Saving and safety
 

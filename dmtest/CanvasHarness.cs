@@ -68,6 +68,14 @@ public sealed class CanvasHarness : IDisposable
         Release(x1, y1);
     }
 
+    /// a drag with modifier keys held (ctrl, shift) the whole way
+    public void DragMods(int x0, int y0, int x1, int y1, RawInputModifiers mods)
+    {
+        _window.MouseDown(ScreenOf(x0, y0), MouseButton.Left, mods);
+        _window.MouseMove(ScreenOf(x1, y1), mods);
+        _window.MouseUp(ScreenOf(x1, y1), MouseButton.Left, mods);
+    }
+
     /// press + release on the same cell (a plain click)
     public void Click(int cx, int cy)
     {

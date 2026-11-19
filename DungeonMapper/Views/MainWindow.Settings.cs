@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -51,6 +52,8 @@ public partial class MainWindow
                 (s, c) => (s.StairColorR, s.StairColorG, s.StairColorB) = c),
             new(SetLabelColor, ResetLabelColor, s => (s.LabelR, s.LabelG, s.LabelB),
                 (s, c) => (s.LabelR, s.LabelG, s.LabelB) = c),
+            new(SetMeasureColor, ResetMeasureColor, s => (s.MeasureR, s.MeasureG, s.MeasureB),
+                (s, c) => (s.MeasureR, s.MeasureG, s.MeasureB) = c),
         ];
         _numberSettings =
         [
@@ -65,6 +68,8 @@ public partial class MainWindow
                 s => s.FloorGridOpacity, (s, v) => s.FloorGridOpacity = v),
             new(SetDoorWallGap, SetDoorWallGapError, ResetDoorWallGap, 0, AppSettings.MaxDoorWallGap,
                 s => s.DoorWallGap, (s, v) => s.DoorWallGap = v),
+            new(SetMeasureShade, SetMeasureShadeError, ResetMeasureShade, 0, AppSettings.MaxMeasureShadeOpacity,
+                s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
         ];
         SetWallThicknessHint.Text = $"pixels, {AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness}.";
         SetAutosaveHint.Text = $"minutes, 0 to {MaxAutosaveMinutes}. 0 turns autosave off.";
@@ -108,21 +113,22 @@ public partial class MainWindow
             RefreshSettings();
         };
 
-        // the slider applies live while dragging and keeps the box in step.
-        // the box is the opacity NumberSetting above, RefreshSettings moves
-        // the slider to whatever the box applied.
-        SetFloorGridOpacitySlider.ValueChanged += (_, _) =>
-        {
-            if (_settingsLoading) return;
-            int v = (int)Math.Round(SetFloorGridOpacitySlider.Value);
-            SetFloorGridOpacity.Text = v.ToString();
-            SetFloorGridOpacity.Classes.Remove("invalid");
-            SetFloorGridOpacityError.IsVisible = false;
-            if (v == _settings.FloorGridOpacity) return;
-            _settings.FloorGridOpacity = v;
-            SettingChanged();
-            RefreshSettingResets();
-        };
+        // a slider applies live while dragging and keeps its box in step.
+        // the box is a NumberSetting above, RefreshSettings moves the slider
+        // to whatever the box applied.
+        foreach (var (slider, number) in SliderSettings())
+            slider.ValueChanged += (_, _) =>
+            {
+                if (_settingsLoading) return;
+                int v = (int)Math.Round(slider.Value);
+                number.Box.Text = v.ToString();
+                number.Box.Classes.Remove("invalid");
+                number.Error.IsVisible = false;
+                if (v == number.Get(_settings)) return;
+                number.Set(_settings, v);
+                SettingChanged();
+                RefreshSettingResets();
+            };
 
         SetShowMinor.IsCheckedChanged += (_, _) =>
         {
@@ -182,12 +188,23 @@ public partial class MainWindow
             c.Host.Content = b;
         }
         SetShowMinor.IsChecked = _settings.ShowMinorGrid;
-        SetFloorGridOpacitySlider.Value = _settings.FloorGridOpacity;
+        foreach (var (slider, number) in SliderSettings()) slider.Value = number.Get(_settings);
         SetLabelText.Text = _settings.DefaultLabelText;
         SetLabelText.Classes.Remove("invalid");
         SetLabelTextError.IsVisible = false;
         RefreshSettingResets();
         _settingsLoading = false;
+    }
+
+    // number rows that also have a slider: the slider applies live while
+    // dragging and keeps the box in step, the box moves the slider
+    private IEnumerable<(Slider slider, NumberSetting number)> SliderSettings()
+    {
+        foreach (var n in _numberSettings)
+        {
+            if (n.Box == SetFloorGridOpacity) yield return (SetFloorGridOpacitySlider, n);
+            else if (n.Box == SetMeasureShade) yield return (SetMeasureShadeSlider, n);
+        }
     }
 
     // a reset button only shows on rows that differ from the default
@@ -220,12 +237,13 @@ public partial class MainWindow
         n.Box.Text = v.ToString();
         if (v == n.Get(_settings)) return;
         n.Set(_settings, v);
-        if (n.Box == SetFloorGridOpacity)
-        {
-            _settingsLoading = true;
-            SetFloorGridOpacitySlider.Value = v;
-            _settingsLoading = false;
-        }
+        foreach (var (slider, number) in SliderSettings())
+            if (number == n)
+            {
+                _settingsLoading = true;
+                slider.Value = v;
+                _settingsLoading = false;
+            }
         SettingChanged();
         RefreshSettingResets();
     }
