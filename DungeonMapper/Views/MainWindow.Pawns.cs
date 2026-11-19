@@ -145,6 +145,8 @@ public partial class MainWindow
         };
         ToolPanel.Target.Children.Add(names);
 
+        AddFormationSection();
+
         _pawnRecentHost = new StackPanel { Spacing = 3 };
         ToolPanel.Target.Children.Add(_pawnRecentHost);
 
@@ -185,6 +187,7 @@ public partial class MainWindow
             }
             _pawnRecentHost.Children.Add(strip);
         }
+        RefreshFormations();
         RefreshPawnList();
     }
 

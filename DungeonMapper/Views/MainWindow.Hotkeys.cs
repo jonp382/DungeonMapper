@@ -27,9 +27,9 @@ public partial class MainWindow
         ("Ctrl+C / Ctrl+X / Ctrl+V", "copy, cut, paste at the cursor"),
         ("Ctrl+F", "search pawns"),
         ("Delete", "erase the selection"),
-        ("R / Shift+R", "rotate a picked up selection"),
+        ("R / Shift+R", "rotate a picked up selection or an armed formation"),
         ("Enter", "close the polygon"),
-        ("Esc", "cancel a move, polygon or wall line, or close a menu"),
+        ("Esc", "cancel a move, polygon, wall line or formation deploy, or close a menu"),
         ("Right drag", "pan"),
         ("Wheel", "zoom"),
     ];
@@ -163,7 +163,9 @@ public partial class MainWindow
     }
 
     private static string HotkeyName(string mode) =>
-        mode == AppSettings.FitHotkey ? "zoom to fit" : mode.ToLowerInvariant();
+        mode == AppSettings.FitHotkey ? "zoom to fit"
+        : mode == AppSettings.FormationHotkey ? "deploy last formation"
+        : mode.ToLowerInvariant();
 
     private void ResetAllHotkeys()
     {

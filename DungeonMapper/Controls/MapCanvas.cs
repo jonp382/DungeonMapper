@@ -1105,6 +1105,7 @@ public sealed partial class MapCanvas : Control
 
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
+        DrawFormationOverlay(ctx);
     }
 
     // ---- drag preview ----
@@ -1655,6 +1656,8 @@ public sealed partial class MapCanvas : Control
 
         var world = ScreenToWorld(e.GetPosition(this));
         var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+        // an area pick or an armed formation takes the click in any tool
+        if (FormationPressed(e, cell)) return;
 
         switch (Mode)
         {
@@ -1900,6 +1903,7 @@ public sealed partial class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
@@ -1990,6 +1994,7 @@ public sealed partial class MapCanvas : Control
             e.Pointer.Capture(null);
             return;
         }
+        if (FormationReleased(e)) return;
         if (ObjectReleased(e)) return;
 
         if (_pawnDragging)
@@ -2255,6 +2260,12 @@ public sealed partial class MapCanvas : Control
         // shift + scroll rotates the armed snapshot instead of zooming: scroll up
         // = counterclockwise, scroll down = clockwise. Only when a snapshot is
         // armed in Move/Select mode; otherwise shift+scroll falls through to zoom.
+        if (e.KeyModifiers == KeyModifiers.Shift && FormationArmed)
+        {
+            RotateFormation(e.Delta.Y > 0 ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
         if (e.KeyModifiers == KeyModifiers.Shift && CanRotate)
         {
             RotateRegion(e.Delta.Y > 0 ? 1 : -1);

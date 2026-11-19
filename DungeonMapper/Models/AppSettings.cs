@@ -192,6 +192,8 @@ public sealed class AppSettings
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     // FitHotkey is the one non tool entry (zoom to fit).
     public const string FitHotkey = "Fit";
+    // also not a tool: deploys the last formation used (Models/Formations.cs)
+    public const string FormationHotkey = "Formation";
     [JsonPropertyName("tool_hotkeys")] public Dictionary<string, string> ToolHotkeys { get; set; } = new();
 
     // New labels start with this text so a placed label is visible (item 1).
@@ -219,6 +221,7 @@ public sealed class AppSettings
             ["Object"] = "O",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             [FitHotkey] = "Z",
+            [FormationHotkey] = "I",
         };
         return s;
     }
@@ -373,6 +376,9 @@ public sealed class AppSettings
 public sealed class PawnLibrary
 {
     [JsonPropertyName("pawns")] public List<PawnTemplate> Pawns { get; set; } = new();
+    // saved formations of this campaign's pawns (Models/Formations.cs). they
+    // travel in the campaign file, not in pawn library export files
+    [JsonIgnore] public List<Formation> Formations { get; set; } = new();
 
     public PawnTemplate? Find(string id) => Pawns.Find(p => p.Id == id);
 

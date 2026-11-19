@@ -34,6 +34,7 @@ You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 | Keys | Action |
 | --- | --- |
 | Z | Zoom to fit |
+| I | Deploy the last formation you used |
 | Ctrl+S | Save |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste at the cursor |
@@ -57,6 +58,14 @@ Any of these can be exported, and they can be imported from another campaign or 
 ## Pawns
 
 Pawns are tokens for characters and monsters. Each one can have a name, a picture, an affiliation color and a status. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
+
+### Formations
+
+A formation saves where a group of pawns stand relative to each other, such as your party's marching order. In the pawn panel, use **+ new** under formations and drag a box around the pawns on the map, then type a name.
+
+Click **deploy** and the formation follows the cursor as a ghost. R or Shift+R turns it, and a click places everyone in one step. Heroes move there from wherever they are, even another map, and keep their status. Other pawns get a new copy. If another pawn is in the way, that cell turns red and nothing is placed until you move the ghost. Landing outside a room is allowed with a warning. Esc cancels.
+
+Click a formation to open it. Tick or untick members to leave someone out (all, none and heroes chips, skip by status, and groups by affiliation help with big formations). You can also rename it, update it from a new area, or delete it. I deploys the last formation you used.
 
 ## Objects
 

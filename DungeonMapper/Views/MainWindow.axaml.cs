@@ -224,6 +224,7 @@ public partial class MainWindow : Window
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
+        Canvas.FormationDeployed += () => { PawnViewsChanged(); RefreshMaps(); };
         Canvas.ObjectsChanged += () => { RefreshObjectPanel(); RefreshObjectManager(); };
         Canvas.PawnPlaced += id =>
         {
@@ -303,6 +304,9 @@ public partial class MainWindow : Window
             if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
             if (HotkeysOverlay.IsVisible) { CloseHotkeys(); e.Handled = true; return; }
+            // a formation capture or an armed formation goes first
+            if (Canvas.PickingArea) { Canvas.CancelAreaPick(); StatusText.Text = "formation capture cancelled"; e.Handled = true; return; }
+            if (Canvas.FormationArmed) { Canvas.CancelFormation(); StatusText.Text = "deploy cancelled"; e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
@@ -312,6 +316,12 @@ public partial class MainWindow : Window
             { Canvas.CancelPolygon(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Wall && !IsTyping())
             { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
+        }
+        else if (e.Key == Key.R && Canvas.FormationArmed && !IsTyping())
+        {
+            // R turns an armed formation clockwise, Shift+R counterclockwise
+            Canvas.RotateFormation(e.KeyModifiers == KeyModifiers.Shift ? 1 : -1);
+            e.Handled = true; return;
         }
         else if (e.Key == Key.R && Canvas.CanRotate && !IsTyping())
         {
@@ -327,6 +337,9 @@ public partial class MainWindow : Window
             // ctrl+z never gets here, the ctrl branch above handles it.
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit) && fit == e.Key)
             { Canvas.AutoFit(); e.Handled = true; return; }
+            if (!Canvas.HotkeysDisabled
+                && Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FormationHotkey, ""), out var form) && form == e.Key)
+            { DeployLastFormation(); e.Handled = true; return; }
             // tool hotkeys from the configurable table (item 7). disabled while a
             // move is armed and not yet placed.
             if (!Canvas.HotkeysDisabled)
@@ -450,6 +463,8 @@ public partial class MainWindow : Window
         // switching tools counts as a cancel of an armed move: the ghost is
         // disarmed, rotation resets, and hotkeys are restored.
         Canvas.CancelMove();
+        Canvas.CancelFormation();
+        Canvas.CancelAreaPick();
         Canvas.Mode = mode;
         foreach (var m in Enum.GetValues<ToolMode>())
             ToolButton(m).Classes.Set("active", m == mode);
@@ -647,6 +662,13 @@ public partial class MainWindow : Window
             var templates = MapSerializer.LibraryFromDtos(imported.Library);
             var idMap = ActiveLibrary.MergeAppend(templates);
             RemapPawns(_project, idMap);
+            // formations come with a campaign file, members re-pointed like pawns
+            foreach (var f in imported.Formations)
+            {
+                foreach (var m in f.Members)
+                    if (idMap.TryGetValue(m.TemplateId, out var nid)) m.TemplateId = nid;
+                ActiveLibrary.Formations.Add(f);
+            }
             MergeObjects(imported, _project.Maps);
             SyncCampaign();
             Canvas.InvalidateImageCache();

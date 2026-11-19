@@ -154,6 +154,8 @@ public sealed class ProjectFileDto
     [JsonPropertyName("version")] public int Version { get; set; } = 3;
     [JsonPropertyName("active")] public int Active { get; set; } = 0;
     [JsonPropertyName("maps")] public List<NamedMapDto> Maps { get; set; } = new();
+    // saved pawn formations (Models/Formations.cs). older files have none
+    [JsonPropertyName("formations")] public List<Formation> Formations { get; set; } = new();
     // the pawn library travels with the project file (v3). older project files
     // have no field and load with an empty embedded library.
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
@@ -213,6 +215,7 @@ public sealed class ImportedMaps
     public int Active { get; set; }
     public List<PawnTemplateDto> Library { get; set; } = new();
     public List<ObjectType> ObjectTypes { get; set; } = new();
+    public List<Formation> Formations { get; set; } = new();
     public Dictionary<string, string> ObjectPictures { get; set; } = new();
     // the presets the file carries, each list null when it has none
     public PresetsWire Presets { get; set; } = new();
@@ -433,7 +436,11 @@ public static class MapSerializer
         var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = ignoreActive ? 0 : project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
-        if (library is not null) dto.PawnLibrary = LibraryToDtos(library);
+        if (library is not null)
+        {
+            dto.PawnLibrary = LibraryToDtos(library);
+            dto.Formations = library.Formations;
+        }
         if (objects is not null)
         {
             dto.ObjectLibrary = objects.Types;
@@ -536,6 +543,7 @@ public static class MapSerializer
                 var pdto = JsonSerializer.Deserialize(json, DmJson.Default.ProjectFileDto);
                 result.ObjectTypes = pdto?.ObjectLibrary ?? new();
                 result.ObjectPictures = pdto?.ObjectPictures ?? new();
+                result.Formations = (pdto?.Formations ?? new()).Where(f => f is not null).Select(f => f.Tidy()).ToList();
                 result.Presets = CampaignPresets.ReadWire(json);
                 result.Presets.Kind = null;
                 break;

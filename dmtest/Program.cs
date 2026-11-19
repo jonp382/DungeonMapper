@@ -3436,5 +3436,150 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(cpx == h.PixelAt(bmp, (int)empty.X, (int)empty.Y), "pawn image: the square's corners are cut off by the circle");
 }
 
+// --- formations: model and save ---
+{
+    var pawns = new[] { new Pawn { Cell = new CellKey(5, 3), TemplateId = "a" }, new Pawn { Cell = new CellKey(7, 4), TemplateId = "b" }, new Pawn { Cell = new CellKey(6, 3), TemplateId = "c" } };
+    var mem = Formation.Capture(pawns);
+    Check(mem.Count == 3 && mem[0] is { TemplateId: "a", Dx: 0, Dy: 0 } && mem[1] is { TemplateId: "c", Dx: 1, Dy: 0 } && mem[2] is { TemplateId: "b", Dx: 2, Dy: 1 },
+        "formation: capture stores offsets from the box's top-left, in reading order");
+    var f = new Formation { Id = "f1", Name = "march", Members = mem };
+    Check(f.Width == 3 && f.Height == 2, "formation: width and height");
+    var rot = Formation.Rotate(mem.Select(m => (m.TemplateId, m.Dx, m.Dy)), -1);
+    Check(rot.Max(m => m.dx) == 1 && rot.Max(m => m.dy) == 2 && rot.Min(m => m.dx) == 0 && rot.Min(m => m.dy) == 0, "formation: a quarter turn swaps the box and stays at 0,0");
+    var back4 = Formation.Rotate(Formation.Rotate(rot, -1), -2);
+    Check(back4.SequenceEqual(mem.Select(m => (m.TemplateId, m.Dx, m.Dy))), "formation: four quarter turns come back");
+    Check(Formation.UniqueName(new[] { f, new Formation { Name = "formation" } }) == "formation 2", "formation: new names do not repeat");
+    var lib = new PawnLibrary();
+    lib.Formations.Add(f);
+    var pr = new MapProject();
+    var fjson = MapSerializer.ProjectToJson(pr, lib);
+    var imp = MapSerializer.ImportFromJson(fjson, "x");
+    Check(imp.Formations.Count == 1 && imp.Formations[0].Name == "march" && imp.Formations[0].Members.Count == 3 && imp.Formations[0].Members[2].Dx == 2,
+        "formation: saved in the campaign file");
+    Check(!MapSerializer.LibraryToJson(lib).Contains("march"), "formation: not in pawn library export files");
+    Check(MapSerializer.ImportFromJson(MapSerializer.ProjectToJson(new MapProject(), new PawnLibrary()), "x").Formations.Count == 0, "formation: none is fine");
+    string k0 = MapSerializer.ProjectContentKey(pr, lib);
+    f.Members[0].Dx = 9;
+    Check(k0 != MapSerializer.ProjectContentKey(pr, lib), "formation: an edit is an unsaved change");
+    var bad = MapSerializer.ImportFromJson("{\"kind\":\"campaign\",\"maps\":[],\"formations\":[{\"name\":\"x\",\"members\":[{\"template_id\":\"\",\"dx\":0,\"dy\":0},{\"template_id\":\"p\",\"dx\":1,\"dy\":0}]}]}", "x");
+    Check(bad.Formations[0].Members.Count == 1 && bad.Formations[0].Id.Length > 0, "formation: members with no pawn are dropped, a missing id is filled");
+}
+
+// --- formations: deploy on the canvas ---
+{
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "h1", Name = "Fighter", Hero = true });
+    lib.Pawns.Add(new PawnTemplate { Id = "h2", Name = "Cleric", Hero = true });
+    lib.Pawns.Add(new PawnTemplate { Id = "g", Name = "Goblin" });
+    lib.Pawns.Add(new PawnTemplate { Id = "x", Name = "Orc" });
+    var h = new CanvasHarness();
+    h.Canvas.Library = lib;
+    h.Doc.AddRoom(0, 0, 9, 9);
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "h1", Status = "fear" });
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 1), TemplateId = "h2" });
+    var asked = new List<string>();
+    h.Canvas.TakeHeroFromOtherMaps = id => { asked.Add(id); return null; };
+    int commits = h.CommitCount;
+    // a row of three: fighter, cleric, goblin. cursor cell is the middle one
+    h.Canvas.ArmFormation("line", new[] { ("h1", 0, 0), ("h2", 1, 0), ("g", 2, 0) });
+    Check(h.Canvas.FormationArmed, "deploy: armed");
+    h.MoveTo(5, 5);
+    h.Click(5, 5);
+    Check(!h.Canvas.FormationArmed && h.CommitCount == commits + 1, "deploy: one click places and disarms, one undo step");
+    Check(h.Doc.Pawns.TryGetValue(new CellKey(4, 5), out var f1) && f1.TemplateId == "h1" && f1.Status == "fear", "deploy: a hero moves and keeps its status");
+    Check(!h.Doc.Pawns.ContainsKey(new CellKey(1, 1)) && !h.Doc.Pawns.ContainsKey(new CellKey(2, 1)), "deploy: heroes leave their old cells");
+    Check(h.Doc.Pawns.TryGetValue(new CellKey(6, 5), out var gob) && gob.TemplateId == "g", "deploy: a non-hero member is a new copy");
+    Check(asked.Contains("h1") && asked.Contains("h2") && !asked.Contains("g"), "deploy: heroes are pulled from other maps");
+    Check(h.LastStatus.StartsWith("deployed line: 3 pawns") && !h.LastStatus.Contains("outside"), "deploy: status names the formation");
+
+    // deploying again over its own heroes is fine, the heroes move
+    h.Canvas.ArmFormation("line", new[] { ("h1", 0, 0), ("h2", 1, 0) });
+    h.Click(4, 5);
+    // two wide: the cursor cell takes the left member. (4,5) holds h1 now, (5,5) is empty
+    Check(h.Doc.Pawns[new CellKey(4, 5)].TemplateId == "h1" && h.Doc.Pawns[new CellKey(5, 5)].TemplateId == "h2" && h.Doc.Pawns.Values.Count(p => p.TemplateId == "h1") == 1,
+        "deploy: landing on cells the heroes stand on now is not blocked");
+
+    // another pawn in the way blocks the whole deploy
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(8, 8), TemplateId = "x" });
+    int before = h.Doc.Pawns.Count, c2 = h.CommitCount;
+    h.Canvas.ArmFormation("line", new[] { ("h1", 0, 0), ("h2", 1, 0), ("g", 2, 0) });
+    h.MoveTo(7, 8);
+    var bmp = h.Render();
+    var px = h.PixelAt(bmp, (int)h.ScreenWorld(8.1, 8.1).X, (int)h.ScreenWorld(8.1, 8.1).Y);
+    h.Click(7, 8);
+    Check(h.Canvas.FormationArmed && h.Doc.Pawns.Count == before && h.CommitCount == c2 && h.Doc.Pawns[new CellKey(8, 8)].TemplateId == "x",
+        "deploy: a pawn in the way blocks it, nothing moves, still armed");
+    Check(h.LastStatus.Contains("can not deploy"), "deploy: blocked status");
+    Check(px.r > px.g + 40, "deploy: the blocked cell shows red in the ghost");
+
+    // outside a room: allowed with a warning
+    h.Click(15, 2); // past the room's east edge, inside the test window
+    Check(!h.Canvas.FormationArmed && h.Doc.Pawns.ContainsKey(new CellKey(15, 2)) && h.LastStatus.Contains("warning: 3 outside a room"),
+        "deploy: outside a room places with a warning");
+
+    // rotation and cancel
+    h.Canvas.ArmFormation("line", new[] { ("h1", 0, 0), ("h2", 1, 0) });
+    h.Canvas.RotateFormation(-1);
+    h.Click(3, 3);
+    var spots = h.Doc.Pawns.Where(kv => kv.Value.TemplateId is "h1" or "h2").Select(kv => kv.Key).ToList();
+    Check(spots.All(c => c.X == 3) && spots.Select(c => c.Y).Distinct().Count() == 2, "deploy: a rotated row lands as a column");
+    h.Canvas.ArmFormation("line", new[] { ("h1", 0, 0) });
+    h.Canvas.CancelFormation();
+    int n = h.Doc.Pawns.Count;
+    h.Canvas.Mode = ToolMode.Select;
+    h.Click(1, 8);
+    Check(!h.Canvas.FormationArmed && h.Doc.Pawns.Count == n, "deploy: cancel disarms without placing");
+
+    // area pick for capture
+    (int, int, int, int)? got = null;
+    h.Canvas.BeginAreaPick((a, b, c, d) => got = (a, b, c, d));
+    Check(h.Canvas.PickingArea, "capture: picking");
+    h.Drag(6, 6, 2, 3);
+    Check(got == (2, 3, 6, 6) && !h.Canvas.PickingArea, "capture: the drag hands back the area and ends");
+}
+
+// --- formations: window smoke test ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        var lib = canvas.Library;
+        for (int i = 0; i < 12; i++) lib.Pawns.Add(new PawnTemplate { Id = $"p{i}", Name = $"hero {i}", Hero = i < 8, Affiliation = i < 8 ? "Player" : "Enemy", Status = i == 3 ? "paralyzed" : "none" });
+        var f = new Formation { Id = "f", Name = "party", Members = Enumerable.Range(0, 12).Select(i => new FormationMember { TemplateId = $"p{i}", Dx = i % 4, Dy = i / 4 }).ToList() };
+        f.Members.Add(new FormationMember { TemplateId = "gone", Dx = 5, Dy = 5 });
+        lib.Formations.Add(f);
+        step = "pawn panel"; Call("SetTool", ToolMode.Pawn);
+        t.GetField("_formationOpen", flags)!.SetValue(w, "f");
+        step = "open formation"; Call("RefreshFormations");
+        t.GetField("_formationRenaming", flags)!.SetValue(w, "f");
+        step = "rename box"; Call("RefreshFormations");
+        t.GetField("_formationRenaming", flags)!.SetValue(w, null);
+        step = "deploy"; Call("DeployFormation", f);
+        Check(canvas.FormationArmed, "formations: deploy from the panel arms the canvas");
+        canvas.CancelFormation();
+        step = "deploy last"; Call("DeployLastFormation");
+        Check(canvas.FormationArmed, "formations: the hotkey deploys the last formation");
+        step = "capture"; Call("CaptureFormation", new object?[] { null });
+        Check(canvas.PickingArea && !canvas.FormationArmed, "formations: new formation starts an area pick");
+        step = "tool switch"; Call("SetTool", ToolMode.Room);
+        Check(!canvas.PickingArea, "formations: a tool switch cancels the pick");
+        Check(AppSettings.Default().ToolHotkeys[AppSettings.FormationHotkey] == "I" && AppSettings.Default().ToolHotkeys.Values.Count(v => v == "I") == 1,
+            "formations: hotkey I by default, used by nothing else");
+        Check(true, "formations: window views build without errors");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"formations: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
