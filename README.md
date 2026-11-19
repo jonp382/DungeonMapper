@@ -25,6 +25,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Label | L | Click to place a label, or drag to make one that spans an area. |
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. |
+| Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
 
 You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
@@ -56,6 +57,14 @@ Any of these can be exported, and they can be imported from another campaign or 
 ## Pawns
 
 Pawns are tokens for characters and monsters. Each one can have a name, a picture, an affiliation color and a status. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
+
+## Objects
+
+Objects are things in a room that take up space, such as statues, paintings or reliefs. Like pawns, you make the types first in the objects menu (Manage, Objects), then place them. One type can be placed at any size, so one statue can be 5x5 ft and another 10x15 ft.
+
+Each type has a look: a solid color, a gradient, a radial fade, stripes, a checker, an outline, or a picture. It can also have a border, with its own color and thickness, and show its name or initials. A picture is saved once in the campaign file however many objects use it. Pictures can be PNG, JPG, WEBP, GIF or BMP, and transparent parts show the map through unless you pick a fill color to go behind them. A placed object uses its type's look unless you turn off "use the type's look" for it and give it its own. A placed object can also have its own name.
+
+The object panel lists your types with how many are on the map and a button that jumps to each one. The select, move, copy and paste, rotate and erase tools work on objects too. Rotating swaps an object's width and height. The eraser removes any object it touches when "objects" is on.
 
 ## Saving and safety
 

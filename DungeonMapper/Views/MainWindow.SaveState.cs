@@ -24,7 +24,7 @@ public partial class MainWindow
     private bool _exitConfirmed;
 
     private string ProjectContent() =>
-        MapSerializer.ProjectContentKey(_project, ActiveLibrary, ActivePresets);
+        MapSerializer.ProjectContentKey(_project, ActiveLibrary, ActivePresets, ActiveObjects);
 
     // after a save, save as or load: nothing is unsaved and nothing needs an autosave
     private void MarkSaved()
@@ -49,7 +49,7 @@ public partial class MainWindow
         var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
         System.IO.Directory.CreateDirectory(dir);
         var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
-        MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, ActivePresets);
+        MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, ActivePresets, ActiveObjects);
         _autosavedContent = content;
         StatusText.Text = $"autosaved {name}";
     }

@@ -222,6 +222,18 @@ public sealed class MapDocument
     public Dictionary<AngledWall, List<AngledDoor>> AngledDoors { get; } = new();
     public List<FloodRegion> FloodRegions { get; } = new();
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
+    // placed objects in placement order: later ones draw on top
+    public List<MapObject> Objects { get; } = new();
+
+    /// the topmost object covering the cell, null when none
+    public MapObject? ObjectAt(CellKey c)
+    {
+        for (int i = Objects.Count - 1; i >= 0; i--)
+            if (Objects[i].Contains(c)) return Objects[i];
+        return null;
+    }
+
+    public MapObject? FindObject(string id) => Objects.Find(o => o.Id == id);
 
     /// Door tool "close open doors": every open door of the type becomes
     /// closed. Locked and closed doors are left alone. Returns how many closed.
@@ -1595,8 +1607,9 @@ public sealed class MapDocument
         public Dictionary<AngledWall, List<AngledDoor>> AngledDoors = new();
         public List<FloodRegion> FloodRegions = new();
         public Dictionary<VertexDoorKey, VertexDoor> VertexDoors = new();
+        public List<MapObject> Objects = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
-                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0
+                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0 && Objects.Count == 0
                               && AngledWalls.Count == 0 && AngledDoors.Count == 0
                               && FloodRegions.Count == 0 && VertexDoors.Count == 0;
     }
@@ -1633,6 +1646,8 @@ public sealed class MapDocument
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
         foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status });
+        // an object travels when all of it is inside the region
+        foreach (var o in Objects) if (o.Inside(x0, y0, x1, y1)) snap.Objects.Add(o.Copy());
         foreach (var w in AngledWalls)
         {
             if (!AngledWallIntersectsRect(w, x0, y0, x1, y1)) continue;
@@ -1675,6 +1690,12 @@ public sealed class MapDocument
                 TemplateId = p.TemplateId,
                 Status = p.Status,
             };
+        foreach (var o in snap.Objects)
+        {
+            var n = o.Copy(newId: true); // a paste can land many copies
+            n.X += dx; n.Y += dy;
+            Objects.Add(n);
+        }
         foreach (var (e, d) in snap.Doors)
         {
             var edge = new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side);
@@ -1738,6 +1759,8 @@ public sealed class MapDocument
         foreach (var fr in other.FloodRegions) FloodRegions.Add(fr.Clone());
         VertexDoors.Clear();
         foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
+        Objects.Clear();
+        foreach (var o in other.Objects) Objects.Add(o.Copy());
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -1759,6 +1782,9 @@ public sealed class MapDocument
         foreach (var w in AngledWalls)
             if (AngledWallIntersectsRect(w, x0, y0, x1, y1)) AngledDoors.Remove(w);
         AngledWalls.RemoveAll(w => AngledWallIntersectsRect(w, x0, y0, x1, y1));
+        // objects go when all of them is inside, the same rule as capture, so a
+        // move or cut never deletes an object it did not pick up
+        Objects.RemoveAll(o => o.Inside(x0, y0, x1, y1));
 
         // flood floors lose the rect, the rest of each floor stays
         SubtractFloorRect(x0, y0, x1, y1);
@@ -1860,6 +1886,17 @@ public sealed class MapDocument
             var (rx, ry) = RotCell(p.Cell.X, p.Cell.Y);
             s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Status = p.Status });
         }
+        foreach (var o in snap.Objects)
+        {
+            // a rect like range labels: both corners, then the new top-left. a
+            // quarter turn swaps width and height
+            var (ax, ay) = RotCell(o.X, o.Y);
+            var (bx, by) = RotCell(o.X + o.W - 1, o.Y + o.H - 1);
+            var n = o.Copy();
+            n.X = Math.Min(ax, bx); n.Y = Math.Min(ay, by);
+            n.W = Math.Abs(bx - ax) + 1; n.H = Math.Abs(by - ay) + 1;
+            s.Objects.Add(n);
+        }
         foreach (var w in snap.AngledWalls)
         {
             var (ax, ay) = RotPoint(w.Ax, w.Ay);
@@ -1908,6 +1945,14 @@ public sealed class MapDocument
             if (w.Ay < minY) minY = w.Ay; if (w.Ay > maxY) maxY = w.Ay;
             if (w.Bx < minX) minX = w.Bx; if (w.Bx > maxX) maxX = w.Bx;
             if (w.By < minY) minY = w.By; if (w.By > maxY) maxY = w.By;
+            any = true;
+        }
+        foreach (var o in Objects)
+        {
+            if (o.X < minX) minX = o.X;
+            if (o.Y < minY) minY = o.Y;
+            if (o.X + o.W - 1 > maxX) maxX = o.X + o.W - 1;
+            if (o.Y + o.H - 1 > maxY) maxY = o.Y + o.H - 1;
             any = true;
         }
         foreach (var fr in FloodRegions)

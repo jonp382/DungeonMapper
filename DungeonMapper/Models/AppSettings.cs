@@ -216,6 +216,7 @@ public sealed class AppSettings
             ["Erase"] = "E",
             ["Pawn"] = "P",
             ["Polygon"] = "N",
+            ["Object"] = "O",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             [FitHotkey] = "Z",
         };

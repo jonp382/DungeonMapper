@@ -47,6 +47,14 @@ public partial class MainWindow : Window
     // the project file (Ctrl+S / autosave), not to any global file.
     private readonly Dictionary<MapProject, PawnLibrary> _libraries = new();
     private PawnLibrary ActiveLibrary => LibraryFor(_project);
+    // the object types of each campaign, keyed like the pawn libraries
+    private readonly Dictionary<MapProject, ObjectLibrary> _objectLibraries = new();
+    private ObjectLibrary ActiveObjects => ObjectsFor(_project);
+    private ObjectLibrary ObjectsFor(MapProject p)
+    {
+        if (!_objectLibraries.TryGetValue(p, out var lib)) _objectLibraries[p] = lib = new ObjectLibrary();
+        return lib;
+    }
     private PawnLibrary LibraryFor(MapProject p)
     {
         if (!_libraries.TryGetValue(p, out var lib))
@@ -77,6 +85,8 @@ public partial class MainWindow : Window
     {
         Canvas.Library = ActiveLibrary;
         Canvas.Presets = ActivePresets;
+        Canvas.ObjectTypes = ActiveObjects;
+        if (Canvas.ArmedObject is { } armed && ActiveObjects.Find(armed.Id) != armed) Canvas.ArmedObject = null;
         if (!ActivePresets.DoorTypes.Any(t => t.Name == Canvas.DefaultDoorType))
             Canvas.DefaultDoorType = CampaignPresets.StandardDoor;
     }
@@ -119,6 +129,13 @@ public partial class MainWindow : Window
         SetIcon(ToolStair, PngIcon("DMStairs"));
         SetIcon(ToolLabel, PngIcon("DMLabel"));
         SetIcon(ToolPawn, PngIcon("DMPawn"));
+        // no png for objects yet: a drawn rounded block
+        SetIcon(ToolObject, new Border
+        {
+            Width = 18, Height = 14, CornerRadius = new CornerRadius(3),
+            Background = new SolidColorBrush(Color.FromRgb(140, 140, 150)),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(216, 216, 224)), BorderThickness = new Thickness(1.5),
+        });
         SetIcon(ToolErase, PngIcon("DMErase"));
         SetIcon(BtnManageMaps, PngIcon("DMMaps", 18));
         ToolTip.SetTip(BtnManageMaps, "Manage maps");
@@ -145,6 +162,7 @@ public partial class MainWindow : Window
         ToolLabel.Click += (_, _) => SetTool(ToolMode.Label);
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
+        ToolObject.Click += (_, _) => SetTool(ToolMode.Object);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
 
 
@@ -170,6 +188,7 @@ public partial class MainWindow : Window
         MenuMaps.Click += (_, _) => { CloseModals(); ShowMaps(); };
         MenuSettings.Click += (_, _) => { CloseModals(); ShowSettings(); };
         MenuPawns.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
+        MenuObjects.Click += (_, _) => { CloseModals(); ShowObjectManagement(); };
         MenuDoorPresets.Click += (_, _) => { CloseModals(); ShowDoorPresets(); };
         MenuHotkeys.Click += (_, _) => { CloseModals(); ShowHotkeys(); };
 
@@ -204,6 +223,8 @@ public partial class MainWindow : Window
         Canvas.LabelEditRequested += l => BeginLabelEdit(l);
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
+        Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
+        Canvas.ObjectsChanged += () => { RefreshObjectPanel(); RefreshObjectManager(); };
         Canvas.PawnPlaced += id =>
         {
             ActiveLibrary.NoteRecent(id);
@@ -277,6 +298,7 @@ public partial class MainWindow : Window
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "close-doors") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind == "objects") { CloseManage(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
@@ -364,6 +386,7 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
+        LabelTool(ToolObject, "Object");
         // the view menu shows the zoom to fit letter, display only
         MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
             ? new KeyGesture(fit) : null;
@@ -381,6 +404,7 @@ public partial class MainWindow : Window
         ToolMode.Label => ToolLabel,
         ToolMode.Erase => ToolErase,
         ToolMode.Pawn => ToolPawn,
+        ToolMode.Object => ToolObject,
         _ => ToolPolygon,
     };
 
@@ -432,6 +456,7 @@ public partial class MainWindow : Window
         // re-selecting a tool resets the armed pawn template: the user expects
         // clicking the pawn tool again to clear a stale selection.
         Canvas.ArmedPawn = null;
+        Canvas.ArmedObject = null;
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         StatusText.Text = mode switch
         {
@@ -444,6 +469,7 @@ public partial class MainWindow : Window
             ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
+            ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             _ => "",
         };
@@ -558,7 +584,7 @@ public partial class MainWindow : Window
         });
         if (file is null) return false;
         var path = file.Path.LocalPath;
-        try { MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets); }
+        try { MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets, ActiveObjects); }
         catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
         _currentMapPath = path; // Ctrl+S saves over this file from now on
         MarkSaved();
@@ -575,7 +601,7 @@ public partial class MainWindow : Window
     {
         FlushPendingEdits();
         if (_currentMapPath is null) return await SaveMapAsync();
-        try { MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets); }
+        try { MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets, ActiveObjects); }
         catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
         MarkSaved();
         StatusText.Text = $"saved {_currentMapPath}";
@@ -621,6 +647,7 @@ public partial class MainWindow : Window
             var templates = MapSerializer.LibraryFromDtos(imported.Library);
             var idMap = ActiveLibrary.MergeAppend(templates);
             RemapPawns(_project, idMap);
+            MergeObjects(imported, _project.Maps);
             SyncCampaign();
             Canvas.InvalidateImageCache();
             // Ctrl+S saves over the opened campaign. a map file is not a
@@ -916,6 +943,27 @@ public partial class MainWindow : Window
         row.Children.Add(no);
         popup.Children.Add(row);
         flyout.ShowAt(anchor);
+    }
+
+    // a file's object pictures and types into this campaign, its placed objects
+    // re-pointed at the merged types. pictures inline in an older file's looks
+    // move into the pool first, so the look compare sees picture keys
+    private void MergeObjects(ImportedMaps imported, IEnumerable<MapEntry> maps)
+    {
+        var lib = ActiveObjects;
+        lib.AddPictures(imported.ObjectPictures);
+        var types = MapSerializer.TidyObjectTypes(imported.ObjectTypes);
+        lib.AdoptLegacy(types.Select(t => t.Look)
+            .Concat(maps.SelectMany(m => m.Doc.Objects).Where(o => o.Look is not null).Select(o => o.Look!)));
+        RemapObjects(maps, lib.MergeAppend(types));
+    }
+
+    // re-points placed objects through the id remap from an object library merge
+    private static void RemapObjects(IEnumerable<MapEntry> maps, Dictionary<string, string> map)
+    {
+        foreach (var m in maps)
+            foreach (var o in m.Doc.Objects)
+                if (map.TryGetValue(o.TypeId, out var nid)) o.TypeId = nid;
     }
 
     // re-points every pawn in the project through the id remap from a library merge.

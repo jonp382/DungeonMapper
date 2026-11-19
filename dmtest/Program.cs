@@ -3100,5 +3100,321 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(bad is not null && bad.DoorWallGap == 50, "door gap: import clamps to 50");
 }
 
+// --- map objects: model and save format ---
+{
+    var lib = new ObjectLibrary();
+    var statue = lib.Add(new ObjectType { Name = "Statue", Look = new ObjectLook { Fill = ObjectFill.Radial, ColorA = "#aabbcc", Caption = ObjectCaption.Initials } });
+    var d = new MapDocument();
+    var a = new MapObject { TypeId = statue.Id, X = 2, Y = 3, W = 2, H = 3 };
+    var b = new MapObject { TypeId = statue.Id, X = 2, Y = 3, W = 1, H = 1, Name = "Orcus", Look = new ObjectLook { Fill = ObjectFill.Stripes, PictureId = "abc" } };
+    d.Objects.Add(a); d.Objects.Add(b);
+    Check(d.ObjectAt(new CellKey(2, 3)) == b && d.ObjectAt(new CellKey(3, 5)) == a && d.ObjectAt(new CellKey(4, 3)) is null,
+        "objects: ObjectAt finds the topmost object");
+    var back = MapSerializer.FromJson(MapSerializer.ToJson(d));
+    Check(back.Objects.Count == 2 && back.Objects[0].Id == a.Id && back.Objects[0].W == 2 && back.Objects[0].H == 3 && back.Objects[0].Look is null,
+        "objects: map round trip keeps id, rect and type look");
+    Check(back.Objects[1].Name == "Orcus" && back.Objects[1].Look?.Fill == ObjectFill.Stripes && back.Objects[1].Look?.PictureId == "abc",
+        "objects: own name and own look round trip");
+    Check(MapSerializer.FromJson("{\"cells\":[\"0,0\"]}").Objects.Count == 0, "objects: an older map loads with none");
+    var bad = MapSerializer.FromJson("{\"objects\":[{\"type_id\":\"x\",\"rect\":\"1,1,0,2\"},{\"type_id\":\"x\",\"rect\":\"oops\"}]}");
+    Check(bad.Objects.Count == 0, "objects: rects with no size or bad text are dropped");
+
+    var pr = new MapProject();
+    pr.Maps[0].Doc.Objects.Add(a.Copy());
+    var ojson = MapSerializer.ProjectToJson(pr, null, null, lib);
+    var imp = MapSerializer.ImportFromJson(ojson, "x");
+    Check(imp.ObjectTypes.Count == 1 && imp.ObjectTypes[0].Name == "Statue" && imp.ObjectTypes[0].Look.Fill == ObjectFill.Radial,
+        "objects: the campaign file carries the object library");
+    Check(ojson.Contains("\"Radial\"") && ojson.Contains("\"Initials\""), "objects: look enums are saved as words");
+    var lib2 = new ObjectLibrary();
+    var map = lib2.MergeAppend(MapSerializer.TidyObjectTypes(imp.ObjectTypes));
+    Check(lib2.Types.Count == 1 && map[statue.Id] == statue.Id, "objects: merge into an empty library keeps the id");
+    var lib3 = new ObjectLibrary();
+    var clash = lib3.Add(new ObjectType { Id = statue.Id, Name = "Painting" });
+    var map3 = lib3.MergeAppend(MapSerializer.TidyObjectTypes(MapSerializer.ImportFromJson(ojson, "x").ObjectTypes));
+    Check(lib3.Types.Count == 2 && map3[statue.Id] != statue.Id, "objects: an id clash gets a new id");
+    var map4 = lib3.MergeAppend(MapSerializer.TidyObjectTypes(MapSerializer.ImportFromJson(ojson, "x").ObjectTypes));
+    Check(lib3.Types.Count == 2 && map4[statue.Id] == map3[statue.Id], "objects: importing the same type again reuses it");
+
+    var exp = new MapEntry { Name = "m" };
+    exp.Doc.Objects.Add(a.Copy());
+    var lib5 = new ObjectLibrary();
+    lib5.Add(statue.Clone());
+    lib5.Add(new ObjectType { Name = "Unused" });
+    var mf = MapSerializer.ImportFromJson(MapSerializer.MapToJson(exp, null, null, lib5), "m");
+    Check(mf.ObjectTypes.Count == 1 && mf.ObjectTypes[0].Id == statue.Id && mf.Maps[0].Doc.Objects.Count == 1,
+        "objects: a map file carries only the types its objects use");
+
+    string k0 = MapSerializer.ProjectContentKey(pr, null, null, lib);
+    lib.Types[0].Look.ColorA = "#000000";
+    Check(k0 != MapSerializer.ProjectContentKey(pr, null, null, lib), "objects: a type look edit is an unsaved change");
+}
+
+// --- map objects: region operations and undo ---
+{
+    var d = new MapDocument();
+    d.Objects.Add(new MapObject { TypeId = "t", X = 1, Y = 1, W = 2, H = 3 });
+    d.Objects.Add(new MapObject { TypeId = "t", X = 5, Y = 0, W = 3, H = 1 }); // sticks out of the region
+    var snap = d.CaptureRegion(0, 0, 5, 5);
+    Check(snap.Objects.Count == 1 && snap.Objects[0].X == 1, "objects: capture takes objects fully inside");
+    d.PasteRegion(snap, 10, 10);
+    var pasted = d.Objects[^1];
+    Check(d.Objects.Count == 3 && pasted.X == 11 && pasted.Y == 11 && pasted.Id != d.Objects[0].Id, "objects: paste offsets and gives a new id");
+    var rot = MapDocument.Rotate(snap, 1);
+    Check(rot.Objects.Count == 1 && rot.Objects[0].W == 3 && rot.Objects[0].H == 2, "objects: a quarter turn swaps width and height");
+    var rot4 = MapDocument.Rotate(MapDocument.Rotate(rot, 1), 2);
+    Check(rot4.Objects[0].X == 1 && rot4.Objects[0].Y == 1 && rot4.Objects[0].W == 2, "objects: four quarter turns come back");
+    d.ClearRegion(0, 0, 5, 5);
+    Check(d.Objects.Count == 2 && !d.Objects.Any(o => o.X == 1 && o.Y == 1), "objects: clear removes objects fully inside, not ones sticking out");
+    var h = new History();
+    var u = new MapDocument();
+    h.Commit(u);
+    u.Objects.Add(new MapObject { TypeId = "t", X = 0, Y = 0, W = 2, H = 2 });
+    string id = u.Objects[0].Id;
+    h.Commit(u);
+    u.ApplyFrom(h.Undo()!);
+    Check(u.Objects.Count == 0, "objects: undo removes a placed object");
+    u.ApplyFrom(h.Redo()!);
+    Check(u.Objects.Count == 1 && u.Objects[0].Id == id, "objects: redo brings it back with the same id");
+    var mv = new MapDocument();
+    mv.Objects.Add(new MapObject { TypeId = "t", X = 0, Y = 0, W = 2, H = 2 });
+    mv.MoveRegion(0, 0, 3, 3, 10, 0);
+    Check(mv.Objects.Count == 1 && mv.Objects[0].X == 10, "objects: move region carries objects");
+    Check(mv.ContentBounds() is { } cb && cb.maxX == 11, "objects: content bounds include objects (zoom to fit)");
+}
+
+// --- map objects: object tool on the canvas ---
+{
+    var h = new CanvasHarness();
+    var lib = new ObjectLibrary();
+    var red = lib.Add(new ObjectType { Name = "Altar", Look = new ObjectLook { Fill = ObjectFill.Solid, ColorA = "#ff0000", Border = false } });
+    h.Canvas.ObjectTypes = lib;
+    h.Canvas.Mode = ToolMode.Object;
+    h.Click(1, 1);
+    Check(h.Doc.Objects.Count == 0 && h.LastStatus.Contains("pick an object type"), "object tool: nothing armed, nothing placed");
+    h.Canvas.ArmedObject = red;
+    h.Drag(1, 1, 2, 3);
+    Check(h.Doc.Objects.Count == 1 && h.Doc.Objects[0] is { X: 1, Y: 1, W: 2, H: 3 } && h.Doc.Objects[0].TypeId == red.Id,
+        "object tool: drag places a 2x3 object");
+    Check(h.CommitCount == 1, "object tool: placing is one undo step");
+    var bmp = h.Render();
+    var px = h.PixelAt(bmp, (int)h.ScreenOf(2, 2).X, (int)h.ScreenOf(2, 2).Y);
+    Check(px.r > 200 && px.g < 60 && px.b < 60, "object tool: the object draws in its type color");
+    MapObject? opened = null;
+    h.Canvas.ObjectConfigRequested += o => opened = o;
+    h.Click(2, 3);
+    Check(opened == h.Doc.Objects[0] && h.Canvas.SelectedObjectId == opened!.Id && h.Doc.Objects.Count == 1,
+        "object tool: clicking an object opens it instead of placing");
+    // drag the bottom right handle from (3,4) to (5,4): two cells wider
+    h.PressW(3, 4); h.MoveToAt(h.ScreenWorld(5, 4)); h.ReleaseW(5, 4);
+    Check(h.Doc.Objects[0] is { X: 1, Y: 1, W: 4, H: 3 } && h.CommitCount == 2, "object tool: the corner handle resizes, one undo step");
+    // the left handle can not cross the right side
+    h.PressW(1, 2.5); h.MoveToAt(h.ScreenWorld(9, 2.5)); h.ReleaseW(9, 2.5);
+    Check(h.Doc.Objects[0] is { X: 4, W: 1 }, "object tool: resize stops at one cell");
+    // shift drag over the object places a second one
+    Avalonia.Headless.HeadlessWindowExtensions.MouseDown(h.Window, h.ScreenOf(4, 2), Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.Shift);
+    h.MoveTo(4, 2);
+    Avalonia.Headless.HeadlessWindowExtensions.MouseUp(h.Window, h.ScreenOf(4, 2), Avalonia.Input.MouseButton.Left, Avalonia.Input.RawInputModifiers.Shift);
+    Check(h.Doc.Objects.Count == 2, "object tool: shift places over an existing object");
+
+    // select tool click opens the object, erase takes any object touched
+    var s = new CanvasHarness();
+    s.Canvas.ObjectTypes = lib;
+    s.Doc.Objects.Add(new MapObject { TypeId = red.Id, X = 2, Y = 2, W = 3, H = 2 });
+    MapObject? sel = null;
+    s.Canvas.ObjectConfigRequested += o => sel = o;
+    s.Canvas.Mode = ToolMode.Select;
+    s.Click(3, 3);
+    Check(sel == s.Doc.Objects[0], "select tool: clicking an object opens it");
+    s.Canvas.Mode = ToolMode.Erase;
+    s.Canvas.EraseFilter.Objects = false;
+    s.Drag(4, 3, 4, 3);
+    Check(s.Doc.Objects.Count == 1, "erase: the objects filter off keeps objects");
+    s.Canvas.EraseFilter.Objects = true;
+    s.Drag(4, 3, 6, 6);
+    Check(s.Doc.Objects.Count == 0, "erase: touching a corner removes the whole object");
+
+    // move tool carries a whole object
+    var m = new CanvasHarness();
+    m.Doc.Objects.Add(new MapObject { TypeId = red.Id, X = 1, Y = 1, W = 2, H = 2 });
+    m.Canvas.Mode = ToolMode.Move;
+    m.Drag(0, 0, 3, 3);
+    m.Click(8, 0);
+    Check(m.Doc.Objects.Count == 1 && m.Doc.Objects[0].X == 9 && m.Doc.Objects[0].Y == 1, "move tool: an object moves with its region");
+
+    // a placed object with a missing type still draws
+    var g = new CanvasHarness();
+    g.Doc.Objects.Add(new MapObject { TypeId = "gone", X = 1, Y = 1, W = 1, H = 1 });
+    var gb = g.Render();
+    Check(g.PixelAt(gb, (int)g.ScreenOf(1, 1).X, (int)g.ScreenOf(1, 1).Y) != g.PixelAt(gb, (int)g.ScreenOf(5, 5).X, (int)g.ScreenOf(5, 5).Y),
+        "objects: a missing type draws in the plain look");
+
+    // every fill renders without throwing, own look beats the type look
+    var f = new CanvasHarness();
+    f.Canvas.ObjectTypes = lib;
+    int x = 0;
+    foreach (var fill in Enum.GetValues<ObjectFill>())
+    {
+        foreach (var cap in Enum.GetValues<ObjectCaption>())
+            f.Doc.Objects.Add(new MapObject { TypeId = red.Id, X = x, Y = (int)cap * 3, W = 2, H = 2, Look = new ObjectLook { Fill = fill, Caption = cap, ColorA = "#00ff00", PictureId = fill == ObjectFill.Picture ? "missing" : "" } });
+        x += 3;
+    }
+    bool ok = true;
+    try { f.Render(); } catch { ok = false; }
+    Check(ok, "objects: every fill and caption renders");
+    var fb = f.Render();
+    var fp = f.PixelAt(fb, (int)f.ScreenOf(1, 1).X - 5, (int)f.ScreenOf(1, 1).Y - 5);
+    Check(fp.g > 200 && fp.r < 60, "objects: an own look draws instead of the type look");
+}
+
+// --- map objects: window smoke test (legend, object view, change type, menu) ---
+{
+    _ = new CanvasHarness(); // boots the headless app
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        step = "object tool"; Call("SetTool", ToolMode.Object);
+        step = "objects menu"; Call("ShowObjectManagement");
+        var lib = canvas.ObjectTypes;
+        var type = lib.Add(new ObjectType { Name = "Statue of Orcus" });
+        t.GetField("_objEditId", flags)!.SetValue(w, type.Id);
+        step = "editor"; Call("RefreshObjectManager");
+        foreach (var fill in Enum.GetValues<ObjectFill>())
+        {
+            type.Look.Fill = fill; type.Look.Caption = ObjectCaption.Initials;
+            step = $"editor {fill}"; Call("RefreshObjectManager");
+        }
+        step = "close menu"; Call("CloseManage");
+        step = "arm"; Call("ArmObject", type);
+        step = "legend"; Call("RefreshObjectPanel");
+        var o = new MapObject { TypeId = type.Id, X = 0, Y = 0, W = 2, H = 3 };
+        canvas.Document.Objects.Add(o);
+        step = "object view"; Call("ShowObjectInfo", o);
+        o.Look = type.Look.Clone();
+        step = "object view own look"; Call("ShowObjectInfo", o);
+        step = "change type"; Call("ShowChangeObjectType", o);
+        o.TypeId = "gone";
+        step = "broken object view"; Call("ShowObjectInfo", o);
+        step = "undo"; Call("DoUndo");
+        step = "erase panel"; Call("SetTool", ToolMode.Erase);
+        Check(true, "objects: window views build without errors");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"objects: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
+// --- map objects: picture pool and border thickness ---
+{
+    // a real 50x50 png, as the look editor stores it
+    var png = PawnImage.Compress(Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="));
+    string b64 = Convert.ToBase64String(png);
+    // the picture as it appears inside the json text (+ and / get escaped)
+    string esc = System.Text.Json.JsonSerializer.Serialize(b64).Trim('"');
+    var lib = new ObjectLibrary();
+    string key = lib.AddPicture(b64);
+    Check(lib.AddPicture(b64) == key && lib.Pictures.Count == 1, "pictures: the same picture is stored once");
+    var obelisk = lib.Add(new ObjectType { Name = "Obelisk", Look = new ObjectLook { Fill = ObjectFill.Picture, PictureId = key } });
+    var pr = new MapProject();
+    for (int i = 0; i < 100; i++)
+        pr.Maps[0].Doc.Objects.Add(new MapObject { TypeId = obelisk.Id, X = i * 2, Y = 0, Look = i % 2 == 0 ? obelisk.Look.Clone() : null });
+    var pjson = MapSerializer.ProjectToJson(pr, null, null, lib);
+    int copies = (pjson.Length - pjson.Replace(esc, "").Length) / esc.Length;
+    Check(copies == 1, $"pictures: 100 obelisks (50 with their own look) save the picture once (found {copies})");
+    var unused = lib.AddPicture(Convert.ToBase64String(PawnImage.Compress(png.Concat(new byte[0]).ToArray())) + "x");
+    Check(!MapSerializer.ProjectToJson(pr, null, null, lib).Contains("\"" + unused + "\""), "pictures: a picture nothing uses is not saved");
+
+    // load into a fresh campaign: the pool comes back, keys still match
+    var imp = MapSerializer.ImportFromJson(pjson, "x");
+    var lib2 = new ObjectLibrary();
+    lib2.AddPictures(imp.ObjectPictures);
+    var map = lib2.MergeAppend(MapSerializer.TidyObjectTypes(imp.ObjectTypes));
+    Check(lib2.Picture(key) == b64 && lib2.Find(map[obelisk.Id])!.Look.PictureId == key, "pictures: the pool round trips with the campaign");
+    var exp = new MapEntry();
+    exp.Doc.Objects.Add(new MapObject { TypeId = obelisk.Id });
+    var mf = MapSerializer.ImportFromJson(MapSerializer.MapToJson(exp, null, null, lib), "m");
+    Check(mf.ObjectPictures.Count == 1 && mf.ObjectPictures.ContainsKey(key), "pictures: a map file carries the pictures it uses");
+
+    // a file from before the pool: the picture sits inline in each look
+    string legacy = "{\"kind\":\"campaign\",\"maps\":[{\"name\":\"m\",\"map\":{\"objects\":[{\"id\":\"o1\",\"type_id\":\"t1\",\"rect\":\"0,0,1,1\",\"look\":{\"fill\":\"Picture\",\"image_b64\":\"" + b64 + "\"}}]}}],"
+        + "\"object_library\":[{\"id\":\"t1\",\"name\":\"Obelisk\",\"look\":{\"fill\":\"Picture\",\"image_b64\":\"" + b64 + "\",\"image_ext\":\".png\"}}]}";
+    var li = MapSerializer.ImportFromJson(legacy, "x");
+    var lib3 = new ObjectLibrary();
+    var types = MapSerializer.TidyObjectTypes(li.ObjectTypes);
+    lib3.AdoptLegacy(types.Select(t => t.Look).Concat(li.Maps.SelectMany(m => m.Doc.Objects).Select(o => o.Look!)));
+    lib3.MergeAppend(types);
+    var pr3 = new MapProject();
+    pr3.Maps.Clear(); pr3.Maps.AddRange(li.Maps);
+    var again = MapSerializer.ProjectToJson(pr3, null, null, lib3);
+    Check(lib3.Types[0].Look.PictureId == key && li.Maps[0].Doc.Objects[0].Look!.PictureId == key, "pictures: an older file's inline pictures move into the pool");
+    Check((again.Length - again.Replace(esc, "").Length) / esc.Length == 1 && !again.Contains("image_b64"), "pictures: resaving an older file stores the picture once");
+
+    // canvas draws the pooled picture
+    var h = new CanvasHarness();
+    h.Canvas.ObjectTypes = lib;
+    h.Doc.Objects.Add(new MapObject { TypeId = obelisk.Id, X = 1, Y = 1, W = 2, H = 2 });
+    bool drew = true;
+    try { h.Render(); } catch { drew = false; }
+    Check(drew && h.Canvas.LoadObjectImage(key) is not null, "pictures: the canvas loads a picture from the pool");
+
+    // border thickness
+    var look = new ObjectLook { BorderWidth = 99 }.Tidy();
+    Check(look.BorderWidth == 10 && new ObjectLook { BorderWidth = 0 }.Tidy().BorderWidth == 1, "border: thickness clamps to 1..10");
+    Check(new ObjectLook().BorderWidth == 2, "border: default thickness 2");
+    var d = new MapDocument();
+    d.Objects.Add(new MapObject { Look = new ObjectLook { BorderWidth = 7 } });
+    Check(MapSerializer.FromJson(MapSerializer.ToJson(d)).Objects[0].Look!.BorderWidth == 7, "border: thickness round trips");
+    Check(!new ObjectLook { BorderWidth = 3 }.Same(new ObjectLook { BorderWidth = 4 }), "border: thickness is part of the look");
+    var bh = new CanvasHarness();
+    var blib = new ObjectLibrary();
+    var bt = blib.Add(new ObjectType { Name = "b", Look = new ObjectLook { ColorA = "#000000", BorderColor = "#ffffff", BorderWidth = 1 } });
+    bh.Canvas.ObjectTypes = blib;
+    bh.Doc.Objects.Add(new MapObject { TypeId = bt.Id, X = 1, Y = 1, W = 3, H = 3 });
+    // a point a little inside the left edge of the object: dark at width 1, border color at width 10
+    var probe = bh.ScreenWorld(1.25, 2.5);
+    var thin = bh.PixelAt(bh.Render(), (int)probe.X, (int)probe.Y);
+    bt.Look.BorderWidth = 10;
+    var thick = bh.PixelAt(bh.Render(), (int)probe.X, (int)probe.Y);
+    Check(thin.r < 60 && thick.r > 200, "border: a thicker border covers more of the object");
+}
+
+// --- map objects: transparent pictures ---
+{
+    // a 2x2 png: left column opaque red, right column fully transparent
+    using var sk = new SkiaSharp.SKBitmap(2, 2);
+    sk.SetPixel(0, 0, new SkiaSharp.SKColor(255, 0, 0, 255)); sk.SetPixel(0, 1, new SkiaSharp.SKColor(255, 0, 0, 255));
+    sk.SetPixel(1, 0, SkiaSharp.SKColors.Transparent); sk.SetPixel(1, 1, SkiaSharp.SKColors.Transparent);
+    using var data = sk.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+    var png = PawnImage.Compress(data.ToArray());
+    using (var back = SkiaSharp.SKBitmap.Decode(png))
+        Check(back.GetPixel(45, 25).Alpha == 0 && back.GetPixel(5, 25).Alpha == 255, "pictures: compression keeps transparency");
+    var lib = new ObjectLibrary();
+    var key = lib.AddPicture(Convert.ToBase64String(png));
+    var t = lib.Add(new ObjectType { Name = "glass", Look = new ObjectLook { Fill = ObjectFill.Picture, PictureId = key, ColorA = "#00ff00", Border = false } });
+    var h = new CanvasHarness();
+    h.Canvas.ObjectTypes = lib;
+    h.Doc.AddRoom(0, 0, 5, 5);
+    h.Doc.Objects.Add(new MapObject { TypeId = t.Id, X = 1, Y = 1, W = 2, H = 2 });
+    var probe = h.ScreenWorld(2.6, 2.5); // the transparent right half of the picture, off the grid lines
+    var floor = h.ScreenWorld(4.5, 4.5);
+    var bmp = h.Render();
+    Check(h.PixelAt(bmp, (int)probe.X, (int)probe.Y) == h.PixelAt(bmp, (int)floor.X, (int)floor.Y), "pictures: see through shows the floor in transparent parts");
+    Check(new ObjectLook().PictureBacking == false, "pictures: new looks are see through");
+    t.Look.PictureBacking = true;
+    var px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(px.g > 200 && px.r < 60, "pictures: fill color shows behind transparent parts");
+    var d = new MapDocument();
+    d.Objects.Add(new MapObject { Look = new ObjectLook { PictureBacking = true } });
+    Check(MapSerializer.FromJson(MapSerializer.ToJson(d)).Objects[0].Look!.PictureBacking, "pictures: backing choice round trips");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

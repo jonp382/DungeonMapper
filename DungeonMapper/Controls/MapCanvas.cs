@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -22,6 +22,7 @@ public sealed class EraseFilter
     public bool Stairs = true;
     public bool Labels = true;
     public bool Pawns = true;
+    public bool Objects = true;
 }
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
@@ -29,7 +30,7 @@ public sealed class EraseFilter
 /// Right-drag pans, wheel zooms (cursor-anchored). Left-click/drag edits per ToolMode.
 /// Raises ActionCompleted after each edit so the owner can commit to history;
 /// raises config requests for door/stair/label dialogs.
-public sealed class MapCanvas : Control
+public sealed partial class MapCanvas : Control
 {
     public MapCanvas()
     {
@@ -404,6 +405,7 @@ public sealed class MapCanvas : Control
                 Document.AngledDoors.Remove(w);
             Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
         }
+        if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
         if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
@@ -970,6 +972,9 @@ public sealed class MapCanvas : Control
             ctx.DrawGeometry(brush, null, geo);
         }
 
+        // objects sit on the floor, under walls, doors, labels and pawns
+        DrawObjects(ctx, topLeft, bottomRight);
+
         // Walls, with door symbol where a door exists. Culled to the visible
         // window: a 100x100 room adds 400 perimeter walls, and the old loop
         // iterated every wall in the document on every frame, on-screen or not.
@@ -1099,6 +1104,7 @@ public sealed class MapCanvas : Control
         }
 
         DrawPreview(ctx);
+        DrawObjectOverlay(ctx);
     }
 
     // ---- drag preview ----
@@ -1405,6 +1411,13 @@ public sealed class MapCanvas : Control
             {
                 var p0 = WorldToScreen(c.X + dx, c.Y + dy);
                 ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
+            }
+            // objects in the clipboard show faded in their own look
+            foreach (var o in _clipboard.Objects)
+            {
+                var p0 = WorldToScreen(o.X + dx, o.Y + dy);
+                var look = o.EffectiveLook(ObjectTypes);
+                DrawObjectShape(ctx, new Rect(p0.X, p0.Y, o.W * _scale, o.H * _scale), look, "", 0.5);
             }
             // a pawns only move has no cells, the ghost is the pawns themselves
             if (Mode == ToolMode.Move && MovePawnsOnly)
@@ -1809,6 +1822,10 @@ public sealed class MapCanvas : Control
                 e.Pointer.Capture(this);
                 break;
 
+            case ToolMode.Object:
+                ObjectPressed(e, cell);
+                break;
+
             case ToolMode.Pawn:
                 if (Document.Pawns.TryGetValue(cell, out var existingPawn))
                 {
@@ -1880,6 +1897,7 @@ public sealed class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        if (ObjectMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
@@ -1969,6 +1987,7 @@ public sealed class MapCanvas : Control
             e.Pointer.Capture(null);
             return;
         }
+        if (ObjectReleased(e)) return;
 
         if (_pawnDragging)
         {
@@ -2076,6 +2095,11 @@ public sealed class MapCanvas : Control
                     {
                         if (_pressClicks >= 2) LabelEditRequested?.Invoke(lbl);
                         else LabelConfigRequested?.Invoke(lbl);
+                    }
+                    else if (Document.ObjectAt(cell) is { } obj)
+                    {
+                        SelectedObjectId = obj.Id;
+                        ObjectConfigRequested?.Invoke(obj);
                     }
                 }
             }
@@ -2209,6 +2233,8 @@ public sealed class MapCanvas : Control
                 // flood region floors (polygon and floor tool fills) lose the
                 // erased rect, the rest of each floor stays
                 if (f.Cells) Document.SubtractFloorRect(x0, y0, x1, y1);
+                // objects go when the erase rect touches any part of them
+                if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
                 // outer edge gets fresh walls, including along a clipped floor.

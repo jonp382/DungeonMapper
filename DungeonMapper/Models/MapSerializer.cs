@@ -29,6 +29,24 @@ public sealed class MapFileDto
     public List<PolygonDto>? Polygons { get; set; }
     [JsonPropertyName("flood_regions")] public List<FloodRegionDto> FloodRegions { get; set; } = new();
     [JsonPropertyName("vertex_doors")] public List<VertexDoorDto> VertexDoors { get; set; } = new();
+    // placed objects, in placement order (Models/MapObjects.cs). older files
+    // have none, which loads as no objects
+    [JsonPropertyName("objects")] public List<ObjectDto> Objects { get; set; } = new();
+}
+
+public sealed class ObjectDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("type_id")] public string TypeId { get; set; } = "";
+    // "x,y,w,h" in cells
+    [JsonPropertyName("rect")] public string Rect { get; set; } = "";
+    [JsonPropertyName("name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Name { get; set; }
+    // the object's own look, absent when it uses its type's
+    [JsonPropertyName("look")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ObjectLook? Look { get; set; }
 }
 
 public sealed class PolygonDto
@@ -139,6 +157,10 @@ public sealed class ProjectFileDto
     // the pawn library travels with the project file (v3). older project files
     // have no field and load with an empty embedded library.
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+    // the campaign's object types (a map file: the ones its objects use)
+    [JsonPropertyName("object_library")] public List<ObjectType> ObjectLibrary { get; set; } = new();
+    // each object picture once, by key (ObjectLook.PictureId)
+    [JsonPropertyName("object_pictures")] public Dictionary<string, string> ObjectPictures { get; set; } = new();
     // the campaign's door presets, pawn statuses and affiliation colors. a
     // campaign file holds all of them, a map file the ones its map uses.
     // older files have none and get the built-in starters on load.
@@ -162,6 +184,10 @@ public sealed class MapExportDto
     [JsonPropertyName("name")] public string Name { get; set; } = "Map 1";
     [JsonPropertyName("map")] public MapFileDto Map { get; set; } = new();
     [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> PawnLibrary { get; set; } = new();
+    // the campaign's object types (a map file: the ones its objects use)
+    [JsonPropertyName("object_library")] public List<ObjectType> ObjectLibrary { get; set; } = new();
+    // each object picture once, by key (ObjectLook.PictureId)
+    [JsonPropertyName("object_pictures")] public Dictionary<string, string> ObjectPictures { get; set; } = new();
     // the campaign's door presets, pawn statuses and affiliation colors. a
     // campaign file holds all of them, a map file the ones its map uses.
     // older files have none and get the built-in starters on load.
@@ -186,6 +212,8 @@ public sealed class ImportedMaps
     public List<MapEntry> Maps { get; } = new();
     public int Active { get; set; }
     public List<PawnTemplateDto> Library { get; set; } = new();
+    public List<ObjectType> ObjectTypes { get; set; } = new();
+    public Dictionary<string, string> ObjectPictures { get; set; } = new();
     // the presets the file carries, each list null when it has none
     public PresetsWire Presets { get; set; } = new();
 }
@@ -344,43 +372,7 @@ public static class MapSerializer
     }
 
     public static string ToJson(MapDocument doc)
-    {
-        var dto = new MapFileDto { Version = MapSpecVersion };
-        foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
-        foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
-        foreach (var (e, d) in doc.Doors)
-            dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
-        foreach (var (c, s) in doc.Stairs)
-            dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
-        foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto
-            {
-                Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
-                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(),
-            });
-        foreach (var (c, p) in doc.Pawns)
-            dto.Pawns.Add(PawnToDto(c, p));
-        foreach (var w in doc.AngledWalls)
-        {
-            dto.AngledWalls.Add(Key(w));
-            foreach (var d in doc.GetAngledDoors(w))
-                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
-        }
-        foreach (var fr in doc.FloodRegions)
-        {
-            var fd = new FloodRegionDto();
-            foreach (var ring in fr.Rings)
-            {
-                var r = new List<string>();
-                foreach (var (vx, vy) in ring) r.Add($"{vx},{vy}");
-                fd.Rings.Add(r);
-            }
-            dto.FloodRegions.Add(fd);
-        }
-        foreach (var (k, d) in doc.VertexDoors)
-            dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
-        return JsonSerializer.Serialize(dto, DmJson.Default.MapFileDto);
-    }
+        => JsonSerializer.Serialize(ToDto(doc), DmJson.Default.MapFileDto);
 
     private static PawnDto PawnToDto(CellKey c, Pawn p) => new PawnDto
     {
@@ -399,49 +391,8 @@ public static class MapSerializer
     }
 
     public static MapDocument FromJson(string json)
-    {
-        var dto = JsonSerializer.Deserialize(json, DmJson.Default.MapFileDto)
-            ?? throw new InvalidDataException("map file is empty or not a map object");
-        var doc = new MapDocument();
-        foreach (var s in dto.Cells)
-            if (TryParseCell(s, out var c)) doc.Cells.Add(c);
-        foreach (var s in dto.Walls)
-            if (TryParseEdge(s, out var e)) doc.SetWall(e, true);
-        foreach (var d in dto.Doors)
-        {
-            if (!TryParseEdge(d.Edge, out var e)) continue;
-            if (!doc.HasWall(e)) continue; // door implies wall; drop invalid doors
-            var door = new Door { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
-            door.State = Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st) ? st : DoorState.Closed;
-            doc.Doors[EdgeKey.Normalize(e.Cell, e.Side)] = door;
-        }
-        foreach (var s in dto.Stairs)
-        {
-            if (!TryParseCell(s.Cell, out var c)) continue;
-            var stair = new Stair
-            {
-                Direction = Enum.TryParse<StairDirection>(s.Direction, ignoreCase: true, out var dir) ? dir : StairDirection.Down,
-                TargetMap = s.TargetMap,
-            };
-            doc.Stairs[c] = stair;
-        }
-        foreach (var l in dto.Labels)
-        {
-            if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel
-            {
-                Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
-                W = Math.Max(1, l.W), H = Math.Max(1, l.H),
-                Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
-            });
-        }
-        AddPawns(dto, doc);
-        AddAngled(dto, doc);
-        AddPolygons(dto, doc);
-        AddFloodRegions(dto, doc);
-        AddVertexDoors(dto, doc);
-        return doc;
-    }
+        => FromDto(JsonSerializer.Deserialize(json, DmJson.Default.MapFileDto)
+            ?? throw new InvalidDataException("map file is empty or not a map object"));
 
     // map porter helper: a map with a "polygons" field goes through the
     // document once so its polygons come out as walls, cells and flood
@@ -461,9 +412,9 @@ public static class MapSerializer
     // change) and each map's lists are sorted, since cells, walls, doors and
     // the rest come out of hash sets in whatever order they were added. used
     // for the autosave skip and the save prompt on exit (MainWindow.SaveState.cs)
-    public static string ProjectContentKey(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null)
+    public static string ProjectContentKey(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null, ObjectLibrary? objects = null)
     {
-        var root = System.Text.Json.Nodes.JsonNode.Parse(ProjectToJson(project, library, presets, ignoreActive: true))!;
+        var root = System.Text.Json.Nodes.JsonNode.Parse(ProjectToJson(project, library, presets, objects, ignoreActive: true))!;
         if (root["maps"] is System.Text.Json.Nodes.JsonArray maps)
             foreach (var m in maps)
                 if (m?["map"] is System.Text.Json.Nodes.JsonObject map)
@@ -477,12 +428,17 @@ public static class MapSerializer
     }
 
     // ignoreActive writes 0 as the active map (ProjectContentKey)
-    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null, bool ignoreActive = false)
+    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null, ObjectLibrary? objects = null, bool ignoreActive = false)
     {
         var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = ignoreActive ? 0 : project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         if (library is not null) dto.PawnLibrary = LibraryToDtos(library);
+        if (objects is not null)
+        {
+            dto.ObjectLibrary = objects.Types;
+            dto.ObjectPictures = objects.UsedPictures(project.Maps.Select(m => m.Doc));
+        }
         if (presets is not null)
         {
             var w = presets.ToWire();
@@ -539,9 +495,15 @@ public static class MapSerializer
 
     /// One map as a map file. Only the templates its pawns point at are
     /// embedded, so the file is complete without dragging the whole library.
-    public static string MapToJson(MapEntry entry, PawnLibrary? library = null, CampaignPresets? presets = null)
+    public static string MapToJson(MapEntry entry, PawnLibrary? library = null, CampaignPresets? presets = null, ObjectLibrary? objects = null)
     {
         var dto = new MapExportDto { Name = entry.Name, Map = ToDto(entry.Doc) };
+        if (objects is not null)
+        {
+            var usedTypes = new HashSet<string>(entry.Doc.Objects.Select(o => o.TypeId));
+            dto.ObjectLibrary = objects.Types.Where(t => usedTypes.Contains(t.Id)).ToList();
+            dto.ObjectPictures = objects.UsedPictures([entry.Doc], dto.ObjectLibrary);
+        }
         if (presets is not null)
         {
             var w = presets.UsedBy([entry.Doc], library).ToWire();
@@ -571,6 +533,9 @@ public static class MapSerializer
                 result.Maps.AddRange(project.Maps);
                 result.Active = project.ActiveIndex;
                 result.Library = ExtractLibrary(json);
+                var pdto = JsonSerializer.Deserialize(json, DmJson.Default.ProjectFileDto);
+                result.ObjectTypes = pdto?.ObjectLibrary ?? new();
+                result.ObjectPictures = pdto?.ObjectPictures ?? new();
                 result.Presets = CampaignPresets.ReadWire(json);
                 result.Presets.Kind = null;
                 break;
@@ -582,6 +547,8 @@ public static class MapSerializer
                 var name = string.IsNullOrWhiteSpace(dto.Name) ? fallbackName : dto.Name;
                 result.Maps.Add(new MapEntry { Name = name, Doc = FromDto(dto.Map) });
                 result.Library = dto.PawnLibrary ?? new List<PawnTemplateDto>();
+                result.ObjectTypes = dto.ObjectLibrary ?? new();
+                result.ObjectPictures = dto.ObjectPictures ?? new();
                 result.Presets = new PresetsWire { DoorTypes = dto.DoorTypes, PawnStatuses = dto.PawnStatuses, AffiliationColors = dto.AffiliationColors };
                 break;
             }
@@ -594,8 +561,8 @@ public static class MapSerializer
         return result;
     }
 
-    public static void SaveMapFile(MapEntry entry, string path, PawnLibrary? library = null, CampaignPresets? presets = null)
-        => File.WriteAllText(path, MapToJson(entry, library, presets));
+    public static void SaveMapFile(MapEntry entry, string path, PawnLibrary? library = null, CampaignPresets? presets = null, ObjectLibrary? objects = null)
+        => File.WriteAllText(path, MapToJson(entry, library, presets, objects));
 
     // ---- pawn library wire format (shared by project embedding and import/export files) ----
 
@@ -649,13 +616,26 @@ public static class MapSerializer
         return w?.pawn_library ?? new List<PawnTemplateDto>();
     }
 
+    // an object types export file: {"kind":"object_types","object_library":[...]}.
+    // import also reads the object_library of campaign and map files
+    public const string KindObjectTypes = "object_types";
+    internal sealed class ObjectTypesWire
+    {
+        [JsonPropertyName("kind")] public string Kind { get; set; } = KindObjectTypes;
+        [JsonPropertyName("object_library")] public List<ObjectType> ObjectLibrary { get; set; } = new();
+        [JsonPropertyName("object_pictures")] public Dictionary<string, string> ObjectPictures { get; set; } = new();
+    }
+
+    public static string ObjectTypesToJson(ObjectLibrary lib)
+        => JsonSerializer.Serialize(new ObjectTypesWire { ObjectLibrary = lib.Types, ObjectPictures = lib.UsedPictures([]) }, DmJson.Default.ObjectTypesWire);
+
     internal sealed class LibraryWire
     {
         [JsonPropertyName("pawn_library")] public List<PawnTemplateDto> pawn_library { get; set; } = new();
     }
 
-    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null, CampaignPresets? presets = null)
-        => File.WriteAllText(path, ProjectToJson(project, library, presets));
+    public static void SaveProject(MapProject project, string path, PawnLibrary? library = null, CampaignPresets? presets = null, ObjectLibrary? objects = null)
+        => File.WriteAllText(path, ProjectToJson(project, library, presets, objects));
 
     public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
 
@@ -696,6 +676,12 @@ public static class MapSerializer
         }
         foreach (var (k, d) in doc.VertexDoors)
             dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+        foreach (var o in doc.Objects)
+            dto.Objects.Add(new ObjectDto
+            {
+                Id = o.Id, TypeId = o.TypeId, Rect = $"{o.X},{o.Y},{o.W},{o.H}",
+                Name = string.IsNullOrWhiteSpace(o.Name) ? null : o.Name, Look = o.Look?.Clone(),
+            });
         return dto;
     }
 
@@ -739,6 +725,43 @@ public static class MapSerializer
         AddPolygons(dto, doc);
         AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
+        AddObjects(dto, doc);
         return doc;
+    }
+
+    // a rect that does not parse or has no size is dropped. ids are kept so
+    // undo and redo find the same object again, a missing or repeated id gets
+    // a fresh one.
+    private static void AddObjects(MapFileDto dto, MapDocument doc)
+    {
+        var ids = new HashSet<string>();
+        foreach (var d in dto.Objects ?? new())
+        {
+            var parts = (d.Rect ?? "").Split(',');
+            if (parts.Length != 4 || !int.TryParse(parts[0], out int x) || !int.TryParse(parts[1], out int y)
+                || !int.TryParse(parts[2], out int w) || !int.TryParse(parts[3], out int h) || w < 1 || h < 1) continue;
+            var o = new MapObject
+            {
+                TypeId = d.TypeId ?? "", X = x, Y = y, W = w, H = h,
+                Name = string.IsNullOrWhiteSpace(d.Name) ? null : d.Name,
+                Look = d.Look?.Tidy(),
+            };
+            if (!string.IsNullOrEmpty(d.Id) && ids.Add(d.Id)) o.Id = d.Id; else ids.Add(o.Id);
+            doc.Objects.Add(o);
+        }
+    }
+
+    /// the object types of a campaign or map file, tidied, for MergeAppend
+    public static List<ObjectType> TidyObjectTypes(IEnumerable<ObjectType>? types)
+    {
+        var list = new List<ObjectType>();
+        foreach (var t in types ?? [])
+        {
+            if (t is null || string.IsNullOrEmpty(t.Id)) continue;
+            t.Name ??= "";
+            t.Look = (t.Look ?? new ObjectLook()).Tidy();
+            list.Add(t);
+        }
+        return list;
     }
 }

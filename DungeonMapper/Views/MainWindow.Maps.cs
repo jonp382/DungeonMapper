@@ -261,7 +261,7 @@ public partial class MainWindow
         try
         {
             var path = file.Path.LocalPath;
-            MapSerializer.SaveMapFile(entry, path, ActiveLibrary, ActivePresets);
+            MapSerializer.SaveMapFile(entry, path, ActiveLibrary, ActivePresets, ActiveObjects);
             StatusText.Text = $"exported {entry.Name} to {path}";
         }
         catch (Exception ex)
@@ -297,6 +297,7 @@ public partial class MainWindow
                 // presets the file carries that this campaign lacks are added,
                 // names it already has keep this campaign's look
                 ActivePresets.MergeMissing(CampaignPresets.FromWire(imported.Presets));
+                MergeObjects(imported, imported.Maps);
                 foreach (var m in imported.Maps)
                 {
                     foreach (var p in m.Doc.Pawns.Values)

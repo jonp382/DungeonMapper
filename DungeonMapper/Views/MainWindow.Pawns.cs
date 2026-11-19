@@ -404,6 +404,9 @@ public partial class MainWindow
     {
         if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();
         RefreshManageModal();
+        // objects ride along: their legend and menu counts follow the map too
+        RefreshObjectPanel();
+        RefreshObjectManager();
     }
 
     private Control BuildPawnsTab()
@@ -810,7 +813,7 @@ public partial class MainWindow
             var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
             {
                 AllowMultiple = false,
-                FileTypeFilter = new[] { new FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg" } } },
+                FileTypeFilter = new[] { new FilePickerFileType("Images") { Patterns = new[] { "*.png", "*.jpg", "*.jpeg", "*.webp", "*.gif", "*.bmp" } } },
             });
             if (files.Count == 0) return;
             try

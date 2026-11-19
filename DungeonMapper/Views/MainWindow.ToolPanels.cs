@@ -19,6 +19,8 @@ public partial class MainWindow
     private void PopulatePanel(ToolMode mode)
     {
         _toolInfo = null;
+        // the resize handles belong to an open object view
+        if (Canvas.SelectedObjectId is not null) { Canvas.SelectedObjectId = null; Canvas.Refresh(); }
         switch (mode)
         {
             case ToolMode.Erase:
@@ -87,6 +89,10 @@ public partial class MainWindow
                 BuildPawnPanel();
                 break;
 
+            case ToolMode.Object:
+                BuildObjectPanel();
+                break;
+
             case ToolMode.Polygon:
                 ToolPanel.Clear("polygon");
                 ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polygon, or press enter to auto-complete.");
@@ -129,8 +135,8 @@ public partial class MainWindow
 
         void BuildChips()
         {
-            bool all = f.Cells && f.Walls && f.Stairs && f.Labels && f.Pawns;
-            bool none = !(f.Cells || f.Walls || f.Stairs || f.Labels || f.Pawns);
+            bool all = f.Cells && f.Walls && f.Stairs && f.Labels && f.Pawns && f.Objects;
+            bool none = !(f.Cells || f.Walls || f.Stairs || f.Labels || f.Pawns || f.Objects);
             chips.Children.Clear();
             chips.Children.Add(Chip("all", all, null, () => SetAll(true)));
             chips.Children.Add(Chip("none", none, null, () => SetAll(false)));
@@ -151,6 +157,7 @@ public partial class MainWindow
         Add("stairs", f.Stairs, v => f.Stairs = v);
         Add("labels", f.Labels, v => f.Labels = v);
         Add("pawns", f.Pawns, v => f.Pawns = v);
+        Add("objects (any part in the area)", f.Objects, v => f.Objects = v);
         BuildChips();
     }
 
