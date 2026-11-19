@@ -2981,5 +2981,14 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.Statuses.Contains("clipboard cleared"), "clear clipboard: status message");
 }
 
+// --- zoom to fit hotkey ---
+{
+    var s = AppSettings.Default();
+    Check(s.ToolHotkeys[AppSettings.FitHotkey] == "Z", "fit hotkey: Z by default");
+    Check(s.ToolHotkeys.Values.Count(v => v == "Z") == 1, "fit hotkey: Z not used by any tool");
+    var old = AppSettings.Parse("{\"tool_hotkeys\":{\"Room\":\"R\"}}");
+    Check(old is not null && old.ToolHotkeys[AppSettings.FitHotkey] == "Z", "fit hotkey: old settings files get the default");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

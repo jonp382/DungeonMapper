@@ -26,12 +26,13 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. |
 
-You can change the tool letters in the hotkeys menu.
+You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
 ## Other shortcuts
 
 | Keys | Action |
 | --- | --- |
+| Z | Zoom to fit |
 | Ctrl+S | Save |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste at the cursor |

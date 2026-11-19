@@ -182,6 +182,8 @@ public sealed class AppSettings
     [JsonPropertyName("autosave_minutes")] public int AutosaveMinutes { get; set; } = 0;
 
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
+    // FitHotkey is the one non tool entry (zoom to fit).
+    public const string FitHotkey = "Fit";
     [JsonPropertyName("tool_hotkeys")] public Dictionary<string, string> ToolHotkeys { get; set; } = new();
 
     // New labels start with this text so a placed label is visible (item 1).
@@ -206,6 +208,8 @@ public sealed class AppSettings
             ["Erase"] = "E",
             ["Pawn"] = "P",
             ["Polygon"] = "N",
+            // not a tool: zoom to fit. same table so it gets the hotkeys menu row
+            [FitHotkey] = "Z",
         };
         return s;
     }

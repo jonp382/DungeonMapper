@@ -301,6 +301,10 @@ public partial class MainWindow : Window
         }
         else if (e.KeyModifiers == KeyModifiers.None)
         {
+            // zoom to fit only changes the view, so it works while a move is armed.
+            // ctrl+z never gets here, the ctrl branch above handles it.
+            if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit) && fit == e.Key)
+            { Canvas.AutoFit(); e.Handled = true; return; }
             // tool hotkeys from the configurable table (item 7). disabled while a
             // move is armed and not yet placed.
             if (!Canvas.HotkeysDisabled)
@@ -360,6 +364,9 @@ public partial class MainWindow : Window
         LabelTool(ToolErase, "Erase");
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
+        // the view menu shows the zoom to fit letter, display only
+        MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
+            ? new KeyGesture(fit) : null;
     }
 
     private Button ToolButton(ToolMode mode) => mode switch

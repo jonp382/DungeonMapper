@@ -43,7 +43,7 @@ public partial class MainWindow
     {
         HotkeysClose.Click += (_, _) => CloseHotkeys();
         HotkeysResetAll.Click += (_, _) => ConfirmFlyout(HotkeysResetAll,
-            "put every tool hotkey back to its default letter?", ResetAllHotkeys, "reset all");
+            "put every hotkey back to its default letter?", ResetAllHotkeys, "reset all");
 
         foreach (var (keys, what) in FixedShortcuts)
         {
@@ -87,7 +87,7 @@ public partial class MainWindow
         {
             var g = new Grid { Classes = { "setting" }, ColumnDefinitions = new ColumnDefinitions("*,Auto,58") };
             var left = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-            left.Children.Add(new TextBlock { Text = mode.ToLowerInvariant(), Classes = { "body" } });
+            left.Children.Add(new TextBlock { Text = HotkeyName(mode), Classes = { "body" } });
             var error = new TextBlock { Classes = { "refusal" }, IsVisible = false };
             left.Children.Add(error);
             g.Children.Add(left);
@@ -154,13 +154,16 @@ public partial class MainWindow
             r.Box.Text = letter;
             r.Reset.IsVisible = HotkeyDefaults.TryGetValue(r.Mode, out var d) && d != letter;
             var others = _hotkeyRows.Where(o => o != r && _settings.ToolHotkeys.GetValueOrDefault(o.Mode) == letter)
-                .Select(o => o.Mode.ToLowerInvariant()).ToList();
+                .Select(o => HotkeyName(o.Mode)).ToList();
             bool clash = others.Count > 0;
             if (clash) r.Box.Classes.Add("invalid"); else r.Box.Classes.Remove("invalid");
             r.Error.Text = clash ? $"also used by {string.Join(", ", others)}." : "";
             r.Error.IsVisible = clash;
         }
     }
+
+    private static string HotkeyName(string mode) =>
+        mode == AppSettings.FitHotkey ? "zoom to fit" : mode.ToLowerInvariant();
 
     private void ResetAllHotkeys()
     {
