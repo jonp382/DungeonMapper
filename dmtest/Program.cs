@@ -3416,5 +3416,25 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(MapSerializer.FromJson(MapSerializer.ToJson(d)).Objects[0].Look!.PictureBacking, "pictures: backing choice round trips");
 }
 
+// --- pawn images stay inside the pawn circle ---
+{
+    using var sk = new SkiaSharp.SKBitmap(8, 8);
+    sk.Erase(new SkiaSharp.SKColor(255, 0, 0, 255));
+    using var data = sk.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "sq", Name = "square", ImageB64 = Convert.ToBase64String(PawnImage.Compress(data.ToArray())), ImageExt = ".png" });
+    var h = new CanvasHarness();
+    h.Canvas.Library = lib;
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "sq" });
+    var bmp = h.Render();
+    var mid = h.PixelAt(bmp, (int)h.ScreenOf(2, 2).X, (int)h.ScreenOf(2, 2).Y);
+    // near the corner of the old square image: 0.12 of a cell in from the cell corner, outside the circle
+    var corner = h.ScreenWorld(2.12, 2.12);
+    var cpx = h.PixelAt(bmp, (int)corner.X, (int)corner.Y);
+    var empty = h.ScreenWorld(6.12, 6.12);
+    Check(mid.r > 200 && mid.g < 60, "pawn image: drawn in the pawn circle");
+    Check(cpx == h.PixelAt(bmp, (int)empty.X, (int)empty.Y), "pawn image: the square's corners are cut off by the circle");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

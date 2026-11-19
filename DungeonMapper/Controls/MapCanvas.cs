@@ -1471,14 +1471,17 @@ public sealed partial class MapCanvas : Control
             if (!string.IsNullOrEmpty(t.ImageB64))
             {
                 // unique pawn: the image replaces the two-tone circles entirely.
-                // center-crop to a square so any aspect ratio fits the cell.
+                // center-crop to a square, then clip to the pawn circle so the
+                // corners never stick out past the status ring (the pawn menus
+                // show images as circles the same way)
                 var bmp = LoadPawnImage(t.Id);
                 if (bmp is not null)
                 {
                     double side = Math.Min(bmp.PixelSize.Width, bmp.PixelSize.Height);
                     var srcRect = new Rect((bmp.PixelSize.Width - side) / 2, (bmp.PixelSize.Height - side) / 2, side, side);
-                    var dest = new Rect(p0.X + _scale * 0.08, p0.Y + _scale * 0.08, _scale * 0.84, _scale * 0.84);
-                    ctx.DrawImage(bmp, srcRect, dest);
+                    var dest = new Rect(center.X - outerR, center.Y - outerR, outerR * 2, outerR * 2);
+                    using (ctx.PushGeometryClip(new EllipseGeometry(dest)))
+                        ctx.DrawImage(bmp, srcRect, dest);
                 }
             }
             else
