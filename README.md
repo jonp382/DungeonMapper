@@ -60,7 +60,8 @@ Pawns are tokens for characters and monsters. Each one can have a name, a pictur
 ## Saving and safety
 
 - **Save:** Ctrl+S saves over the file you opened. A new campaign asks where to save it the first time.
-- **Autosave:** the app saves a copy every few minutes. You can set the interval in settings. Autosaves go in `maps/autosaves`.
+- **Autosave:** the app saves a copy every few minutes. You can set the interval in settings. Autosaves go in `maps/autosaves`. Nothing is written when nothing has changed since the last save or autosave.
+- **Exiting:** closing the app with unsaved changes asks whether to save first. Esc cancels.
 - **Backups:** whenever you open a file, an untouched copy goes into `maps/backups` first.
 - **Undo:** almost every change can be undone.
 

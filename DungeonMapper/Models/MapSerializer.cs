@@ -456,9 +456,30 @@ public static class MapSerializer
 
     public static MapDocument Load(string path) => FromJson(File.ReadAllText(path));
 
-    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null)
+    // what a campaign save would hold, in a form that only changes when the
+    // content does: the active map is left out (switching maps is not a
+    // change) and each map's lists are sorted, since cells, walls, doors and
+    // the rest come out of hash sets in whatever order they were added. used
+    // for the autosave skip and the save prompt on exit (MainWindow.SaveState.cs)
+    public static string ProjectContentKey(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null)
     {
-        var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = project.ActiveIndex };
+        var root = System.Text.Json.Nodes.JsonNode.Parse(ProjectToJson(project, library, presets, ignoreActive: true))!;
+        if (root["maps"] is System.Text.Json.Nodes.JsonArray maps)
+            foreach (var m in maps)
+                if (m?["map"] is System.Text.Json.Nodes.JsonObject map)
+                    foreach (var name in map.Select(p => p.Key).ToList())
+                        if (map[name] is System.Text.Json.Nodes.JsonArray arr)
+                        {
+                            var items = arr.Select(n => n?.ToJsonString() ?? "null").OrderBy(s => s, StringComparer.Ordinal).ToList();
+                            map[name] = new System.Text.Json.Nodes.JsonArray(items.Select(s => System.Text.Json.Nodes.JsonNode.Parse(s)).ToArray());
+                        }
+        return root.ToJsonString();
+    }
+
+    // ignoreActive writes 0 as the active map (ProjectContentKey)
+    public static string ProjectToJson(MapProject project, PawnLibrary? library = null, CampaignPresets? presets = null, bool ignoreActive = false)
+    {
+        var dto = new ProjectFileDto { Version = ProjectSpecVersion, Active = ignoreActive ? 0 : project.ActiveIndex };
         foreach (var m in project.Maps)
             dto.Maps.Add(new NamedMapDto { Name = m.Name, Map = ToDto(m.Doc) });
         if (library is not null) dto.PawnLibrary = LibraryToDtos(library);

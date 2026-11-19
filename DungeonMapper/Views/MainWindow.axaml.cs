@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -187,12 +188,7 @@ public partial class MainWindow : Window
             FlushSettings();
             if (_settings.AutosaveMinutes <= 0) return;
             if ((DateTime.Now - _lastAutosave).TotalMinutes < _settings.AutosaveMinutes) return;
-            _lastAutosave = DateTime.Now;
-            var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
-            System.IO.Directory.CreateDirectory(dir);
-            var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
-            MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, ActivePresets);
-            StatusText.Text = $"autosaved {name}";
+            RunAutosave(); // skips when nothing changed since the last autosave or save
         };
         _autosaveTimer.Start();
 
@@ -242,6 +238,7 @@ public partial class MainWindow : Window
 
         SetTool(ToolMode.Room);
         Canvas.Refresh();
+        MarkSaved(); // the empty starting campaign has nothing to save
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
@@ -277,6 +274,8 @@ public partial class MainWindow : Window
         }
         else if (e.Key == Key.Escape)
         {
+            // esc on the exit prompt is cancel, never no
+            if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
@@ -536,7 +535,10 @@ public partial class MainWindow : Window
         StatusText.Text = "redo";
     }
 
-    private async void SaveMap()
+    private async void SaveMap() => await SaveMapAsync();
+
+    // false when the picker was cancelled or the write failed
+    private async Task<bool> SaveMapAsync()
     {
         // brand-new map: default save location is the maps subfolder in the app's
         // base directory, name pre-filled Map_{datetime}.json, json typing enforced.
@@ -553,21 +555,30 @@ public partial class MainWindow : Window
                 new FilePickerFileType("JSON files") { Patterns = new[] { "*.json" } },
             },
         });
-        if (file is null) return;
+        if (file is null) return false;
         var path = file.Path.LocalPath;
-        MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets);
+        try { MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets); }
+        catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
         _currentMapPath = path; // Ctrl+S saves over this file from now on
+        MarkSaved();
         StatusText.Text = $"saved {path}";
+        return true;
     }
 
     // Ctrl+S: save over the map the user loaded (the user-selected json, NOT the
     // backup). A brand-new map with no load/save history opens the picker once,
     // then Ctrl+S saves over that file.
-    private void SaveCurrent()
+    private async void SaveCurrent() => await SaveCurrentAsync();
+
+    private async Task<bool> SaveCurrentAsync()
     {
-        if (_currentMapPath is null) { SaveMap(); return; }
-        MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets);
+        FlushPendingEdits();
+        if (_currentMapPath is null) return await SaveMapAsync();
+        try { MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets); }
+        catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
+        MarkSaved();
         StatusText.Text = $"saved {_currentMapPath}";
+        return true;
     }
 
     private async void LoadMap()
@@ -623,6 +634,9 @@ public partial class MainWindow : Window
             RefreshMapList();
             if (MapsOverlay.IsVisible) ShowMaps();
             RefreshToolInfo();
+            // a map file opened as a new campaign has no campaign file yet, so
+            // it counts as unsaved
+            if (kind == SaveFileKind.Campaign) MarkSaved(); else _autosavedContent = null;
             StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
         }
         catch (Exception ex)

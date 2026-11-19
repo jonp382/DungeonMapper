@@ -3011,5 +3011,35 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(bad is not null && bad.FloorGridOpacity == 100, "floor grid opacity: import clamps out of range values");
 }
 
+// --- campaign content key (autosave skip, save prompt on exit) ---
+{
+    MapProject Two()
+    {
+        var pr = new MapProject();
+        pr.Maps.Add(new MapEntry { Name = "B" });
+        return pr;
+    }
+    var a = Two();
+    a.Maps[0].Doc.AddRoom(0, 0, 3, 3);
+    a.Maps[0].Doc.AddRoom(10, 0, 12, 2);
+    var b = Two();
+    b.Maps[0].Doc.AddRoom(10, 0, 12, 2);
+    b.Maps[0].Doc.AddRoom(0, 0, 3, 3);
+    string ka = MapSerializer.ProjectContentKey(a);
+    Check(ka == MapSerializer.ProjectContentKey(b), "content key: same map drawn in a different order matches");
+    a.ActiveIndex = 1;
+    Check(ka == MapSerializer.ProjectContentKey(a), "content key: switching the active map is not a change");
+    a.Maps[0].Doc.Stairs[new CellKey(1, 1)] = new Stair();
+    Check(ka != MapSerializer.ProjectContentKey(a), "content key: an edit is a change");
+    a.Maps[0].Doc.Stairs.Remove(new CellKey(1, 1));
+    Check(ka == MapSerializer.ProjectContentKey(a), "content key: undoing the edit by hand matches again");
+    a.Maps[1].Name = "C";
+    Check(ka != MapSerializer.ProjectContentKey(a), "content key: renaming a map is a change");
+    var lib = new PawnLibrary();
+    string kl = MapSerializer.ProjectContentKey(b, lib);
+    lib.Add(new PawnTemplate { Name = "orc" });
+    Check(kl != MapSerializer.ProjectContentKey(b, lib), "content key: a pawn library edit is a change");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
