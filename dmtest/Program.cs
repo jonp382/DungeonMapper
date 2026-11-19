@@ -3067,5 +3067,38 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(d.CloseOpenDoors("portcullis") == 1 && d.CloseOpenDoors("portcullis") == 0, "close doors: nothing left to close");
 }
 
+// --- door wall gap ---
+{
+    // a long wall between two rooms with a door in the middle (edge x=4..5 at y=3)
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 9, 2);
+    h.Doc.AddRoom(0, 3, 9, 5);
+    h.Doc.TryPlaceDoor(new EdgeKey(new CellKey(4, 3), Side.North), "standard", "open", out _);
+    // a point on the wall 0.3 of a cell past the door edge's end, at the wall line
+    var p = h.ScreenWorld(5.3, 3);
+    var floorPt = h.ScreenOf(7, 4);
+    var none = h.Render();
+    var wallPx = h.PixelAt(none, (int)p.X, (int)p.Y);
+    h.Canvas.Settings.DoorWallGap = 50;
+    var gapBmp = h.Render();
+    Check(wallPx != h.PixelAt(none, (int)floorPt.X, (int)floorPt.Y), "door gap: at 0 the wall is drawn next to the door");
+    Check(h.PixelAt(gapBmp, (int)p.X, (int)p.Y) == h.PixelAt(gapBmp, (int)floorPt.X, (int)floorPt.Y), "door gap: at 50 the next wall is cleared to floor color");
+    var far = h.ScreenWorld(6.6, 3);
+    Check(h.PixelAt(gapBmp, (int)far.X, (int)far.Y) == wallPx, "door gap: the wall past the gap is still drawn");
+    // a door next to a corner: the perpendicular wall stays closed
+    var c = new CanvasHarness();
+    c.Doc.AddRoom(0, 0, 3, 3);
+    c.Doc.TryPlaceDoor(new EdgeKey(new CellKey(0, 0), Side.North), "standard", "open", out _);
+    c.Canvas.Settings.DoorWallGap = 50;
+    var cb = c.Render();
+    var corner = c.ScreenWorld(0, 0.3);
+    Check(c.PixelAt(cb, (int)corner.X, (int)corner.Y) == wallPx, "door gap: the corner wall is not cut");
+    var outside = c.ScreenWorld(-0.3, 0);
+    Check(c.PixelAt(cb, (int)outside.X, (int)outside.Y) != c.PixelAt(cb, (int)c.ScreenOf(2, 2).X, (int)c.ScreenOf(2, 2).Y),
+        "door gap: no floor painted past the end of the wall");
+    var bad = AppSettings.ParseImport("{\"door_wall_gap\":90}");
+    Check(bad is not null && bad.DoorWallGap == 50, "door gap: import clamps to 50");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

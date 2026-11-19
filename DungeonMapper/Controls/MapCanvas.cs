@@ -982,8 +982,16 @@ public sealed class MapCanvas : Control
             var a = WorldToScreen(seg.a.X, seg.a.Y);
             var b = WorldToScreen(seg.b.X, seg.b.Y);
             ctx.DrawLine(WallPen, a, b);
-            if (Document.Doors.TryGetValue(e, out var door))
-                DrawDoor(ctx, e, a, b, door);
+        }
+        // doors after every wall: the door wall gap setting can clear part of
+        // the next wall along, which a later wall would otherwise draw over
+        foreach (var (e, door) in Document.Doors)
+        {
+            if (!Document.HasWall(e)) continue;
+            var seg = EdgeSegment(e);
+            if (Math.Max(seg.a.X, seg.b.X) + 1 < topLeft.X || Math.Min(seg.a.X, seg.b.X) - 1 > bottomRight.X
+                || Math.Max(seg.a.Y, seg.b.Y) + 1 < topLeft.Y || Math.Min(seg.a.Y, seg.b.Y) - 1 > bottomRight.Y) continue;
+            DrawDoor(ctx, e, WorldToScreen(seg.a.X, seg.a.Y), WorldToScreen(seg.b.X, seg.b.Y), door);
         }
 
         // Angled walls: line segments between lattice vertices, drawn with the
@@ -1007,8 +1015,13 @@ public sealed class MapCanvas : Control
         {
             if (k.X + 1 < topLeft.X || k.X - 1 > bottomRight.X || k.Y + 1 < topLeft.Y || k.Y - 1 > bottomRight.Y) continue;
             var v = WorldToScreen(k.X, k.Y);
-            double gap = _scale * DoorLength;
             double gw = WallWidth + 1; // a pixel over the wall to cover its anti-aliased edge
+            // a vertex door spans two edges, so the door wall gap stays on them
+            double reach = _scale * (DoorLength / 2 + DoorWallGap);
+            ctx.FillRectangle(CellFill, k.Horizontal
+                ? new Rect(v.X - reach, v.Y - gw / 2, reach * 2, gw)
+                : new Rect(v.X - gw / 2, v.Y - reach, gw, reach * 2));
+            double gap = _scale * DoorLength;
             var gapRect = k.Horizontal
                 ? new Rect(v.X - gap / 2, v.Y - gw / 2, gap, gw)
                 : new Rect(v.X - gw / 2, v.Y - gap / 2, gw, gap);
@@ -2232,12 +2245,45 @@ public sealed class MapCanvas : Control
     // across the doorway and made the door look sealed when zoomed out.
     private IBrush GapFill(DoorState state) => state == DoorState.Open ? CellFill : Background;
 
+    // door wall gap setting in cells, past each end of the glyph
+    private double DoorWallGap => Math.Clamp(Settings.DoorWallGap, 0, AppSettings.MaxDoorWallGap) / 100.0;
+
+    // how far the floor colored wall gap reaches from the middle of the door
+    // on edge e toward its end vertex (vx, vy), in cells. it reaches the glyph
+    // end plus the door wall gap setting, but stops at the vertex when the
+    // wall ends there, and short of the vertex by half a wall when another
+    // wall meets it at a right angle, so corners and T joins stay closed.
+    private double GapReach(EdgeKey e, int vx, int vy, bool towardLow)
+    {
+        double want = DoorLength / 2 + DoorWallGap;
+        if (want <= DoorLength / 2) return DoorLength / 2;
+        bool horizontal = e.Side == Side.North;
+        bool perpendicular = horizontal
+            ? Document.HasWall(new EdgeKey(new CellKey(vx, vy - 1), Side.West)) || Document.HasWall(new EdgeKey(new CellKey(vx, vy), Side.West))
+            : Document.HasWall(new EdgeKey(new CellKey(vx - 1, vy), Side.North)) || Document.HasWall(new EdgeKey(new CellKey(vx, vy), Side.North));
+        bool continues = horizontal
+            ? Document.HasWall(new EdgeKey(new CellKey(towardLow ? vx - 1 : vx, vy), Side.North))
+            : Document.HasWall(new EdgeKey(new CellKey(vx, towardLow ? vy - 1 : vy), Side.West));
+        double limit = perpendicular ? 0.5 - WallWidth / 2 / _scale : continues ? 1.0 : 0.5;
+        return Math.Max(DoorLength / 2, Math.Min(want, limit));
+    }
+
     private void DrawDoor(DrawingContext ctx, EdgeKey e, Point a, Point b, Door door)
     {
         var mid = new Point((a.X + b.X) / 2, (a.Y + b.Y) / 2);
         bool horizontal = Math.Abs(b.Y - a.Y) < 0.001;
         double gap = _scale * DoorLength; // wall gap where the door sits
         double gw = WallWidth + 1; // a pixel over the wall to cover its anti-aliased edge
+        if (DoorWallGap > 0)
+        {
+            // the extra gap past the glyph shows floor whatever the door state
+            int x = e.Cell.X, y = e.Cell.Y;
+            double lo = _scale * (horizontal ? GapReach(e, x, y, true) : GapReach(e, x + 1, y, true));
+            double hi = _scale * (horizontal ? GapReach(e, x + 1, y, false) : GapReach(e, x + 1, y + 1, false));
+            ctx.FillRectangle(CellFill, horizontal
+                ? new Rect(mid.X - lo, mid.Y - gw / 2, lo + hi, gw)
+                : new Rect(mid.X - gw / 2, mid.Y - lo, gw, lo + hi));
+        }
         var gapRect = horizontal
             ? new Rect(mid.X - gap / 2, mid.Y - gw / 2, gap, gw)
             : new Rect(mid.X - gw / 2, mid.Y - gap / 2, gw, gap);
@@ -2256,7 +2302,7 @@ public sealed class MapCanvas : Control
         double len = Math.Sqrt((b.X - a.X) * (b.X - a.X) + (b.Y - a.Y) * (b.Y - a.Y));
         if (len < 0.0001) return;
         double ux = (b.X - a.X) / len, uy = (b.Y - a.Y) / len; // unit direction
-        double gapHalf = _scale * DoorLength / 2; // door gap half-width in screen px
+        double gapHalf = _scale * (DoorLength / 2 + DoorWallGap); // door gap half-width in screen px, door wall gap setting included
         Point At(double tPx) => new Point(a.X + ux * tPx, a.Y + uy * tPx);
 
         // draw wall sub-segments between gaps (door T in cells -> px via _scale)

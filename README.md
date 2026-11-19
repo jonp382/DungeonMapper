@@ -67,4 +67,4 @@ Pawns are tokens for characters and monsters. Each one can have a name, a pictur
 
 ## Settings
 
-The settings menu covers grid spacing and colors, map colors, wall thickness, the default label text and the autosave interval. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.
+The settings menu covers grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, how much wall is cleared next to a door, the default label text and the autosave interval. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.

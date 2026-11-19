@@ -63,6 +63,8 @@ public partial class MainWindow
                 s => s.AutosaveMinutes, (s, v) => s.AutosaveMinutes = v),
             new(SetFloorGridOpacity, SetFloorGridOpacityError, ResetFloorGridOpacity, 0, AppSettings.MaxFloorGridOpacity,
                 s => s.FloorGridOpacity, (s, v) => s.FloorGridOpacity = v),
+            new(SetDoorWallGap, SetDoorWallGapError, ResetDoorWallGap, 0, AppSettings.MaxDoorWallGap,
+                s => s.DoorWallGap, (s, v) => s.DoorWallGap = v),
         ];
         SetWallThicknessHint.Text = $"pixels, {AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness}.";
         SetAutosaveHint.Text = $"minutes, 0 to {MaxAutosaveMinutes}. 0 turns autosave off.";

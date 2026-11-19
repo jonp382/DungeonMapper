@@ -170,6 +170,11 @@ public sealed class AppSettings
     // walls do not store it.
     [JsonPropertyName("wall_thickness")] public int WallThickness { get; set; } = 3;
     public const int MinWallThickness = 1, MaxWallThickness = 20;
+    // extra wall cleared past each end of a door glyph, in percent of a cell
+    // edge (0 to 50, 50 = half a wall length). shows floor color so rooms read
+    // as connected. 0 = the gap is just the glyph.
+    [JsonPropertyName("door_wall_gap")] public int DoorWallGap { get; set; } = 0;
+    public const int MaxDoorWallGap = 50;
     public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999, MaxFloorGridOpacity = 100;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
@@ -334,6 +339,7 @@ public sealed class AppSettings
         s.WallThickness = Math.Clamp(s.WallThickness, MinWallThickness, MaxWallThickness);
         s.AutosaveMinutes = Math.Clamp(s.AutosaveMinutes, 0, MaxAutosaveMinutes);
         s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
+        s.DoorWallGap = Math.Clamp(s.DoorWallGap, 0, MaxDoorWallGap);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
         // hotkeys: only known tools, each a single letter a to z (what the
         // hotkeys menu allows); anything else falls back to the default
