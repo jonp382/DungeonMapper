@@ -3041,5 +3041,31 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(kl != MapSerializer.ProjectContentKey(b, lib), "content key: a pawn library edit is a change");
 }
 
+// --- close open doors (door tool) ---
+{
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 5, 0);
+    Door Put(int x, string type, string state)
+    {
+        d.TryPlaceDoor(new EdgeKey(new CellKey(x, 0), Side.North), type, state, out var door);
+        return door;
+    }
+    var a = Put(0, "standard", "open");
+    var b = Put(1, "standard", "open");
+    var c = Put(2, "standard", "locked");
+    var e = Put(3, "standard", "closed");
+    var f = Put(4, "portcullis", "open");
+    var hist = new History();
+    hist.Commit(d);
+    Check(d.CloseOpenDoors("standard") == 2, "close doors: two open standard doors closed");
+    Check(a.State == DoorState.Closed && b.State == DoorState.Closed, "close doors: open became closed");
+    Check(c.State == DoorState.Locked && e.State == DoorState.Closed, "close doors: locked and closed untouched");
+    Check(f.State == DoorState.Open, "close doors: other types untouched");
+    hist.Commit(d);
+    var back = hist.Undo();
+    Check(back is not null && back.Doors.Values.Count(x => x.State == DoorState.Open) == 3, "close doors: one undo step reopens all of them");
+    Check(d.CloseOpenDoors("portcullis") == 1 && d.CloseOpenDoors("portcullis") == 0, "close doors: nothing left to close");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

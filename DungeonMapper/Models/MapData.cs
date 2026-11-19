@@ -223,6 +223,16 @@ public sealed class MapDocument
     public List<FloodRegion> FloodRegions { get; } = new();
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
 
+    /// Door tool "close open doors": every open door of the type becomes
+    /// closed. Locked and closed doors are left alone. Returns how many closed.
+    public int CloseOpenDoors(string type)
+    {
+        int n = 0;
+        foreach (var d in AllDoors())
+            if (d.Type == type && d.State == DoorState.Open) { d.State = DoorState.Closed; n++; }
+        return n;
+    }
+
     /// every door on the map: edge, angled and vertex doors
     public IEnumerable<IDoorConfig> AllDoors()
     {

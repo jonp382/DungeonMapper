@@ -20,7 +20,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Polygon | N | Click grid points to outline an odd-shaped room. Click the first point again, or press Enter, to finish. |
 | Floor | F | Paint floor by dragging a rectangle, or flood fill the room you click. |
 | Wall | W | Press on one grid point and release on another to draw a wall line. |
-| Door | D | Click a wall to place a door. Click a door to change its type or state. |
+| Door | D | Click a wall to place a door. Click a door to change its type or state. Close open doors shuts every open door of one type on the map in one step. |
 | Stair | T | Click or drag to place stairs, then pick which way they go. |
 | Label | L | Click to place a label, or drag to make one that spans an area. |
 | Erase | E | Remove things, and choose what the eraser takes. |

@@ -67,6 +67,7 @@ public partial class MainWindow
                     s => { Canvas.DefaultDoorState = s; FocusCanvas(); },
                     "default door state");
                 _toolInfo = ToolPanel.AddInfo("");
+                ToolPanel.AddButton("close open doors...", () => { CloseModals(); ShowCloseDoors(Canvas.DefaultDoorType); });
                 ToolPanel.AddButton("manage door presets", () => { CloseModals(); ShowDoorPresets(); });
                 break;
 

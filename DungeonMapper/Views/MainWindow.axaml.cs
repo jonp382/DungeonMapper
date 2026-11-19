@@ -276,6 +276,7 @@ public partial class MainWindow : Window
         {
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind == "close-doors") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
