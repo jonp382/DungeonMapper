@@ -32,6 +32,7 @@ public partial class MainWindow
             case ToolMode.Select:
                 ToolPanel.Clear("select");
                 ToolPanel.AddHint("click an element to configure it, drag a region to select. ctrl+c and ctrl+v copy and paste, the paste ghost follows the cursor. r, shift+r or shift+scroll rotates the clipboard.");
+                ToolPanel.AddButton("clear clipboard", () => { Canvas.ClearClipboard(); FocusCanvas(); });
                 break;
 
             case ToolMode.Move:

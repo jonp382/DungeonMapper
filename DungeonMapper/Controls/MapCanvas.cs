@@ -423,6 +423,15 @@ public sealed class MapCanvas : Control
         _moveSourceCleared = false;
     }
 
+    /// Select tool "clear clipboard" button: drops the clipboard, the paste
+    /// ghost and the selection rectangle.
+    public void ClearClipboard()
+    {
+        ResetClipboard();
+        ClearSelection();
+        StatusMessage?.Invoke("clipboard cleared");
+    }
+
     /// Rotates the armed snapshot by turns counterclockwise quarter-turns (R =
     /// clockwise = -1, Shift+R / shift+scroll up = counterclockwise = +1). The
     /// rotation is applied to the stored snapshot so the destination ghost and

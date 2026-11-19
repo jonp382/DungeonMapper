@@ -2961,5 +2961,25 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(w.RemoveConnectedStairs(new CellKey(9, 9)) == 0, "stair delete: no stair, nothing removed");
 }
 
+// --- clear clipboard (select tool button) ---
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 3, 3);
+    h.Canvas.Mode = ToolMode.Select;
+    h.Drag(0, 0, 3, 3);
+    h.Canvas.CopySelection();
+    Check(h.Canvas.HasClipboard && h.Canvas.HasSelection, "clear clipboard: copy arms the clipboard");
+    h.MoveTo(10, 3);
+    var ghost = h.Render();
+    var withGhost = h.PixelAt(ghost, (int)h.ScreenOf(10, 3).X, (int)h.ScreenOf(10, 3).Y);
+    h.Canvas.ClearClipboard();
+    Check(!h.Canvas.HasClipboard && !h.Canvas.HasSelection, "clear clipboard: clipboard and selection gone");
+    var bmp = h.Render();
+    var after = h.PixelAt(bmp, (int)h.ScreenOf(10, 3).X, (int)h.ScreenOf(10, 3).Y);
+    var empty = h.PixelAt(bmp, (int)h.ScreenOf(18, 3).X, (int)h.ScreenOf(18, 3).Y);
+    Check(withGhost != empty && after == empty, "clear clipboard: the paste ghost is no longer drawn");
+    Check(h.Statuses.Contains("clipboard cleared"), "clear clipboard: status message");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
