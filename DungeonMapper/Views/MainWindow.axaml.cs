@@ -230,6 +230,8 @@ public partial class MainWindow : Window
         Canvas.DoorConfigRequested += d => ShowDoorConfig(d);
         Canvas.StairConfigRequested += s => ShowStairConfig(s);
         Canvas.LabelConfigRequested += l => ShowLabelConfig(l);
+        // rebuild so the size box and the reopen spot follow the new range
+        Canvas.LabelResized += l => { if (Canvas.SelectedLabel == l) ShowLabelConfig(l); };
         Canvas.LabelEditRequested += l => BeginLabelEdit(l);
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);

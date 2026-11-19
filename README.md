@@ -22,7 +22,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Wall | W | Press on one grid point and release on another to draw a wall line. |
 | Door | D | Click a wall to place a door. Click a door to change its type or state. Close open doors shuts every open door of one type on the map in one step. |
 | Stair | T | Click or drag to place stairs, then pick which way they go. |
-| Label | L | Click to place a label, or drag to make one that spans an area. |
+| Label | L | Click to place a label, or drag to make one that spans an area. Click a label to edit it, and drag its handles to resize it. |
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |

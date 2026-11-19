@@ -192,8 +192,12 @@ public partial class MainWindow
     private void ShowLabelConfig(MapLabel label)
     {
         int index = _doc.Labels.IndexOf(label);
+        int count = _doc.Labels.Count;
         var cell = label.Cell;
         ToolPanel.Clear("label");
+        // the label tool shows resize handles on this label
+        Canvas.SelectedLabel = label;
+        Canvas.Refresh();
         // the size box shows the size the label draws at. while the label has
         // no size of its own that is its default, which for a range depends on
         // the text, so the box follows the text until a number is typed in.
@@ -350,13 +354,16 @@ public partial class MainWindow
                 if (_doc.Labels.Remove(label)) AfterDelete("label");
             }));
 
-        // the same list position on the same cell, or any label on that cell
+        // the same list position on the same cell, or any label on that cell.
+        // undoing a resize can move the label's corner cell, so with the same
+        // number of labels the same list position is the same label
         SetReopen(() =>
         {
             var labels = _doc.Labels;
             var again = index >= 0 && index < labels.Count && labels[index].Cell == cell
                 ? labels[index]
-                : labels.FirstOrDefault(l => l.Cell == cell);
+                : labels.FirstOrDefault(l => l.Cell == cell)
+                  ?? (index >= 0 && index < labels.Count && labels.Count == count ? labels[index] : null);
             if (again is not null) ShowLabelConfig(again);
             else BackToToolView();
         });

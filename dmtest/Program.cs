@@ -3695,5 +3695,81 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- label resize handles ---
+{
+    using var h = new CanvasHarness();
+    var lbl = new MapLabel { Cell = new CellKey(2, 2), W = 1, H = 1, Text = "hall" };
+    h.Doc.Labels.Add(lbl);
+    h.Canvas.Mode = ToolMode.Label;
+    h.Canvas.SelectedLabel = lbl;
+    int commits = h.CommitCount;
+    MapLabel? resized = null;
+    h.Canvas.LabelResized += l => resized = l;
+
+    // bottom right handle sits on the label's bottom right corner
+    h.PressAt(h.ScreenWorld(3, 3)); h.MoveToAt(h.ScreenWorld(5.2, 3.9)); h.ReleaseAt(h.ScreenWorld(5.2, 3.9));
+    Check(lbl.Cell == new CellKey(2, 2) && lbl.W == 3 && lbl.H == 2, "label resize: bottom right handle grows to 3x2, snapped to grid lines");
+    Check(h.CommitCount == commits + 1 && resized == lbl, "label resize: one undo step and the resized event");
+    Check(h.Doc.Labels.Count == 1, "label resize: no new label placed");
+
+    // top left handle moves the corner cell
+    h.PressAt(h.ScreenWorld(2, 2)); h.MoveToAt(h.ScreenWorld(0.8, 1.1)); h.ReleaseAt(h.ScreenWorld(0.8, 1.1));
+    Check(lbl.Cell == new CellKey(1, 1) && lbl.W == 4 && lbl.H == 3, "label resize: top left handle moves the corner");
+
+    // never below one cell
+    h.PressAt(h.ScreenWorld(5, 4)); h.MoveToAt(h.ScreenWorld(-3, -3)); h.ReleaseAt(h.ScreenWorld(-3, -3));
+    Check(lbl.Cell == new CellKey(1, 1) && lbl.W == 1 && lbl.H == 1, "label resize: at least one cell");
+
+    // edge handle changes one side only
+    h.PressAt(h.ScreenWorld(2, 1.5)); h.MoveToAt(h.ScreenWorld(4, 1.5)); h.ReleaseAt(h.ScreenWorld(4, 1.5));
+    Check(lbl.W == 3 && lbl.H == 1, "label resize: right edge handle changes the width only");
+
+    // a press and release without moving takes no undo step
+    int c2 = h.CommitCount;
+    h.PressAt(h.ScreenWorld(4, 2)); h.ReleaseAt(h.ScreenWorld(4, 2));
+    Check(h.CommitCount == c2 && lbl.W == 3, "label resize: a click on a handle changes nothing");
+
+    // handles only in the label tool, only for the selected label
+    h.Canvas.Mode = ToolMode.Select;
+    h.PressAt(h.ScreenWorld(4, 2)); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseAt(h.ScreenWorld(6, 2));
+    Check(lbl.W == 3, "label resize: no handles outside the label tool");
+    h.Canvas.Mode = ToolMode.Label;
+    h.Canvas.SelectedLabel = null;
+    h.PressAt(h.ScreenWorld(4, 2)); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseAt(h.ScreenWorld(6, 2));
+    Check(lbl.W == 3, "label resize: no handles without a selected label");
+
+    // auto font refits to the new range
+    var big = new MapLabel { Cell = new CellKey(10, 10), W = 1, H = 1, Text = "a long label" };
+    double small = MapCanvas.LabelSize(big);
+    big.W = 6; big.H = 2;
+    Check(MapCanvas.LabelSize(big) >= small, "label resize: an auto size label is not smaller in a bigger range");
+}
+
+// --- label resize: window ---
+{
+    _ = new CanvasHarness();
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        Call("SetTool", ToolMode.Label);
+        var l = new MapLabel { Cell = new CellKey(1, 1), Text = "x" };
+        canvas.Document.Labels.Add(l);
+        Call("ShowLabelConfig", l);
+        Check(canvas.SelectedLabel == l, "label resize: opening a label selects it for handles");
+        Call("SetTool", ToolMode.Room);
+        Check(canvas.SelectedLabel is null, "label resize: going back to a tool view drops the handles");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"label resize: window test ({(ex.InnerException ?? ex).Message})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

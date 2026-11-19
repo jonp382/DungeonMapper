@@ -1105,6 +1105,7 @@ public sealed partial class MapCanvas : Control
 
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
+        DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
     }
@@ -1814,6 +1815,8 @@ public sealed partial class MapCanvas : Control
                 break;
 
             case ToolMode.Label:
+                // the open label's resize handles come first
+                if (LabelHandlePressed(e)) break;
                 // clicking a label edits it. otherwise drag out a range (a
                 // click is a 1x1 range) and the label is placed on release.
                 var lbl = LabelAt(cell);
@@ -1908,6 +1911,7 @@ public sealed partial class MapCanvas : Control
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         if (MeasureMoved(world)) return;
+        if (LabelResizeMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
@@ -2000,6 +2004,7 @@ public sealed partial class MapCanvas : Control
         if (FormationReleased(e)) return;
         if (ObjectReleased(e)) return;
         if (MeasureReleased(e)) return;
+        if (LabelResizeReleased(e)) return;
 
         if (_pawnDragging)
         {

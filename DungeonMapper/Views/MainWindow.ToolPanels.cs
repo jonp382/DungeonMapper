@@ -22,6 +22,8 @@ public partial class MainWindow
         _measureInfo = null;
         // the resize handles belong to an open object view
         if (Canvas.SelectedObjectId is not null) { Canvas.SelectedObjectId = null; Canvas.Refresh(); }
+        // and the label resize handles to an open label view
+        if (Canvas.SelectedLabel is not null) { Canvas.SelectedLabel = null; Canvas.Refresh(); }
         switch (mode)
         {
             case ToolMode.Erase:
