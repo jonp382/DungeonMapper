@@ -61,6 +61,8 @@ public partial class MainWindow
                 s => s.WallThickness, (s, v) => s.WallThickness = v),
             new(SetAutosave, SetAutosaveError, ResetAutosave, 0, MaxAutosaveMinutes,
                 s => s.AutosaveMinutes, (s, v) => s.AutosaveMinutes = v),
+            new(SetFloorGridOpacity, SetFloorGridOpacityError, ResetFloorGridOpacity, 0, AppSettings.MaxFloorGridOpacity,
+                s => s.FloorGridOpacity, (s, v) => s.FloorGridOpacity = v),
         ];
         SetWallThicknessHint.Text = $"pixels, {AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness}.";
         SetAutosaveHint.Text = $"minutes, 0 to {MaxAutosaveMinutes}. 0 turns autosave off.";
@@ -102,6 +104,22 @@ public partial class MainWindow
             _settings.DefaultLabelText = SettingDefaults.DefaultLabelText;
             MarkSetting();
             RefreshSettings();
+        };
+
+        // the slider applies live while dragging and keeps the box in step.
+        // the box is the opacity NumberSetting above, RefreshSettings moves
+        // the slider to whatever the box applied.
+        SetFloorGridOpacitySlider.ValueChanged += (_, _) =>
+        {
+            if (_settingsLoading) return;
+            int v = (int)Math.Round(SetFloorGridOpacitySlider.Value);
+            SetFloorGridOpacity.Text = v.ToString();
+            SetFloorGridOpacity.Classes.Remove("invalid");
+            SetFloorGridOpacityError.IsVisible = false;
+            if (v == _settings.FloorGridOpacity) return;
+            _settings.FloorGridOpacity = v;
+            SettingChanged();
+            RefreshSettingResets();
         };
 
         SetShowMinor.IsCheckedChanged += (_, _) =>
@@ -162,6 +180,7 @@ public partial class MainWindow
             c.Host.Content = b;
         }
         SetShowMinor.IsChecked = _settings.ShowMinorGrid;
+        SetFloorGridOpacitySlider.Value = _settings.FloorGridOpacity;
         SetLabelText.Text = _settings.DefaultLabelText;
         SetLabelText.Classes.Remove("invalid");
         SetLabelTextError.IsVisible = false;
@@ -199,6 +218,12 @@ public partial class MainWindow
         n.Box.Text = v.ToString();
         if (v == n.Get(_settings)) return;
         n.Set(_settings, v);
+        if (n.Box == SetFloorGridOpacity)
+        {
+            _settingsLoading = true;
+            SetFloorGridOpacitySlider.Value = v;
+            _settingsLoading = false;
+        }
         SettingChanged();
         RefreshSettingResets();
     }

@@ -145,6 +145,9 @@ public sealed class AppSettings
     // Toggle: when false, minor gridlines (every 5ft edge) are not drawn at all,
     // so at spacing 2 you can show only the 10ft major lines.
     [JsonPropertyName("show_minor_grid")] public bool ShowMinorGrid { get; set; } = true;
+    // opacity of the major and minor lines drawn inside floored regions, in
+    // percent. 0 hides them, 100 is the full line color.
+    [JsonPropertyName("floor_grid_opacity")] public int FloorGridOpacity { get; set; } = 100;
     // empty space outside rooms shows a dot on each grid vertex instead of
     // lines. one color for both, major dots are drawn a little bigger.
     [JsonPropertyName("grid_dot_r")] public int GridDotR { get; set; } = 105;
@@ -167,7 +170,7 @@ public sealed class AppSettings
     // walls do not store it.
     [JsonPropertyName("wall_thickness")] public int WallThickness { get; set; } = 3;
     public const int MinWallThickness = 1, MaxWallThickness = 20;
-    public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999;
+    public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999, MaxFloorGridOpacity = 100;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
     [JsonPropertyName("stair_color_r")] public int StairColorR { get; set; } = 230;
@@ -330,6 +333,7 @@ public sealed class AppSettings
         s.GridDrawSpacing = Math.Clamp(s.GridDrawSpacing, 1, MaxGridSpacing);
         s.WallThickness = Math.Clamp(s.WallThickness, MinWallThickness, MaxWallThickness);
         s.AutosaveMinutes = Math.Clamp(s.AutosaveMinutes, 0, MaxAutosaveMinutes);
+        s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
         // hotkeys: only known tools, each a single letter a to z (what the
         // hotkeys menu allows); anything else falls back to the default

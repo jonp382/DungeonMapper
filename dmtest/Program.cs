@@ -2990,5 +2990,26 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(old is not null && old.ToolHotkeys[AppSettings.FitHotkey] == "Z", "fit hotkey: old settings files get the default");
 }
 
+// --- floor grid opacity ---
+{
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 3, 3);
+    int lx = (int)h.ScreenWorld(2, 0).X, ly = (int)h.ScreenOf(1, 1).Y; // the line at world x=2, mid cell
+    int fx = (int)h.ScreenOf(1, 1).X; // floor, no line
+    var full = h.Render();
+    var line100 = h.PixelAt(full, lx, ly);
+    var floor = h.PixelAt(full, fx, ly);
+    h.Canvas.Settings.FloorGridOpacity = 0;
+    var none = h.Render();
+    Check(line100 != floor, "floor grid opacity: line visible at 100");
+    Check(h.PixelAt(none, lx, ly) == h.PixelAt(none, fx, ly), "floor grid opacity: line hidden at 0");
+    h.Canvas.Settings.FloorGridOpacity = 50;
+    var half = h.PixelAt(h.Render(), lx, ly);
+    Check(half != line100 && half != floor, "floor grid opacity: 50 blends the line into the floor");
+    Check(AppSettings.Default().FloorGridOpacity == 100, "floor grid opacity: default 100");
+    var bad = AppSettings.ParseImport("{\"floor_grid_opacity\":250}");
+    Check(bad is not null && bad.FloorGridOpacity == 100, "floor grid opacity: import clamps out of range values");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

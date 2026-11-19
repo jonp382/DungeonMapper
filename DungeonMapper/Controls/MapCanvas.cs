@@ -825,8 +825,11 @@ public sealed class MapCanvas : Control
         // Cell fills. Grid is always 5ft (1 cell); GridDrawSpacing is the MAJOR
         // spacing. Colors come from settings.
         int sp = Math.Max(1, Settings.GridDrawSpacing);
-        var majorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
-        var minorPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
+        // these lines are only drawn inside floors, so the floor grid opacity
+        // setting goes straight into their alpha
+        byte gridAlpha = (byte)Math.Round(255 * Math.Clamp(Settings.FloorGridOpacity, 0, 100) / 100.0);
+        var majorPen = new Pen(new SolidColorBrush(Color.FromArgb(gridAlpha, (byte)Settings.MajorGridR, (byte)Settings.MajorGridG, (byte)Settings.MajorGridB)), 1);
+        var minorPen = new Pen(new SolidColorBrush(Color.FromArgb(gridAlpha, (byte)Settings.MinorGridR, (byte)Settings.MinorGridG, (byte)Settings.MinorGridB)), 1);
         // Fill CONTIGUOUS CELLS AS ONE MERGED RECTANGLE per maximal block, so a
         // room built from adjacent cells (e.g. a 10x10 room = 4 connected 5x5
         // tiles) renders as one contiguous square. Filling each cell as its own
@@ -913,7 +916,8 @@ public sealed class MapCanvas : Control
         // fills so the lines show on top. major at spacing boundaries, minor at
         // every 5ft cell edge; at sp==1 minor coincides with major so all lines
         // are major.
-        if (floorClip.Children.Count > 0)
+        if (gridAlpha == 0) floodFloors.Clear(); // nothing to draw, skip the clipped passes
+        if (floorClip.Children.Count > 0 && gridAlpha > 0)
             using (ctx.PushGeometryClip(floorClip))
                 DrawGridLines(ctx, topLeft.X, topLeft.Y, bottomRight.X, bottomRight.Y, sp, majorPen, minorPen);
         // flood floors clip one at a time, each keeps its own even-odd holes.

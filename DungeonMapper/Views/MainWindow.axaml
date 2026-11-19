@@ -209,6 +209,18 @@
                                             <ContentControl x:Name="SetMinorColor" Grid.Column="2" />
                                             <Button x:Name="ResetMinorColor" Grid.Column="3" Classes="btn quiet" Content="reset" />
                                         </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="floor grid opacity" />
+                                                <TextBlock Classes="hint" Text="lines inside rooms, percent 0 to 100." />
+                                                <TextBlock x:Name="SetFloorGridOpacityError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <Slider x:Name="SetFloorGridOpacitySlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"
+                                                    SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetFloorGridOpacity" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetFloorGridOpacity" Grid.Column="3" Classes="btn quiet" Content="reset" />
+                                        </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="grid dots" />
