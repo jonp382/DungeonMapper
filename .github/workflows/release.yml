@@ -58,6 +58,35 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history and tags, needed to find the previous tag
+
+      - name: Release notes
+        shell: bash
+        run: |
+          tag="${{ github.ref_name }}"
+          # the tag's actions/checkout copy is lightweight, fetch the real one so an annotated message is readable
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          {
+            # annotated tag message (git tag -a v1.0.0 -m "..."), if there is one
+            if [ "$(git cat-file -t "$tag")" = "tag" ]; then
+              git tag -l --format='%(contents)' "$tag"
+              echo
+            fi
+            prev=$(git describe --tags --abbrev=0 "$tag^" 2>/dev/null || true)
+            if [ -n "$prev" ]; then
+              echo "## Changes since $prev"
+              range="$prev..$tag"
+            else
+              echo "## Changes"
+              range="$tag"
+            fi
+            echo
+            git log --no-merges --reverse --pretty='- %s' "$range"
+          } > notes.md
+          cat notes.md
+
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -66,4 +95,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: notes.md
