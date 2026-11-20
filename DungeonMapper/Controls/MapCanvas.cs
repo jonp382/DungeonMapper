@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -1103,6 +1103,7 @@ public sealed partial class MapCanvas : Control
             ctx.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(a, 255, 204, 51)), 3), center, r, r);
         }
 
+        DrawFog(ctx); // under the tool overlays, over the whole map
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
         DrawLabelHandles(ctx);
@@ -1661,6 +1662,7 @@ public sealed partial class MapCanvas : Control
         // an area pick or an armed formation takes the click in any tool
         if (FormationPressed(e, cell)) return;
         if (MeasurePressed(e, world, cell)) return;
+        if (FogPressed(e, world)) return;
 
         switch (Mode)
         {
@@ -1911,6 +1913,7 @@ public sealed partial class MapCanvas : Control
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         if (MeasureMoved(world)) return;
+        if (FogMoved(world)) return;
         if (LabelResizeMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
@@ -2004,6 +2007,7 @@ public sealed partial class MapCanvas : Control
         if (FormationReleased(e)) return;
         if (ObjectReleased(e)) return;
         if (MeasureReleased(e)) return;
+        if (FogReleased(e)) return;
         if (LabelResizeReleased(e)) return;
 
         if (_pawnDragging)
@@ -2272,6 +2276,13 @@ public sealed partial class MapCanvas : Control
         if (e.KeyModifiers == KeyModifiers.Shift && FormationArmed)
         {
             RotateFormation(e.Delta.Y > 0 ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+        // the fog tool rotates nothing: shift+scroll steps its radius instead
+        if (e.KeyModifiers == KeyModifiers.Shift && Mode == ToolMode.Fog)
+        {
+            StepFog(e.Delta.Y > 0 ? 1 : -1);
             e.Handled = true;
             return;
         }

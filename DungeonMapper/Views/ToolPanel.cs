@@ -150,6 +150,20 @@ public sealed class ToolPanel : Border
         Target.Children.Add(row);
     }
 
+    // a labelled slider snapping to step. onChange fires live while dragging
+    public Slider AddSlider(string label, double min, double max, double step, double initial, Action<double> onChange)
+    {
+        Target.Children.Add(FieldLabel(label));
+        var sl = new Slider
+        {
+            Minimum = min, Maximum = max, SmallChange = step, LargeChange = step,
+            TickFrequency = step, IsSnapToTickEnabled = true, Value = initial,
+        };
+        sl.ValueChanged += (_, e) => onChange(e.NewValue);
+        Target.Children.Add(sl);
+        return sl;
+    }
+
     public void AddButton(string label, Action onClick)
     {
         var b = Btn(label);

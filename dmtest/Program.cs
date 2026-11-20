@@ -3771,5 +3771,102 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- fog tool ---
+{
+    using var h = new CanvasHarness();
+    h.Doc.Pawns[new CellKey(5, 5)] = new Pawn { Cell = new CellKey(5, 5), TemplateId = "p" };
+    var c = h.Canvas;
+    Check(c.FogSnap(new Point(2.1, 2.1)) == new Point(2, 2), "fog: near a corner snaps to the corner");
+    Check(c.FogSnap(new Point(2.4, 2.6)) == new Point(2.5, 2.5), "fog: near a center snaps to the center");
+    Check(c.FogSnap(new Point(5.05, 5.05)) == new Point(5.5, 5.5), "fog: anywhere on a pawn's cell snaps to the pawn");
+
+    Check(c.FogFeet == 30 && c.FogRadiusCells == 6, "fog: radius starts at 30 ft (6 cells)");
+    c.FogFeet = 135; Check(c.FogFeet == 120, "fog: radius stops at 120 ft");
+    c.FogFeet = -5; Check(c.FogFeet == 0, "fog: radius stops at 0");
+    c.FogFeet = 34; Check(c.FogFeet == 30, "fog: radius snaps to 10 ft steps");
+
+    int commits = h.CommitCount;
+    c.Mode = ToolMode.Fog;
+    c.ResetFog();
+    h.MoveToAt(h.ScreenWorld(3.5, 3.5));
+    Check(c.FogCenter == new Point(3.5, 3.5) && !c.FogAnchored, "fog: the center follows the cursor");
+    Check(c.FogRevealed().Count == MapCanvas.CellsInRadius(new Point(3.5, 3.5), 6).Count, "fog: reveals the same cells the measure radius catches");
+    h.ClickW(7.05, 7.05);
+    Check(c.FogAnchored && c.FogCenter == new Point(7, 7), "fog: a click anchors the center (snapped to a corner)");
+    h.MoveToAt(h.ScreenWorld(2.5, 2.5));
+    Check(c.FogCenter == new Point(7, 7), "fog: the anchor stays when the cursor moves");
+    h.ClickW(9.5, 4.5);
+    Check(c.FogCenter == new Point(9.5, 4.5), "fog: a click elsewhere moves the anchor");
+    Check(c.ReleaseFogAnchor() && !c.FogAnchored, "fog: release drops the anchor");
+    h.MoveToAt(h.ScreenWorld(2.5, 2.5));
+    Check(c.FogCenter == new Point(2.5, 2.5), "fog: released, the center follows the cursor again");
+
+    // shift+scroll steps the radius
+    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), 1);
+    Check(c.FogFeet == 40, "fog: shift+scroll up grows the radius by 10 ft");
+    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), -1);
+    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), -1);
+    Check(c.FogFeet == 20, "fog: shift+scroll down shrinks it");
+
+    // pixels: anchored on the pawn, 30 ft. a revealed cell is brighter than a fogged one
+    c.FogFeet = 30;
+    h.Click(5, 5);
+    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
+    var bmp = h.Render();
+    var inside = h.PixelAt(bmp, (int)h.ScreenOf(8, 5).X + 8, (int)h.ScreenOf(8, 5).Y + 8);
+    var outside = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
+    Check(Lum(inside) > Lum(outside), "fog: cells outside the radius are dimmed, inside are not");
+    c.FogOn = false;
+    bmp = h.Render();
+    var off = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
+    Check(Lum(off) == Lum(inside), "fog: unticked, nothing is dimmed");
+    c.FogOn = true;
+    c.Mode = ToolMode.Select;
+    bmp = h.Render();
+    off = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
+    Check(Lum(off) == Lum(inside), "fog: never shows outside the fog tool");
+
+    Check(h.CommitCount == commits && h.Doc.Pawns.Count == 1 && h.Doc.Cells.Count == 0, "fog: no commits (no undo steps) and the map is untouched");
+
+    var d = AppSettings.Default();
+    Check(d.ToolHotkeys["Fog"] == "V" && d.ToolHotkeys.Values.Count(v => v == "V") == 1, "fog: hotkey V by default, used by nothing else");
+    Check(d.FogOpacity == 30 && d.FogR == 0 && d.FogG == 0 && d.FogB == 0, "fog: default dim is black at 30 percent");
+    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"fog_opacity\":500,\"fog_r\":10}")!;
+    Check(imp.FogOpacity == 100 && imp.FogR == 10, "fog: settings import clamps the opacity and keeps the color");
+}
+
+// --- fog tool: window smoke test ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        step = "fog panel"; Call("SetTool", ToolMode.Fog);
+        var slider = (Avalonia.Controls.Slider?)t.GetField("_fogSlider", flags)!.GetValue(w);
+        Check(slider?.Value == canvas.FogFeet && canvas.FogActive, "fog: panel builds, slider shows the radius, fog is on");
+        canvas.FogFeet = 60;
+        Check(slider!.Value == 60, "fog: a radius change (shift+scroll) moves the slider");
+        slider.Value = 90;
+        Check(canvas.FogFeet == 90, "fog: the slider sets the radius");
+        canvas.FogOn = false;
+        step = "settings"; Call("ShowSettings"); Call("CloseSettings");
+        step = "tool switch"; Call("SetTool", ToolMode.Room);
+        Check(!canvas.FogActive, "fog: a tool switch hides the fog");
+        Call("SetTool", ToolMode.Fog);
+        Check(canvas.FogActive && !canvas.FogAnchored && canvas.FogFeet == 90, "fog: picking the tool again turns it on, unanchored, radius kept");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"fog: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

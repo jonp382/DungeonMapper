@@ -54,6 +54,8 @@ public partial class MainWindow
                 (s, c) => (s.LabelR, s.LabelG, s.LabelB) = c),
             new(SetMeasureColor, ResetMeasureColor, s => (s.MeasureR, s.MeasureG, s.MeasureB),
                 (s, c) => (s.MeasureR, s.MeasureG, s.MeasureB) = c),
+            new(SetFogColor, ResetFogColor, s => (s.FogR, s.FogG, s.FogB),
+                (s, c) => (s.FogR, s.FogG, s.FogB) = c),
         ];
         _numberSettings =
         [
@@ -70,6 +72,8 @@ public partial class MainWindow
                 s => s.DoorWallGap, (s, v) => s.DoorWallGap = v),
             new(SetMeasureShade, SetMeasureShadeError, ResetMeasureShade, 0, AppSettings.MaxMeasureShadeOpacity,
                 s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
+            new(SetFogOpacity, SetFogOpacityError, ResetFogOpacity, 0, AppSettings.MaxFogOpacity,
+                s => s.FogOpacity, (s, v) => s.FogOpacity = v),
         ];
         SetWallThicknessHint.Text = $"pixels, {AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness}.";
         SetAutosaveHint.Text = $"minutes, 0 to {MaxAutosaveMinutes}. 0 turns autosave off.";
@@ -204,6 +208,7 @@ public partial class MainWindow
         {
             if (n.Box == SetFloorGridOpacity) yield return (SetFloorGridOpacitySlider, n);
             else if (n.Box == SetMeasureShade) yield return (SetMeasureShadeSlider, n);
+            else if (n.Box == SetFogOpacity) yield return (SetFogOpacitySlider, n);
         }
     }
 

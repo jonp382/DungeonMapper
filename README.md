@@ -27,6 +27,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Pawn | P | Place pawns from your library onto the map. |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
 | Measure | G | Drag to measure a distance, or drag out from a pawn for a spell radius. See [Measuring](#measuring). |
+| Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
 
 You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
@@ -86,6 +87,17 @@ The measure tool only reads the map. It never changes anything, adds an undo ste
 - **Pawn to pawn:** drag from one pawn onto another to get the distance between them.
 - Ends snap to cell centers. The "cell corners" chip in the side panel snaps them to grid corners instead.
 - A measurement stays on screen until you press Esc, switch tools, start a new one or click **clear**. The color and shading strength are in settings.
+
+## Fog
+
+The fog tool shows how far a character can see. Like the measure tool it only reads the map: nothing changes, no undo step, nothing saved.
+
+- With the tool selected the whole map is dimmed, except the cells within the vision radius. Cells whose center is inside the circle are revealed. Walls are ignored.
+- The center follows the cursor and snaps to the closest cell center or grid corner. Anywhere on a pawn's cell snaps to the pawn.
+- Click to anchor the center. Click somewhere else to move it. Esc or **release anchor** goes back to following the cursor.
+- The **vision radius** slider runs from 0 to 120 ft in 10 ft steps, starting at 30 ft. Shift+scroll changes it too. It is kept until you close the app.
+- The **fog on** checkbox turns the dimming off without leaving the tool. The fog never shows with another tool selected, and picking the tool again turns it back on.
+- The fog color (black by default) and how dark it is (30 percent by default) are in settings.
 
 ## Saving and safety
 

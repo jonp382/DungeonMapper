@@ -191,6 +191,12 @@ public sealed class AppSettings
     [JsonPropertyName("measure_b")] public int MeasureB { get; set; } = 40;
     [JsonPropertyName("measure_shade_opacity")] public int MeasureShadeOpacity { get; set; } = 35;
     public const int MaxMeasureShadeOpacity = 100;
+    // fog tool: the dim over everything outside the vision radius (percent, 0 to 100)
+    [JsonPropertyName("fog_r")] public int FogR { get; set; } = 0;
+    [JsonPropertyName("fog_g")] public int FogG { get; set; } = 0;
+    [JsonPropertyName("fog_b")] public int FogB { get; set; } = 0;
+    [JsonPropertyName("fog_opacity")] public int FogOpacity { get; set; } = 30;
+    public const int MaxFogOpacity = 100;
 
     // Autosave interval in minutes; 0 = autosave off. Writes to
     // maps/autosaves/ with a standardized name (index + datetime stamp).
@@ -228,6 +234,7 @@ public sealed class AppSettings
             ["Object"] = "O",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             ["Measure"] = "G",
+            ["Fog"] = "V",
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
         };
@@ -353,6 +360,7 @@ public sealed class AppSettings
         s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
         s.DoorWallGap = Math.Clamp(s.DoorWallGap, 0, MaxDoorWallGap);
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
+        s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
         // hotkeys: only known tools, each a single letter a to z (what the
         // hotkeys menu allows); anything else falls back to the default

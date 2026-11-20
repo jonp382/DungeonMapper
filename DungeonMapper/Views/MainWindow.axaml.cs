@@ -145,6 +145,14 @@ public partial class MainWindow : Window
             Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
             StrokeLineCap = PenLineCap.Round,
         });
+        // no png for fog yet: a drawn eye
+        SetIcon(ToolFog, new Avalonia.Controls.Shapes.Path
+        {
+            Width = 20, Height = 20, Stretch = Stretch.None,
+            Data = Geometry.Parse("M2,10 Q10,2 18,10 Q10,18 2,10 Z M10,7.5 A2.5,2.5 0 1 1 9.99,7.5 Z"),
+            Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
+            StrokeLineCap = PenLineCap.Round,
+        });
         SetIcon(BtnManageMaps, PngIcon("DMMaps", 18));
         ToolTip.SetTip(BtnManageMaps, "Manage maps");
         ToolTip.SetTip(MapList, "Switch map");
@@ -173,6 +181,7 @@ public partial class MainWindow : Window
         ToolObject.Click += (_, _) => SetTool(ToolMode.Object);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
         ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
+        ToolFog.Click += (_, _) => SetTool(ToolMode.Fog);
 
 
         // file and manage menus
@@ -204,6 +213,7 @@ public partial class MainWindow : Window
         // settings, door presets and hotkeys modal popups
         InitSettings();
         InitMeasure();
+        InitFog();
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
@@ -330,6 +340,8 @@ public partial class MainWindow : Window
             { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Measure && Canvas.HasMeasure && !IsTyping())
             { Canvas.ClearMeasure(); e.Handled = true; return; }
+            if (Canvas.Mode == ToolMode.Fog && Canvas.FogAnchored && !IsTyping())
+            { Canvas.ReleaseFogAnchor(); e.Handled = true; return; }
         }
         else if (e.Key == Key.R && Canvas.FormationArmed && !IsTyping())
         {
@@ -415,6 +427,7 @@ public partial class MainWindow : Window
         LabelTool(ToolPolygon, "Polygon");
         LabelTool(ToolObject, "Object");
         LabelTool(ToolMeasure, "Measure");
+        LabelTool(ToolFog, "Fog");
         // the view menu shows the zoom to fit letter, display only
         MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
             ? new KeyGesture(fit) : null;
@@ -434,6 +447,7 @@ public partial class MainWindow : Window
         ToolMode.Pawn => ToolPawn,
         ToolMode.Object => ToolObject,
         ToolMode.Measure => ToolMeasure,
+        ToolMode.Fog => ToolFog,
         _ => ToolPolygon,
     };
 
@@ -490,6 +504,7 @@ public partial class MainWindow : Window
         Canvas.ArmedObject = null;
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
+        Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
@@ -504,6 +519,7 @@ public partial class MainWindow : Window
             ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. drag out from a pawn (or shift+drag) for a radius. esc clears",
+            ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",
             _ => "",
         };
         PopulatePanel(mode);

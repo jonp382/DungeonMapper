@@ -106,6 +106,8 @@ public sealed class CanvasHarness : IDisposable
         _window.MouseUp(end, MouseButton.Right, RawInputModifiers.None);
     }
 
+    /// shift+scroll at a screen point: +1 up, -1 down
+    public void ShiftWheelAt(Point p, int dir) => _window.MouseWheel(p, new Vector(0, dir), RawInputModifiers.Shift);
     public void PressAt(Point p) => _window.MouseDown(p, MouseButton.Left, RawInputModifiers.None);
     public void MoveToAt(Point p) => _window.MouseMove(p, RawInputModifiers.None);
     public void ReleaseAt(Point p) => _window.MouseUp(p, MouseButton.Left, RawInputModifiers.None);
