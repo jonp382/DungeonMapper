@@ -1,0 +1,69 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            exe: DungeonMapper.exe
+          - rid: linux-x64
+            os: ubuntu-latest
+            exe: DungeonMapper
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish
+        shell: bash
+        run: >
+          dotnet publish DungeonMapper/DungeonMapper.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -o out
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true
+          -p:PublishTrimmed=true
+          -p:TrimmerRootAssembly=DungeonMapper
+          -p:InvariantGlobalization=true
+          -p:DebugType=none
+
+      - name: Rename
+        shell: bash
+        run: |
+          mkdir dist
+          ext="${{ matrix.exe }}"; ext="${ext#DungeonMapper}"
+          cp "out/${{ matrix.exe }}" "dist/DungeonMapper-${{ github.ref_name }}-${{ matrix.rid }}${ext}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.rid }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
