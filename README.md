@@ -2,6 +2,8 @@
 
 A desktop dungeon mapper for old-school tabletop games. Draw rooms, walls, doors and stairs on a 5 ft grid, label them, and move pawns for your party and the things they meet. Everything runs offline on your own computer.
 
+![overview](./images/overview.png)
+
 ## Getting started
 
 Run the `DungeonMapper` program for your system (Windows or Linux). There is nothing to install, and the app keeps its maps and settings in folders next to the program.
@@ -61,13 +63,17 @@ Any of these can be exported, and they can be imported from another campaign or 
 
 Pawns are tokens for characters and monsters. Each one can have a name, a picture, an affiliation color and a status. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
 
+![pawns](./images/pawns.png)
+
 ### Formations
 
 A formation saves where a group of pawns stand relative to each other, such as your party's marching order. In the pawn panel, use **+ new** under formations and drag a box around the pawns on the map, then type a name.
 
 Click **deploy** and the formation follows the cursor as a ghost. R or Shift+R turns it, and a click places everyone in one step. Heroes move there from wherever they are, even another map, and keep their status. Other pawns get a new copy. If another pawn is in the way, that cell turns red and nothing is placed until you move the ghost. Landing outside a room is allowed with a warning. Esc cancels.
 
-Click a formation to open it. Tick or untick members to leave someone out (all, none and heroes chips, skip by status, and groups by affiliation help with big formations). You can also rename it, update it from a new area, or delete it. I deploys the last formation you used.
+Click a formation to open it. Tick or untick members to leave someone out (all, none and heroes chips, skip by status, and groups by affiliation help with big formations). You can also rename it, update it from a new area, or delete it. By default, `I` deploys the last formation you used.
+
+![formation](./images/formation.png)
 
 ## Objects
 
@@ -76,6 +82,8 @@ Objects are things in a room that take up space, such as statues, paintings or r
 Each type has a look: a solid color, a gradient, a radial fade, stripes, a checker, an outline, or a picture. It can also have a border, with its own color and thickness, and show its name or initials. A picture is saved once in the campaign file however many objects use it. Pictures can be PNG, JPG, WEBP, GIF or BMP, and transparent parts show the map through unless you pick a fill color to go behind them. A placed object uses its type's look unless you turn off "use the type's look" for it and give it its own. A placed object can also have its own name.
 
 The object panel lists your types with how many are on the map and a button that jumps to each one. The select, move, copy and paste, rotate and erase tools work on objects too. Rotating swaps an object's width and height. The eraser removes any object it touches when "objects" is on.
+
+![objects](./images/objects.png)
 
 ## Measuring
 
@@ -88,7 +96,7 @@ The measure tool only reads the map. It never changes anything, adds an undo ste
 - Ends snap to cell centers. The "cell corners" chip in the side panel snaps them to grid corners instead.
 - A measurement stays on screen until you press Esc, switch tools, start a new one or click **clear**. The color and shading strength are in settings.
 
-## Fog
+## Fog of War
 
 The fog tool shows how far a character can see. Like the measure tool it only reads the map: nothing changes, no undo step, nothing saved.
 
@@ -98,6 +106,8 @@ The fog tool shows how far a character can see. Like the measure tool it only re
 - The **vision radius** slider runs from 0 to 120 ft in 10 ft steps, starting at 30 ft. Shift+scroll changes it too. It is kept until you close the app.
 - The **fog on** checkbox turns the dimming off without leaving the tool. The fog never shows with another tool selected, and picking the tool again turns it back on.
 - The fog color (black by default) and how dark it is (30 percent by default) are in settings.
+
+![fog of war](./images/fog%20of%20war.png)
 
 ## Saving and safety
 
