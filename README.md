@@ -51,6 +51,8 @@ You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
 A save file is a campaign. One campaign can hold many maps, such as one per dungeon level. Switch between them from the toolbar, and use the maps menu to add, rename, reorder, export or delete them. You can also bring a map in from another file.
 
+![maps](./images/maps.png)
+
 Each campaign has its own:
 
 - **Door types:** named door colors, such as locked or secret.
@@ -88,13 +90,23 @@ The object panel lists your types with how many are on the map and a button that
 ## Measuring
 
 The measure tool only reads the map. It never changes anything, adds an undo step or counts as an unsaved change. Distances show in cells and feet (5 ft per cell).
-
-- **Distance:** drag between two points. The readout shows the straight line distance and its horizontal and vertical parts.
-- **Waypoints:** Ctrl+click or Ctrl+drag adds another leg from the end of the line. The readout shows the current leg and the path total.
-- **Spell radius:** drag out from a pawn, or Shift+drag from any spot. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, and the pawns in them get a ring. The side panel lists those pawns by affiliation.
-- **Pawn to pawn:** drag from one pawn onto another to get the distance between them.
 - Ends snap to cell centers. The "cell corners" chip in the side panel snaps them to grid corners instead.
 - A measurement stays on screen until you press Esc, switch tools, start a new one or click **clear**. The color and shading strength are in settings.
+
+- **Distance:** drag between two points. The readout shows the straight line distance and its horizontal and vertical parts.
+![linear](./images/measure_linear.png)
+
+- **Waypoints:** Ctrl+click or Ctrl+drag adds another leg from the end of the line. The readout shows the current leg and the path total.
+![waypoint](./images/measure_waypoint.png)
+
+
+- **Spell radius:** drag out from a pawn, or Shift+drag from any spot. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, and the pawns in them get a ring. The side panel lists those pawns by affiliation.
+
+![radial](./images/measure_radial.png)
+
+- **Pawn to pawn:** drag from one pawn onto another to get the distance between them.
+![pawn2pawn](./images/measure_pawn2pawn.png)
+
 
 ## Fog of War
 
