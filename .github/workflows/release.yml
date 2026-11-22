@@ -41,6 +41,7 @@ jobs:
           -p:TrimmerRootAssembly=DungeonMapper
           -p:InvariantGlobalization=true
           -p:DebugType=none
+          -p:InformationalVersion=${{ github.ref_name }}
 
       - name: Rename
         shell: bash

@@ -33,8 +33,12 @@ public static class NetProtocol
     /// a message bigger than this is refused (a map with pictures is far smaller)
     public const int MaxMessage = 64 * 1024 * 1024;
 
-    /// the app build, compared on join: both sides must run the same version
-    public static string AppVersion => typeof(NetProtocol).Assembly.GetName().Version?.ToString() ?? "0";
+    /// the app build, compared on join: both sides must run the same version.
+    /// release builds stamp the tag (release.yml), the sdk adds "+<commit>",
+    /// so two builds of different commits never match
+    public static string AppVersion =>
+        System.Reflection.CustomAttributeExtensions.GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(typeof(NetProtocol).Assembly)?.InformationalVersion
+        ?? typeof(NetProtocol).Assembly.GetName().Version?.ToString() ?? "0";
 
     public static byte[] Encode(NetMessage m)
     {
