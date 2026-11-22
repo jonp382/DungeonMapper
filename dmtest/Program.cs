@@ -4240,5 +4240,221 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- multiplayer: network ---
+{
+    bool WaitFor(Func<bool> cond, int ms = 4000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            if (cond()) return true;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            System.Threading.Thread.Sleep(20);
+        }
+        return cond();
+    }
+    T Sync<T>(Func<Task<T>> f) => Task.Run(f).GetAwaiter().GetResult();
+    void SyncV(Func<Task> f) => Task.Run(f).GetAwaiter().GetResult();
+
+    // framing
+    var ms0 = new MemoryStream();
+    SyncV(() => DungeonMapper.Net.NetProtocol.WriteAsync(ms0, new DungeonMapper.Net.NetMessage { Type = "hello", Name = "Ana" }));
+    ms0.Position = 0;
+    var rd = Sync(() => DungeonMapper.Net.NetProtocol.ReadAsync(ms0));
+    Check(rd?.Type == "hello" && rd.Name == "Ana" && rd.Protocol == DungeonMapper.Net.NetProtocol.Version, "net: a message round trips through the framing");
+    Check(Sync(() => DungeonMapper.Net.NetProtocol.ReadAsync(ms0)) is null, "net: end of stream reads as closed");
+    var huge = new MemoryStream(new byte[] { 0x7f, 0xff, 0xff, 0xff });
+    bool refusedHuge = false;
+    try { Sync(() => DungeonMapper.Net.NetProtocol.ReadAsync(huge)); } catch (InvalidDataException) { refusedHuge = true; }
+    Check(refusedHuge, "net: an oversized message is refused");
+
+    string app = DungeonMapper.Net.NetProtocol.AppVersion;
+    Check(DungeonMapper.Net.NetProtocol.CheckHello(new() { Type = "hello", App = app }, "") is null, "net: a matching hello is accepted");
+    Check(DungeonMapper.Net.NetProtocol.CheckHello(new() { Type = "hello", App = "0.0.0.1" }, "")?.Contains("version") == true, "net: another app version is refused");
+    Check(DungeonMapper.Net.NetProtocol.CheckHello(new() { Type = "hello", App = app, Protocol = 99 }, "")?.Contains("version") == true, "net: another protocol is refused");
+    Check(DungeonMapper.Net.NetProtocol.CheckHello(new() { Type = "hello", App = app, Code = "x" }, "dragon") == "wrong session code", "net: a wrong code is refused");
+    Check(DungeonMapper.Net.NetProtocol.CheckHello(new() { Type = "hello", App = app, Code = "dragon" }, "dragon") is null, "net: the right code is accepted");
+
+    // a map to show
+    var map = new MapDocument();
+    AddRoom(map, 0, 0, 3, 3);
+    AddRoom(map, 4, 0, 6, 3);
+    map.SetRevealed(map.RevealRoomCells(new CellKey(1, 1)), true);
+    map.Labels.Add(new MapLabel { Cell = new CellKey(5, 1), Text = "secret vault", DmOnly = false });
+    var objs = new ObjectLibrary();
+    string pic = objs.AddPicture("QUJDRA==");
+    objs.Types.Add(new ObjectType { Id = "st", Name = "Statue", Look = new ObjectLook { PictureId = pic } });
+    map.Objects.Add(new MapObject { TypeId = "st", X = 1, Y = 1, DmOnly = false });
+    var lib = new PawnLibrary();
+    var pre = CampaignPresets.Default();
+    PlayerPackage Pack() => PlayerView.Package(map, lib, objs, pre);
+
+    using var host = new DungeonMapper.Net.SessionHost { SessionName = "Barrow", Code = "" };
+    host.Start(0, beacon: false);
+    Check(host.Running && host.Port > 0, "net: the host listens");
+    host.Publish("Level 1", Pack());
+
+    var client = Sync(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Ana"));
+    var got = new System.Collections.Concurrent.ConcurrentQueue<(string, PlayerPackage)>();
+    string? gone = null;
+    client.StateReceived += (n, pk) => got.Enqueue((n, pk));
+    client.Disconnected += r => gone = r;
+    client.Start();
+    Check(client.SessionName == "Barrow", "net: the welcome carries the session name");
+    Check(WaitFor(() => got.Count >= 1), "net: a joining player gets the current state");
+    got.TryDequeue(out var first);
+    Check(first.Item1 == "Level 1" && first.Item2.Map.Cells.Count == 16 && first.Item2.Map.Labels.Count == 0, "net: the state is the player copy (revealed room only, hidden label left out)");
+    Check(first.Item2.Objects.Picture(pic) == "QUJDRA==" && first.Item2.Objects.Types.Count == 1, "net: object types and their pictures arrive");
+    Check(WaitFor(() => host.Players.SequenceEqual(new[] { "Ana" })), "net: the host lists the player by name");
+
+    Check(!host.Publish("Level 1", Pack()), "net: publishing the same thing again sends nothing");
+    map.SetRevealed(map.RevealRoomCells(new CellKey(5, 1)), true);
+    Check(host.Publish("Level 1", Pack()), "net: a reveal is new");
+    Check(WaitFor(() => got.Count >= 1), "net: the player gets the update");
+    got.TryDequeue(out var second);
+    Check(second.Item2.Map.Cells.Count == 28 && second.Item2.Map.Labels.Count == 1, "net: the update shows the newly revealed room");
+    Check(second.Item2.Objects.Picture(pic) == "QUJDRA==", "net: the player keeps pictures it already has");
+
+    // raw: a picture is sent once per player
+    SyncV(async () =>
+    {
+        using var raw = new System.Net.Sockets.TcpClient();
+        await raw.ConnectAsync("127.0.0.1", host.Port);
+        var st = raw.GetStream();
+        await DungeonMapper.Net.NetProtocol.WriteAsync(st, new() { Type = "hello", App = app, Name = "raw" });
+        var w = await DungeonMapper.Net.NetProtocol.ReadAsync(st);
+        var s1 = await DungeonMapper.Net.NetProtocol.ReadAsync(st);
+        map.Stairs[new CellKey(1, 1)] = new Stair();
+        host.Publish("Level 1", Pack());
+        var s2 = await DungeonMapper.Net.NetProtocol.ReadAsync(st);
+        Check(w?.Type == "welcome" && s1?.Package?.ObjectPictures?.Count == 1 && s2?.Package?.ObjectPictures?.Count == 0,
+            "net: each picture goes to a player once");
+    });
+
+    // refusals
+    host.Code = "dragon";
+    string? why = null;
+    try { Sync(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "nope", "Bo")); }
+    catch (DungeonMapper.Net.SessionRefusedException ex) { why = ex.Message; }
+    Check(why == "wrong session code", "net: a wrong code is turned away");
+    SyncV(async () =>
+    {
+        using var raw = new System.Net.Sockets.TcpClient();
+        await raw.ConnectAsync("127.0.0.1", host.Port);
+        var st = raw.GetStream();
+        await DungeonMapper.Net.NetProtocol.WriteAsync(st, new() { Type = "hello", App = "0.0.0.1", Code = "dragon" });
+        var r = await DungeonMapper.Net.NetProtocol.ReadAsync(st);
+        Check(r?.Type == "refuse" && r.Reason!.Contains("version"), "net: an older app is turned away with the reason");
+    });
+
+    // leaving and stopping
+    client.Dispose();
+    Check(WaitFor(() => host.Players.Count == 0), "net: a player leaving drops off the host's list");
+    host.Code = "";
+    var c2 = Sync(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Cy"));
+    string? c2gone = null;
+    c2.Disconnected += r => c2gone = r;
+    c2.Start();
+    Check(WaitFor(() => host.Players.Count == 1), "net: another player joins");
+    host.Stop();
+    Check(WaitFor(() => c2gone is not null), $"net: stopping the host tells the player ({c2gone})");
+    bool noHost = false;
+    try { Sync(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Cy", 2000)); }
+    catch (Exception) { noHost = true; }
+    Check(noHost, "net: a stopped host takes nobody");
+
+    // discovery: beacons to loopback on a test port
+    using var browser = new DungeonMapper.Net.SessionBrowser();
+    Check(browser.Start(47391), "net: the browser listens");
+    using var h2 = new DungeonMapper.Net.SessionHost { SessionName = "Crypt", Code = "x", BeaconMillis = 200,
+        BeaconTargets = new() { new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 47391) } };
+    h2.Start(0);
+    Check(WaitFor(() => browser.Sessions.Count == 1), "net: the browser hears the host's beacon");
+    var fs = browser.Sessions.FirstOrDefault();
+    Check(fs is not null && fs.Session == "Crypt" && fs.Port == h2.Port && fs.NeedsCode && fs.SameVersion && fs.Address == "127.0.0.1",
+        "net: the beacon carries name, port, code needed and version");
+    h2.Stop();
+}
+
+// --- multiplayer: player mode (window) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? Field(string name) => t.GetField(name, flags)!.GetValue(w);
+        var canvas = (MapCanvas)Field("Canvas")!;
+        AddRoom(canvas.Document, 0, 0, 3, 3);
+        canvas.Document.SetRevealed(canvas.Document.RevealRoomCells(new CellKey(1, 1)), true);
+
+        // hosting from the window, on a free port
+        step = "host modal"; Call("ShowHostSession");
+        t.GetField("_hostPort", flags)!.SetValue(w, 0);
+        step = "start hosting"; Check(Call("StartHosting") is null, "session window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)Field("_host")!;
+        step = "hosting modal"; Call("ShowHostSession");
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        PlayerPackage? last = null;
+        client.StateReceived += (_, pk) => last = pk;
+        client.Start();
+        Check(WaitFor(() => last?.Map.Cells.Count == 16), "session window: the host sends the shown map");
+        canvas.Document.SetRevealed(new[] { new CellKey(9, 9) }, true); // no floor: no change
+        canvas.Document.SetRevealed(new[] { new CellKey(0, 0) }, false);
+        // the publish timer does not tick in the headless test, so publish the way it does
+        Call("PublishNow");
+        Check(WaitFor(() => last?.Map.Cells.Count == 15), "session window: a change on the DM's map reaches the player");
+        client.Dispose();
+        step = "stop hosting"; Call("StopHosting");
+        Check(Field("_host") is null, "session window: hosting stops");
+
+        // the join modal builds and closes
+        step = "join modal"; Call("ShowJoinSession", (string?)null);
+        Call("CloseModals");
+        Check(Field("_browser") is null, "session window: closing the join window stops listening");
+
+        // player mode against a test host
+        step = "player mode";
+        using var th = new DungeonMapper.Net.SessionHost { SessionName = "Tomb" };
+        th.Start(0, beacon: false);
+        var remote = new MapDocument();
+        AddRoom(remote, 20, 20, 21, 21);
+        remote.SetRevealed(remote.FloorCells(), true);
+        th.Publish("Tomb 1", PlayerView.Package(remote, new PawnLibrary(), new ObjectLibrary(), CampaignPresets.Default()));
+        var pc = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", th.Port, "", "Eve")).GetAwaiter().GetResult();
+        Call("EnterPlayerMode", pc);
+        Check(WaitFor(() => canvas.RemoteDocument?.Cells.Count == 4), "player mode: the canvas shows the host's map");
+        Check(canvas.ReadOnlyView && canvas.Mode == ToolMode.Measure, "player mode: read only, measure tool picked");
+        var room = (Avalonia.Controls.Button)Field("ToolRoom")!;
+        var measure = (Avalonia.Controls.Button)Field("ToolMeasure")!;
+        var file = (Avalonia.Controls.MenuItem)Field("MenuFile")!;
+        Check(!room.IsEnabled && measure.IsEnabled && !file.IsEnabled, "player mode: editing tools and the file menu are off");
+        Check(canvas.Document != remote && canvas.Document.Cells.Contains(new CellKey(20, 20)), "player mode: the received copy is drawn");
+        th.Stop();
+        Check(WaitFor(() => canvas.RemoteDocument is null), "player mode: the host stopping returns the player to their own maps");
+        Check(room.IsEnabled && file.IsEnabled && canvas.Document.Cells.Count == 16, "player mode: own map and tools are back");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"session window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

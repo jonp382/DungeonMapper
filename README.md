@@ -133,6 +133,15 @@ The reveal tool marks what players are allowed to see. It is the groundwork for 
 - While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
 - **View > Player view preview** (or the button in the reveal panel) shows exactly what players would be sent: revealed floor, the walls and doors around it, and the visible items on it. Nothing can be edited while it is on; panning, zooming, saving, undo and redo still work. Esc or picking a tool returns to editing.
 
+## Playing together (sessions)
+
+The DM can host a session for players on the same network (home wifi or LAN). Players see only what the DM reveals with the [reveal tool](#reveal); hidden rooms, DM only items and anything they use (secret door types, hidden monsters' pawns) never leave the DM's computer. Only the DM can change or save anything.
+
+- **Host:** Session > Host a session. Give it a name, an optional code players must type, and pick the **map shown to players**. That pick is separate from the map you have open, so you can prepare the next level while players stay on the current one. The window shows the address players join at and who has joined. Every reveal, door you open or pawn you move reaches players within a moment.
+- **Join:** Session > Join a session. Sessions on your network are listed; click one to join, or type the address and port the DM's window shows. Both computers need the same Dungeon Mapper version.
+- **While joined** you see the DM's map read only, with the measure tool and panning and zooming. Your own campaign is untouched and comes back when you leave (Session > Leave session) or the DM stops hosting.
+- The status bar shows the session on the right. The first time you host, your firewall may ask to allow Dungeon Mapper; allow it on private networks. Sessions use port 47320 (TCP) and 47321 (UDP, for the list of sessions).
+
 ## Saving and safety
 
 - **Save:** Ctrl+S saves over the file you opened. A new campaign asks where to save it the first time.

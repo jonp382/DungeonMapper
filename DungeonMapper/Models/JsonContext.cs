@@ -13,4 +13,5 @@ namespace DungeonMapper.Models;
 [JsonSerializable(typeof(MapSerializer.LibraryWire))]
 [JsonSerializable(typeof(MapSerializer.ObjectTypesWire))]
 [JsonSerializable(typeof(PresetsWire))]
+[JsonSerializable(typeof(DungeonMapper.Net.NetMessage))]
 internal partial class DmJson : JsonSerializerContext { }

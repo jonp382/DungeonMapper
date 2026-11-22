@@ -37,6 +37,16 @@ public sealed class MapFileDto
     [JsonPropertyName("revealed")] public List<string> Revealed { get; set; } = new();
 }
 
+/// what a player is sent: the cut down map and what it uses (multiplayer)
+public sealed class PackageWire
+{
+    [JsonPropertyName("map")] public MapFileDto? Map { get; set; }
+    [JsonPropertyName("pawn_library")] public List<PawnTemplateDto>? PawnLibrary { get; set; }
+    [JsonPropertyName("object_types")] public List<ObjectType>? ObjectTypes { get; set; }
+    [JsonPropertyName("object_pictures")] public Dictionary<string, string>? ObjectPictures { get; set; }
+    [JsonPropertyName("presets")] public PresetsWire? Presets { get; set; }
+}
+
 public sealed class ObjectDto
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
@@ -660,6 +670,28 @@ public static class MapSerializer
         [JsonPropertyName("kind")] public string Kind { get; set; } = KindObjectTypes;
         [JsonPropertyName("object_library")] public List<ObjectType> ObjectLibrary { get; set; } = new();
         [JsonPropertyName("object_pictures")] public Dictionary<string, string> ObjectPictures { get; set; } = new();
+    }
+
+    /// a player package on the wire (multiplayer)
+    public static PackageWire PackageToWire(PlayerPackage p) => new()
+    {
+        Map = ToDto(p.Map),
+        PawnLibrary = LibraryToDtos(p.Library),
+        ObjectTypes = p.Objects.Types,
+        ObjectPictures = new Dictionary<string, string>(p.Objects.Pictures),
+        Presets = p.Presets.ToWire(),
+    };
+
+    /// a received player package. pictures are added by the caller from its
+    /// own pool, since the host sends each picture once
+    public static PlayerPackage PackageFromWire(PackageWire w)
+    {
+        var lib = new PawnLibrary { Pawns = LibraryFromDtos(w.PawnLibrary ?? new()) };
+        var objs = new ObjectLibrary { Types = TidyObjectTypes(w.ObjectTypes) };
+        objs.AddPictures(w.ObjectPictures);
+        var presets = CampaignPresets.FromWire(w.Presets ?? new PresetsWire());
+        presets.MergeMissing(CampaignPresets.Default());
+        return new PlayerPackage { Map = FromDto(w.Map ?? new MapFileDto()), Library = lib, Objects = objs, Presets = presets };
     }
 
     public static string ObjectTypesToJson(ObjectLibrary lib)

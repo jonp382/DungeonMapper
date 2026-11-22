@@ -1,0 +1,382 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Net.Sockets;
+using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.Threading;
+using DungeonMapper.Controls;
+using DungeonMapper.Models;
+using DungeonMapper.Net;
+
+using static DungeonMapper.Views.Ui;
+
+namespace DungeonMapper.Views;
+
+// multiplayer sessions (see Agent.md "Multiplayer Design", Net/). the DM
+// hosts: a timer sends players the PlayerView package of the map picked to
+// show, only when it changed. a player joins: this window switches to the
+// received map, read only, with only the measure tool; their own campaign is
+// left alone and comes back on leaving.
+public partial class MainWindow
+{
+    private SessionHost? _host;
+    private MapEntry? _shownMap;        // the map players see, picked apart from the open one
+    private DispatcherTimer? _publishTimer;
+    private SessionClient? _client;
+    private SessionBrowser? _browser;
+    private DispatcherTimer? _browseTimer;
+    private string _joinedMap = "";
+    private bool _fitOnNextState;
+    // remembered while the app runs
+    private string _hostName = "Dungeon Mapper session", _hostCode = "", _playerName = "player",
+        _joinCode = "", _joinAddress = "", _joinPort = NetProtocol.DefaultPort.ToString();
+    private int _hostPort = NetProtocol.DefaultPort;
+
+    private void InitSession()
+    {
+        MenuHost.Click += (_, _) => { CloseModals(); ShowHostSession(); };
+        MenuJoin.Click += (_, _) => { CloseModals(); ShowJoinSession(); };
+        MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
+        Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
+    }
+
+    private void RefreshSessionUi()
+    {
+        bool hosting = _host is not null, joined = _client is not null;
+        MenuHost.IsEnabled = !joined;
+        MenuJoin.IsEnabled = !hosting && !joined;
+        MenuLeave.IsEnabled = hosting || joined;
+        MenuLeave.Header = hosting ? "_Stop hosting" : "_Leave session";
+        SessionStatus.IsVisible = hosting || joined;
+        if (hosting)
+        {
+            int n = _host!.Players.Count;
+            SessionStatus.Text = $"hosting · {Plural(n, "player")} · showing {ShownMap()?.Name ?? "nothing"}";
+        }
+        else if (joined)
+            SessionStatus.Text = $"joined {_client!.SessionName}" + (_joinedMap.Length > 0 ? $" · {_joinedMap}" : " · waiting for the DM");
+    }
+
+    // ---------- host ----------
+
+    // the picked map, or the open one when the pick is gone (deleted, another campaign opened)
+    private MapEntry? ShownMap() =>
+        _shownMap is not null && _project.Maps.Contains(_shownMap) ? _shownMap : _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
+
+    private void ShowHostSession()
+    {
+        var body = new StackPanel { Spacing = 6, Margin = new(16, 12, 16, 16) };
+        var refusal = RefusalLine();
+        if (_host is null)
+        {
+            body.Children.Add(Tx("players on the same network join and see only what you reveal on the map you pick. only you can change or save anything.", "hint"));
+            body.Children.Add(FieldLabel("session name"));
+            var name = new TextBox { Text = _hostName, Classes = { "field" } };
+            body.Children.Add(name);
+            body.Children.Add(FieldLabel("session code (optional, players must type it)"));
+            var code = new TextBox { Text = _hostCode, Classes = { "field" } };
+            body.Children.Add(code);
+            body.Children.Add(FieldLabel("port"));
+            var port = new TextBox { Text = _hostPort.ToString(), Classes = { "field", "number" }, HorizontalAlignment = HorizontalAlignment.Left };
+            body.Children.Add(port);
+            AddShownMapChips(body);
+            body.Children.Add(refusal);
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 8, 0, 0) };
+            var go = Btn("start hosting", primary: true);
+            var cancel = Btn("cancel");
+            go.Click += (_, _) =>
+            {
+                if (!int.TryParse(port.Text, out int p) || p < 1 || p > 65535) { SetRefusal(refusal, "the port is a number from 1 to 65535"); return; }
+                _hostName = string.IsNullOrWhiteSpace(name.Text) ? "Dungeon Mapper session" : name.Text.Trim();
+                _hostCode = code.Text?.Trim() ?? "";
+                _hostPort = p;
+                if (StartHosting() is { } err) { SetRefusal(refusal, err); return; }
+                ShowHostSession();
+            };
+            cancel.Click += (_, _) => { CloseModals(); FocusCanvas(); };
+            row.Children.Add(go);
+            row.Children.Add(cancel);
+            body.Children.Add(row);
+        }
+        else
+        {
+            var addrs = NetProtocol.LocalAddresses();
+            string where = addrs.Count == 0 ? $"port {_host.Port} (no network address found)" : string.Join("\n", addrs.Select(a => $"{a}:{_host.Port}"));
+            body.Children.Add(FieldLabel("players join at"));
+            body.Children.Add(new Border { Classes = { "infobox" }, Child = Tx(where + (string.IsNullOrEmpty(_host.Code) ? "" : $"\ncode: {_host.Code}"), "body") });
+            body.Children.Add(Tx("players on this network also see the session in their join list.", "hint"));
+            AddShownMapChips(body);
+            var players = _host.Players;
+            body.Children.Add(FieldLabel("players"));
+            body.Children.Add(new Border { Classes = { "infobox" }, Child = Tx(players.Count == 0 ? "nobody yet" : string.Join(", ", players), "body") });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 8, 0, 0) };
+            var stop = Btn("stop hosting", danger: true);
+            var close = Btn("close");
+            stop.Click += (_, _) => { StopHosting(); CloseModals(); FocusCanvas(); };
+            close.Click += (_, _) => { CloseModals(); FocusCanvas(); };
+            row.Children.Add(stop);
+            row.Children.Add(close);
+            body.Children.Add(row);
+        }
+        ShowModal(460, _host is null ? 470 : 440, _host is null ? "Host a session" : "Hosting", _host is null ? null : _host.SessionName,
+            new ScrollViewer { Content = body });
+        _modalKind = "host";
+    }
+
+    private void AddShownMapChips(StackPanel body)
+    {
+        body.Children.Add(FieldLabel("map shown to players"));
+        var chips = new WrapPanel();
+        var shown = ShownMap();
+        foreach (var m in _project.Maps)
+        {
+            var entry = m;
+            chips.Children.Add(Chip(m.Name, m == shown, null, () =>
+            {
+                _shownMap = entry;
+                PublishNow();
+                RefreshSessionUi();
+                ShowHostSession();
+            }));
+        }
+        body.Children.Add(chips);
+    }
+
+    /// null when hosting started, else why not
+    private string? StartHosting()
+    {
+        var host = new SessionHost { SessionName = _hostName, Code = _hostCode };
+        try { host.Start(_hostPort); }
+        catch (SocketException ex) { return $"can not host on port {_hostPort}: {ex.Message}"; }
+        _host = host;
+        _shownMap ??= _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
+        host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
+        {
+            RefreshSessionUi();
+            if (ModalOverlay.IsVisible && _modalKind == "host") ShowHostSession();
+        });
+        _publishTimer ??= new DispatcherTimer(TimeSpan.FromMilliseconds(300), DispatcherPriority.Background, (_, _) => PublishNow());
+        _publishTimer.Start();
+        PublishNow();
+        RefreshSessionUi();
+        StatusText.Text = $"hosting {_hostName} on port {host.Port}";
+        return null;
+    }
+
+    private void StopHosting()
+    {
+        _publishTimer?.Stop();
+        _host?.Dispose();
+        _host = null;
+        RefreshSessionUi();
+        StatusText.Text = "stopped hosting";
+    }
+
+    // sends the shown map's player package. the host skips it when nothing changed
+    private void PublishNow()
+    {
+        if (_host is null) return;
+        var shown = ShownMap();
+        var pkg = shown is null
+            ? new PlayerPackage()
+            : PlayerView.Package(shown.Doc, ActiveLibrary, ActiveObjects, ActivePresets);
+        if (_host.Publish(shown?.Name ?? "", pkg)) RefreshSessionUi();
+    }
+
+    // ---------- join ----------
+
+    private void ShowJoinSession(string? error = null)
+    {
+        if (_browser is null)
+        {
+            _browser = new SessionBrowser();
+            if (!_browser.Start()) error ??= "can not listen for sessions on this network (port in use?). you can still join by address.";
+            _browser.Changed += () => Dispatcher.UIThread.Post(RefreshJoinList);
+            _browseTimer ??= new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) => RefreshJoinList());
+            _browseTimer.Start();
+        }
+        var body = new StackPanel { Spacing = 6, Margin = new(16, 12, 16, 16) };
+        body.Children.Add(Tx("join the DM's session on this network. you see what the DM reveals and can measure, nothing is saved.", "hint"));
+        body.Children.Add(FieldLabel("your name"));
+        var name = new TextBox { Text = _playerName, Classes = { "field" } };
+        name.TextChanged += (_, _) => _playerName = name.Text ?? "";
+        body.Children.Add(name);
+        body.Children.Add(FieldLabel("session code (if the DM set one)"));
+        var code = new TextBox { Text = _joinCode, Classes = { "field" } };
+        code.TextChanged += (_, _) => _joinCode = code.Text ?? "";
+        body.Children.Add(code);
+
+        body.Children.Add(FieldLabel("sessions on this network"));
+        _joinList = new StackPanel { Spacing = 4 };
+        body.Children.Add(_joinList);
+
+        body.Children.Add(FieldLabel("or join by address"));
+        var addrRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,90"), ColumnSpacing = 6 };
+        var addr = new TextBox { Text = _joinAddress, Classes = { "field" }, Watermark = "192.168.1.20" };
+        var port = new TextBox { Text = _joinPort, Classes = { "field", "number" } };
+        addr.TextChanged += (_, _) => _joinAddress = addr.Text ?? "";
+        port.TextChanged += (_, _) => _joinPort = port.Text ?? "";
+        Grid.SetColumn(port, 1);
+        addrRow.Children.Add(addr);
+        addrRow.Children.Add(port);
+        body.Children.Add(addrRow);
+        _joinRefusal = RefusalLine();
+        body.Children.Add(_joinRefusal);
+        if (error is not null) SetRefusal(_joinRefusal, error);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 8, 0, 0) };
+        var go = Btn("join", primary: true);
+        var cancel = Btn("cancel");
+        go.Click += (_, _) =>
+        {
+            if (string.IsNullOrWhiteSpace(_joinAddress)) { SetRefusal(_joinRefusal, "type the address the DM's app shows, or pick a session above"); return; }
+            if (!int.TryParse(_joinPort, out int p) || p < 1 || p > 65535) { SetRefusal(_joinRefusal, "the port is a number from 1 to 65535"); return; }
+            Join(_joinAddress.Trim(), p);
+        };
+        cancel.Click += (_, _) => { CloseModals(); FocusCanvas(); };
+        row.Children.Add(go);
+        row.Children.Add(cancel);
+        body.Children.Add(row);
+
+        ShowModal(460, 560, "Join a session", null, new ScrollViewer { Content = body });
+        _modalKind = "join";
+        RefreshJoinList();
+    }
+
+    private StackPanel? _joinList;
+    private TextBlock? _joinRefusal;
+    private bool _joining;
+
+    private void RefreshJoinList()
+    {
+        if (_joinList is null || _browser is null || !ModalOverlay.IsVisible || _modalKind != "join") return;
+        _joinList.Children.Clear();
+        var found = _browser.Sessions;
+        if (found.Count == 0)
+        {
+            _joinList.Children.Add(Tx("looking... none found yet", "faint"));
+            return;
+        }
+        foreach (var f in found)
+        {
+            var s = f;
+            string extra = (s.NeedsCode ? " · code" : "") + (s.SameVersion ? "" : $" · version {s.HostVersion}, can not join");
+            var b = Btn($"{s.Session}  ({s.Address}:{s.Port}){extra}");
+            b.HorizontalAlignment = HorizontalAlignment.Stretch;
+            b.IsEnabled = s.SameVersion && !_joining;
+            b.Click += (_, _) => Join(s.Address, s.Port);
+            _joinList.Children.Add(b);
+        }
+    }
+
+    private void StopBrowsing()
+    {
+        _browseTimer?.Stop();
+        _browser?.Dispose();
+        _browser = null;
+        _joinList = null;
+    }
+
+    private async void Join(string address, int port)
+    {
+        if (_joining) return;
+        _joining = true;
+        if (_joinRefusal is not null) SetRefusal(_joinRefusal, null);
+        StatusText.Text = $"joining {address}:{port}...";
+        try
+        {
+            var client = await SessionClient.ConnectAsync(address, port, _joinCode.Trim(), string.IsNullOrWhiteSpace(_playerName) ? "player" : _playerName.Trim());
+            _joining = false;
+            EnterPlayerMode(client);
+        }
+        catch (Exception ex)
+        {
+            _joining = false;
+            string why = ex switch
+            {
+                SessionRefusedException r => $"refused: {r.Message}",
+                TimeoutException => "no answer from that address",
+                SocketException s => $"could not connect: {s.Message}",
+                _ => $"could not join: {ex.Message}",
+            };
+            StatusText.Text = why;
+            if (_joinRefusal is not null && _modalKind == "join") SetRefusal(_joinRefusal, why);
+        }
+    }
+
+    // ---------- player mode ----------
+
+    private void EnterPlayerMode(SessionClient client)
+    {
+        StopBrowsing();
+        CloseModals();
+        SetPlayerPreview(false);
+        _client = client;
+        _joinedMap = "";
+        _fitOnNextState = true;
+        SetTool(ToolMode.Measure);
+        Canvas.RemoteDocument = new MapDocument();
+        SetEditingUi(false);
+        client.StateReceived += (map, pkg) => Dispatcher.UIThread.Post(() => ApplyRemote(client, map, pkg));
+        client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
+        client.Start();
+        RefreshSessionUi();
+        StatusText.Text = $"joined {client.SessionName}. you see what the DM reveals. Session > Leave session to go back to your own maps";
+    }
+
+    private void ApplyRemote(SessionClient from, string map, PlayerPackage pkg)
+    {
+        if (_client != from) return;
+        Canvas.Library = pkg.Library;
+        Canvas.Presets = pkg.Presets;
+        Canvas.ObjectTypes = pkg.Objects;
+        Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
+        Canvas.RemoteDocument = pkg.Map;
+        if (map != _joinedMap) _fitOnNextState = true;
+        _joinedMap = map;
+        if (_fitOnNextState && pkg.Map.Cells.Count + pkg.Map.FloodRegions.Count > 0) { Canvas.AutoFit(); _fitOnNextState = false; }
+        RefreshSessionUi();
+    }
+
+    private void LeavePlayerMode(string reason)
+    {
+        var c = _client;
+        _client = null;
+        c?.Dispose();
+        Canvas.RemoteDocument = null;
+        SyncCampaign();
+        Canvas.InvalidateImageCache();
+        SetEditingUi(true);
+        SetTool(ToolMode.Select);
+        Canvas.AutoFit();
+        RefreshSessionUi();
+        StatusText.Text = $"{reason}. back to your own maps";
+    }
+
+    // player mode turns off everything that edits or saves
+    private void SetEditingUi(bool on)
+    {
+        foreach (var m in Enum.GetValues<ToolMode>())
+            ToolButton(m).IsEnabled = on || m == ToolMode.Measure;
+        MenuFile.IsEnabled = on;
+        MenuEdit.IsEnabled = on;
+        MenuManage.IsEnabled = on;
+        MenuPlayerPreview.IsEnabled = on;
+        MapList.IsEnabled = on;
+        BtnManageMaps.IsEnabled = on;
+    }
+
+    // keys while joined: esc, zoom to fit and the measure letter. everything
+    // else is swallowed. true when handled here
+    private bool PlayerKey(KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape) return false;
+        if (e.KeyModifiers != KeyModifiers.None) return true;
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure) })
+            if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
+        return true;
+    }
+}

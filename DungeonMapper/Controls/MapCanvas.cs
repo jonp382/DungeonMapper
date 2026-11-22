@@ -51,7 +51,7 @@ public sealed partial class MapCanvas : Control
     /// sets the real map
     public MapDocument Document
     {
-        get => _preview ?? _document;
+        get => _remote ?? _preview ?? _document;
         set { _document = value; if (_preview is not null) _preview = PlayerView.Build(_document); }
     }
     public ToolMode Mode { get; set; } = ToolMode.Select;
@@ -148,8 +148,21 @@ public sealed partial class MapCanvas : Control
         InvalidateVisual();
     }
 
-    // ---- player view preview (multiplayer) ----
+    // ---- player view preview and joined sessions (multiplayer) ----
     private MapDocument? _preview;
+    private MapDocument? _remote;
+
+    /// a joined session: the map the host sent, drawn read only in place of
+    /// this app's own map. null leaves the session view
+    public MapDocument? RemoteDocument
+    {
+        get => _remote;
+        set { _remote = value; InvalidateVisual(); }
+    }
+
+    /// nothing can be edited: the preview or a joined session. the measure
+    /// tool still works, it only reads
+    public bool ReadOnlyView => _preview is not null || _remote is not null;
     /// shows exactly what players would be sent. editing is off: left clicks
     /// do nothing, panning and zooming still work
     public bool PlayerPreview
@@ -1676,6 +1689,7 @@ public sealed partial class MapCanvas : Control
     private void Commit()
     {
         // the preview is a throwaway copy: nothing done to it is an edit
+        if (_remote is not null) { InvalidateVisual(); return; }
         if (_preview is not null) { _preview = PlayerView.Build(_document); InvalidateVisual(); return; }
         ActionCompleted?.Invoke();
         InvalidateVisual();
@@ -1699,7 +1713,7 @@ public sealed partial class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
-        if (PlayerPreview) return; // read only
+        if (ReadOnlyView && Mode != ToolMode.Measure) return;
         _pressClicks = e.ClickCount;
 
         var world = ScreenToWorld(e.GetPosition(this));

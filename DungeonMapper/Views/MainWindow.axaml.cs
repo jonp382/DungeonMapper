@@ -225,6 +225,7 @@ public partial class MainWindow : Window
         InitMeasure();
         InitFog();
         InitReveal();
+        InitSession();
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
@@ -302,6 +303,7 @@ public partial class MainWindow : Window
         // trigger tool hotkeys
         if (IsTyping()) { base.OnKeyDown(e); return; }
         if (Canvas.PlayerPreview && PreviewKey(e)) { e.Handled = true; return; }
+        if (_client is not null && PlayerKey(e)) { e.Handled = true; return; }
 
         if (e.KeyModifiers == KeyModifiers.Control)
         {
@@ -333,6 +335,7 @@ public partial class MainWindow : Window
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "close-doors") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind is "host" or "join") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "objects") { CloseManage(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "preset-import" && _presetImportBack is { } back) { back(); e.Handled = true; return; }
@@ -491,6 +494,7 @@ public partial class MainWindow : Window
     private void CloseModals()
     {
         FlushSettings();
+        if (_modalKind == "join") StopBrowsing();
         ModalOverlay.IsVisible = false;
         _modalKind = null;
         _presetImportBack = null;

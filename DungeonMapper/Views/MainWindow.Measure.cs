@@ -39,7 +39,7 @@ public partial class MainWindow
         {
             // caught pawns by affiliation, then their names
             var caught = Canvas.MeasureCaughtPawns()
-                .Select(p => ActiveLibrary.Find(p.TemplateId))
+                .Select(p => Canvas.Library.Find(p.TemplateId))
                 .Select(t => (aff: t is null ? "unknown" : PawnTemplate.NormalizeAffiliation(t.Affiliation),
                               name: t is null ? "pawn" : PawnName(t)))
                 .GroupBy(x => x.aff).OrderBy(g => g.Key);
