@@ -106,6 +106,7 @@ public partial class MainWindow
             SetPlayerPreview(false);
             return true;
         }
+        if (IsPingKey(e.Key) && e.KeyModifiers == Avalonia.Input.KeyModifiers.None) return false;
         if (ctrl) return e.Key is not (Avalonia.Input.Key.S or Avalonia.Input.Key.Z or Avalonia.Input.Key.Y);
         if (e.Key == Avalonia.Input.Key.Delete) return true;
         if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None) return true; // shift+r and friends

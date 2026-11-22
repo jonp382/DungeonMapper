@@ -4456,5 +4456,94 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- multiplayer: pings ---
+{
+    bool WaitFor(Func<bool> cond, int ms = 4000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < ms)
+        {
+            if (cond()) return true;
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            System.Threading.Thread.Sleep(20);
+        }
+        return cond();
+    }
+    var d = AppSettings.Default();
+    Check(d.ToolHotkeys[AppSettings.PingHotkey] == "OemPipe" && d.ToolHotkeys.Values.Count(v => v == "OemPipe") == 1, "ping: backslash by default, used by nothing else");
+    Check(AppSettings.HotkeyNameOf(Avalonia.Input.Key.OemPipe) == "OemPipe" && AppSettings.HotkeyNameOf(Avalonia.Input.Key.Q) == "Q"
+        && AppSettings.HotkeyNameOf(Avalonia.Input.Key.D7) == "D7" && AppSettings.HotkeyNameOf(Avalonia.Input.Key.F5) is null,
+        "ping: hotkeys take letters, digits and punctuation keys, not function keys");
+    Check(AppSettings.HotkeyLabel("OemPipe") == "\\" && AppSettings.HotkeyLabel("D7") == "7" && AppSettings.HotkeyLabel("Q") == "Q", "ping: keys show as their symbol");
+    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"tool_hotkeys\":{\"Ping\":\"OemOpenBrackets\",\"Fog\":\"F5\"}}")!;
+    Check(imp.ToolHotkeys["Ping"] == "OemOpenBrackets" && imp.ToolHotkeys["Fog"] == "V", "ping: a punctuation hotkey survives loading, a bad one goes back to the default");
+
+    using (var h = new CanvasHarness())
+    {
+        h.MoveTo(3, 4);
+        Check(h.Canvas.CursorCell == new CellKey(3, 4), "ping: the canvas knows the cell under the cursor");
+        h.Canvas.ShowPing(new CellKey(3, 4), "Ana");
+        Check(h.Canvas.PingCount == 1, "ping: a ping shows on the map");
+        var bmp = h.Render();
+        var px = h.PixelAt(bmp, (int)h.ScreenOf(3, 4).X, (int)h.ScreenOf(3, 4).Y);
+        Check(px.b > 150 && px.g > 150 && px.r < 200, $"ping: the ping dot is drawn ({px})");
+    }
+
+    // over the network: player to DM and the other players, DM to players
+    using var host = new DungeonMapper.Net.SessionHost();
+    host.Start(0, beacon: false);
+    var hostPings = new System.Collections.Concurrent.ConcurrentQueue<(string, int, int)>();
+    host.PingReceived += (n, x, y) => hostPings.Enqueue((n, x, y));
+    var a = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Ana")).GetAwaiter().GetResult();
+    var b = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Bo")).GetAwaiter().GetResult();
+    var aPings = new System.Collections.Concurrent.ConcurrentQueue<(string, int, int)>();
+    var bPings = new System.Collections.Concurrent.ConcurrentQueue<(string, int, int)>();
+    a.PingReceived += (n, x, y) => aPings.Enqueue((n, x, y));
+    b.PingReceived += (n, x, y) => bPings.Enqueue((n, x, y));
+    a.Start(); b.Start();
+    WaitFor(() => host.Players.Count == 2);
+    Task.Run(() => a.SendPing(12, 7)).Wait();
+    Check(WaitFor(() => hostPings.Count == 1) && hostPings.TryPeek(out var hp) && hp == ("Ana", 12, 7), "ping: the DM gets a player's ping with their name");
+    Check(WaitFor(() => bPings.Count == 1) && bPings.TryPeek(out var bp) && bp == ("Ana", 12, 7), "ping: the other players get it too");
+    System.Threading.Thread.Sleep(200);
+    Check(aPings.IsEmpty, "ping: the pinging player does not get their own ping back");
+    Task.Run(() => a.SendPing(1, 1)).Wait();
+    Task.Run(() => a.SendPing(2, 2)).Wait();
+    System.Threading.Thread.Sleep(300);
+    Check(hostPings.Count == 1, "ping: pings closer together than the gap are dropped");
+    host.Ping("DM", -3, 5);
+    Check(WaitFor(() => aPings.Count == 1 && bPings.Count == 2) && aPings.TryPeek(out var ap) && ap == ("DM", -3, 5), "ping: every player gets the DM's ping");
+    a.Dispose(); b.Dispose();
+}
+
+// --- multiplayer: ping toasts (window) ---
+{
+    _ = new CanvasHarness();
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        var toasts = (Avalonia.Controls.StackPanel)t.GetField("PingToasts", flags)!.GetValue(w)!;
+        Call("OnClientPing", "DM", 4, 2);
+        Check(toasts.Children.Count == 1 && canvas.PingCount == 1, "ping toast: a ping adds a toast and rings on the map");
+        var text = ((toasts.Children[0] as Avalonia.Controls.Border)!.Child as Avalonia.Controls.Grid)!.Children.OfType<Avalonia.Controls.TextBlock>().First().Text;
+        Check(text == "DM pinged 4,2", $"ping toast: says who and where ({text})");
+        for (int i = 0; i < 6; i++) Call("OnClientPing", "Bo", i, i);
+        Check(toasts.Children.Count == DungeonMapper.Views.MainWindow.MaxToasts, "ping toast: at most four at once");
+        var jump = ((toasts.Children[0] as Avalonia.Controls.Border)!.Child as Avalonia.Controls.Grid)!.Children.OfType<Avalonia.Controls.Button>().First();
+        jump.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(toasts.Children.Count == DungeonMapper.Views.MainWindow.MaxToasts - 1, "ping toast: jump closes it");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"ping toast: window test ({(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

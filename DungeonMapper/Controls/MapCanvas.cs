@@ -1163,6 +1163,7 @@ public sealed partial class MapCanvas : Control
         DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
+        DrawPings(ctx);
         DrawPreviewBanner(ctx);
     }
 
@@ -1971,6 +1972,7 @@ public sealed partial class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        CursorCell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         if (MeasureMoved(world)) return;

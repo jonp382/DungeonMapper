@@ -147,6 +147,9 @@
         <Panel>
             <controls:MapCanvas x:Name="Canvas" />
             <views:ToolPanel x:Name="ToolPanel" Background="{DynamicResource Ui.Bg.Panel}" />
+            <!-- ping toasts (sessions), top right of the map left of the tool panel -->
+            <StackPanel x:Name="PingToasts" HorizontalAlignment="Right" VerticalAlignment="Top"
+                        Margin="0,48,236,0" Spacing="6" Width="250" />
             <!-- pawn management and the import pickers. the frame, header and
                  tabs are fixed here, MainWindow.Pawns.cs and PresetImport.cs
                  build the body. the tabs and close only show for management. -->

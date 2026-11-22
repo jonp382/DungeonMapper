@@ -153,6 +153,7 @@ public partial class MainWindow
         catch (SocketException ex) { return $"can not host on port {_hostPort}: {ex.Message}"; }
         _host = host;
         _shownMap ??= _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
+        host.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_host == host) OnHostPing(n, x, y); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
             RefreshSessionUi();
@@ -321,6 +322,7 @@ public partial class MainWindow
         Canvas.RemoteDocument = new MapDocument();
         SetEditingUi(false);
         client.StateReceived += (map, pkg) => Dispatcher.UIThread.Post(() => ApplyRemote(client, map, pkg));
+        client.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_client == client) OnClientPing(n, x, y); });
         client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
         client.Start();
         RefreshSessionUi();
@@ -375,7 +377,7 @@ public partial class MainWindow
     {
         if (e.Key == Key.Escape) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
-        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure) })
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
     }

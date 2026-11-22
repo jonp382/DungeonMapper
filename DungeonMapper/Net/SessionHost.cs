@@ -25,7 +25,11 @@ public sealed class SessionHost : IDisposable
         public string Name = "player";
         public readonly HashSet<string> Pictures = new(); // picture keys this player has
         public readonly SemaphoreSlim Lock = new(1, 1);
+        public DateTime LastPing = DateTime.MinValue;
     }
+
+    /// the shortest gap between two pings from one player; faster ones are dropped
+    public const int PingGapMillis = 250;
 
     public string SessionName { get; set; } = "Dungeon Mapper session";
     /// empty = no code needed
@@ -38,6 +42,8 @@ public sealed class SessionHost : IDisposable
 
     /// a player joined or left
     public event Action? PlayersChanged;
+    /// a player pinged a cell (name, x, y)
+    public event Action<string, int, int>? PingReceived;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -95,6 +101,38 @@ public sealed class SessionHost : IDisposable
         lock (_gate) peers = _peers.ToList();
         foreach (var p in peers) _ = Task.Run(() => SendState(p, msg));
         return true;
+    }
+
+    /// the DM pings a cell: every player sees it
+    public void Ping(string name, int x, int y)
+    {
+        List<Peer> peers;
+        lock (_gate) peers = _peers.ToList();
+        var msg = new NetMessage { Type = "ping", Name = name, X = x, Y = y };
+        foreach (var p in peers) _ = Task.Run(() => Send(p, msg));
+    }
+
+    private async Task Send(Peer p, NetMessage msg)
+    {
+        await p.Lock.WaitAsync();
+        try { await NetProtocol.WriteAsync(p.Stream, msg); }
+        catch (Exception) { Drop(p); }
+        finally { p.Lock.Release(); }
+    }
+
+    // a player's ping: shown to the DM and passed on to the other players,
+    // always under the name the player joined with
+    private void OnPing(Peer from, NetMessage m)
+    {
+        if (m.X is not int x || m.Y is not int y) return;
+        var now = DateTime.UtcNow;
+        if ((now - from.LastPing).TotalMilliseconds < PingGapMillis) return;
+        from.LastPing = now;
+        PingReceived?.Invoke(from.Name, x, y);
+        List<Peer> others;
+        lock (_gate) others = _peers.Where(p => p != from).ToList();
+        var msg = new NetMessage { Type = "ping", Name = from.Name, X = x, Y = y };
+        foreach (var p in others) _ = Task.Run(() => Send(p, msg));
     }
 
     // a player gets only the pictures it does not have yet
@@ -163,8 +201,9 @@ public sealed class SessionHost : IDisposable
             NetMessage? state;
             lock (_gate) state = _state;
             if (state is not null) await SendState(peer, state);
-            // players send nothing else yet: read until they leave
-            while (await NetProtocol.ReadAsync(s, ct) is not null) { }
+            // players only send pings; read until they leave
+            while (await NetProtocol.ReadAsync(s, ct) is { } m)
+                if (m.Type == "ping") OnPing(peer, m);
         }
         catch (Exception) { }
         if (peer is not null) Drop(peer); else c.Dispose();

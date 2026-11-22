@@ -122,14 +122,14 @@ public partial class MainWindow
         e.Handled = true;
         if (e.Key == Key.Escape) { RefreshHotkeys(); FocusCanvas(); return; }
         if (e.Key is Key.LeftShift or Key.RightShift) return;
-        if (e.Key is >= Key.A and <= Key.Z)
+        if (AppSettings.HotkeyNameOf(e.Key) is { } name)
         {
-            SetHotkey(row, e.Key.ToString());
+            SetHotkey(row, name);
             return;
         }
         RefreshHotkeys();
         row.Box.Classes.Add("invalid");
-        row.Error.Text = "use a letter from a to z.";
+        row.Error.Text = "use a letter, a digit or a key like \\ [ ] ; ' , . / - =";
         row.Error.IsVisible = true;
     }
 
@@ -151,7 +151,7 @@ public partial class MainWindow
         foreach (var r in _hotkeyRows)
         {
             string letter = _settings.ToolHotkeys.GetValueOrDefault(r.Mode, "");
-            r.Box.Text = letter;
+            r.Box.Text = AppSettings.HotkeyLabel(letter);
             r.Reset.IsVisible = HotkeyDefaults.TryGetValue(r.Mode, out var d) && d != letter;
             var others = _hotkeyRows.Where(o => o != r && _settings.ToolHotkeys.GetValueOrDefault(o.Mode) == letter)
                 .Select(o => HotkeyName(o.Mode)).ToList();
@@ -165,6 +165,7 @@ public partial class MainWindow
     private static string HotkeyName(string mode) =>
         mode == AppSettings.FitHotkey ? "zoom to fit"
         : mode == AppSettings.FormationHotkey ? "deploy last formation"
+        : mode == AppSettings.PingHotkey ? "ping (sessions)"
         : mode.ToLowerInvariant();
 
     private void ResetAllHotkeys()

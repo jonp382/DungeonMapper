@@ -207,6 +207,37 @@ public sealed class AppSettings
     public const string FitHotkey = "Fit";
     // also not a tool: deploys the last formation used (Models/Formations.cs)
     public const string FormationHotkey = "Formation";
+    // not a tool: ping the cell under the cursor (multiplayer). backslash by default
+    public const string PingHotkey = "Ping";
+
+    /// keys a hotkey may use besides the letters a to z, with how they show
+    /// (one name per key: some Avalonia keys have alias names)
+    public static readonly (string name, string label)[] ExtraHotkeys =
+    [
+        ("OemPipe", "\\"), ("OemBackslash", "\\ (iso)"), ("OemOpenBrackets", "["), ("OemCloseBrackets", "]"),
+        ("OemSemicolon", ";"), ("OemQuotes", "'"), ("OemComma", ","), ("OemPeriod", "."), ("OemQuestion", "/"),
+        ("OemTilde", "`"), ("OemMinus", "-"), ("OemPlus", "="),
+        ("D0", "0"), ("D1", "1"), ("D2", "2"), ("D3", "3"), ("D4", "4"), ("D5", "5"), ("D6", "6"), ("D7", "7"), ("D8", "8"), ("D9", "9"),
+    ];
+
+    /// the stored name for a pressed key, null when it can not be a hotkey
+    public static string? HotkeyNameOf(Avalonia.Input.Key k)
+    {
+        if (k is >= Avalonia.Input.Key.A and <= Avalonia.Input.Key.Z) return k.ToString();
+        foreach (var (name, _) in ExtraHotkeys)
+            if (Enum.TryParse<Avalonia.Input.Key>(name, out var e) && e == k) return name;
+        return null;
+    }
+
+    /// a stored hotkey as it shows in menus and tooltips
+    public static string HotkeyLabel(string stored)
+    {
+        foreach (var (name, label) in ExtraHotkeys) if (name == stored) return label;
+        return stored;
+    }
+
+    public static bool HotkeyValid(string v) =>
+        (v.Length == 1 && char.IsAsciiLetter(v[0])) || ExtraHotkeys.Any(x => x.name == v);
     [JsonPropertyName("tool_hotkeys")] public Dictionary<string, string> ToolHotkeys { get; set; } = new();
 
     // New labels start with this text so a placed label is visible (item 1).
@@ -238,6 +269,7 @@ public sealed class AppSettings
             ["Reveal"] = "H",
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
+            [PingHotkey] = "OemPipe",
         };
         return s;
     }
@@ -363,13 +395,14 @@ public sealed class AppSettings
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
         s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
-        // hotkeys: only known tools, each a single letter a to z (what the
-        // hotkeys menu allows); anything else falls back to the default
+        // hotkeys: only known tools, each a letter a to z or one of the
+        // ExtraHotkeys (what the hotkeys menu allows); anything else falls
+        // back to the default
         var keys = new Dictionary<string, string>();
         foreach (var (tool, def) in defaults.ToolHotkeys)
         {
             var v = s.ToolHotkeys.GetValueOrDefault(tool, "");
-            keys[tool] = v.Length == 1 && char.IsAsciiLetter(v[0]) ? v.ToUpperInvariant() : def;
+            keys[tool] = v.Length == 1 && char.IsAsciiLetter(v[0]) ? v.ToUpperInvariant() : HotkeyValid(v) ? v : def;
         }
         s.ToolHotkeys = keys;
         return s;

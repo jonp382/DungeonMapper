@@ -40,6 +40,7 @@ You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 | --- | --- |
 | Z | Zoom to fit |
 | I | Deploy the last formation you used |
+| \ (backslash) | Ping the cell under the cursor (see [sessions](#playing-together-sessions)) |
 | Ctrl+S | Save |
 | Ctrl+Z / Ctrl+Y | Undo / redo |
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste at the cursor |
@@ -140,6 +141,7 @@ The DM can host a session for players on the same network (home wifi or LAN). Pl
 - **Host:** Session > Host a session. Give it a name, an optional code players must type, and pick the **map shown to players**. That pick is separate from the map you have open, so you can prepare the next level while players stay on the current one. The window shows the address players join at and who has joined. Every reveal, door you open or pawn you move reaches players within a moment.
 - **Join:** Session > Join a session. Sessions on your network are listed; click one to join, or type the address and port the DM's window shows. Both computers need the same Dungeon Mapper version.
 - **While joined** you see the DM's map read only, with the measure tool and panning and zooming. Your own campaign is untouched and comes back when you leave (Session > Leave session) or the DM stops hosting.
+- **Ping:** press backslash (changeable in the hotkeys menu, which now also takes digits and keys like [ ] ; ,) to ping the cell under the cursor. Everyone else in the session sees rings on it and a note at the top right, "Ana pinged 12,7", with a **jump** button. The DM's pings go to the map shown to players, so the DM pings from that map.
 - The status bar shows the session on the right. The first time you host, your firewall may ask to allow Dungeon Mapper; allow it on private networks. Sessions use port 47320 (TCP) and 47321 (UDP, for the list of sessions).
 
 ## Saving and safety

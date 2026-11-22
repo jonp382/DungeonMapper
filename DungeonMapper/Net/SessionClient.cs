@@ -10,8 +10,8 @@ namespace DungeonMapper.Net;
 public sealed class SessionRefusedException(string reason) : Exception(reason);
 
 /// A player's side of a session: joins a host, then receives what the DM
-/// shows. read only, nothing is ever sent back but the hello. Events fire on
-/// a background thread.
+/// shows. read only: the hello and pings are all it sends. Events fire on a
+/// background thread.
 public sealed class SessionClient : IDisposable
 {
     private readonly TcpClient _client;
@@ -26,6 +26,19 @@ public sealed class SessionClient : IDisposable
     public event Action<string, PlayerPackage>? StateReceived;
     /// the connection ended (reason for the status line). not raised by Dispose
     public event Action<string>? Disconnected;
+    /// someone pinged a cell (name, x, y): the DM or another player
+    public event Action<string, int, int>? PingReceived;
+
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+    /// pings a cell on the map the DM shows
+    public async Task SendPing(int x, int y)
+    {
+        await _writeLock.WaitAsync();
+        try { await NetProtocol.WriteAsync(_stream, new NetMessage { Type = "ping", X = x, Y = y }); }
+        catch (Exception) { } // a lost connection is reported by the read loop
+        finally { _writeLock.Release(); }
+    }
 
     private SessionClient(TcpClient c, string session)
     {
@@ -73,6 +86,7 @@ public sealed class SessionClient : IDisposable
         {
             while (await NetProtocol.ReadAsync(_stream, _cts.Token) is { } m)
             {
+                if (m.Type == "ping" && m.X is int px && m.Y is int py) { PingReceived?.Invoke(m.Name ?? "someone", px, py); continue; }
                 if (m.Type != "state" || m.Package is null) continue;
                 foreach (var (k, v) in m.Package.ObjectPictures ?? new()) _pictures[k] = v;
                 var pkg = MapSerializer.PackageFromWire(m.Package);

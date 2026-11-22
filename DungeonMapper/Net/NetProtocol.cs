@@ -22,6 +22,8 @@ namespace DungeonMapper.Net;
 //   host -> player  welcome (session name) or refuse (reason), then closes
 //   host -> player  state   (map name + player package) after the welcome
 //                           and whenever what players see changes
+//   either way      ping    (cell; the host fills in who and passes a
+//                           player's ping on to the other players)
 // discovery: the host broadcasts a beacon over udp every couple of seconds.
 public static class NetProtocol
 {
@@ -123,5 +125,8 @@ public sealed class NetMessage
     [JsonPropertyName("port")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int Port { get; set; }
     [JsonPropertyName("needs_code")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public bool NeedsCode { get; set; }
     [JsonPropertyName("map_name")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? MapName { get; set; }
+    // a ping: the cell, on the map shown to players
+    [JsonPropertyName("x")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? X { get; set; }
+    [JsonPropertyName("y")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Y { get; set; }
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
 }

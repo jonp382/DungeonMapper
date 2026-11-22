@@ -378,6 +378,7 @@ public partial class MainWindow : Window
             // ctrl+z never gets here, the ctrl branch above handles it.
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit) && fit == e.Key)
             { Canvas.AutoFit(); e.Handled = true; return; }
+            if (IsPingKey(e.Key)) { DoPing(); e.Handled = true; return; }
             if (!Canvas.HotkeysDisabled
                 && Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FormationHotkey, ""), out var form) && form == e.Key)
             { DeployLastFormation(); e.Handled = true; return; }
@@ -422,7 +423,7 @@ public partial class MainWindow : Window
     // "Tool (K)" tooltip from the configurable hotkey table
     private void LabelTool(Button b, string modeName)
     {
-        string key = _settings.ToolHotkeys.TryGetValue(modeName, out var k) ? k : "";
+        string key = _settings.ToolHotkeys.TryGetValue(modeName, out var k) ? AppSettings.HotkeyLabel(k) : "";
         ToolTip.SetTip(b, string.IsNullOrEmpty(key) ? modeName : $"{modeName} ({key})");
     }
 
