@@ -207,6 +207,7 @@ public partial class MainWindow : Window
         MenuUndo.Click += (_, _) => DoUndo();
         MenuRedo.Click += (_, _) => DoRedo();
         MenuFit.Click += (_, _) => Canvas.AutoFit();
+        MenuPlayerPreview.Click += (_, _) => SetPlayerPreview(!Canvas.PlayerPreview);
         MenuSave.Click += (_, _) => SaveCurrent();
         MenuSaveAs.Click += (_, _) => SaveMap();
         MenuLoad.Click += (_, _) => LoadMap();
@@ -300,6 +301,7 @@ public partial class MainWindow : Window
         // typing in a field (label text, rename, settings, dropdowns) must not
         // trigger tool hotkeys
         if (IsTyping()) { base.OnKeyDown(e); return; }
+        if (Canvas.PlayerPreview && PreviewKey(e)) { e.Handled = true; return; }
 
         if (e.KeyModifiers == KeyModifiers.Control)
         {
@@ -502,6 +504,7 @@ public partial class MainWindow : Window
     private void SetTool(ToolMode mode)
     {
         FlushSettings(); // switching tools flushes pending settings changes
+        SetPlayerPreview(false); // a tool means editing again
         // switching tools counts as a cancel of an armed move: the ghost is
         // disarmed, rotation resets, and hotkeys are restored.
         Canvas.CancelMove();
@@ -881,7 +884,7 @@ public partial class MainWindow : Window
     private void DeleteTemplateWithWarning(PawnTemplate t, Control anchor)
     {
         int live = 0;
-        foreach (var p in Canvas.Document.Pawns.Values)
+        foreach (var p in _doc.Pawns.Values)
             if (p.TemplateId == t.Id) live++;
 
         void doDelete()

@@ -45,7 +45,15 @@ public sealed partial class MapCanvas : Control
         ClipToBounds = true;
     }
 
-    public MapDocument Document { get; set; } = new();
+    private MapDocument _document = new();
+    /// the map drawn and edited. during the player view preview this is the
+    /// players' copy (read only, rebuilt on every Refresh); setting it always
+    /// sets the real map
+    public MapDocument Document
+    {
+        get => _preview ?? _document;
+        set { _document = value; if (_preview is not null) _preview = PlayerView.Build(_document); }
+    }
     public ToolMode Mode { get; set; } = ToolMode.Select;
     public AppSettings Settings { get; set; } = AppSettings.Default();
     public PawnLibrary Library { get; set; } = new();
@@ -134,7 +142,39 @@ public sealed partial class MapCanvas : Control
     /// removed (null when the hero was not on another map).
     public Func<string, Pawn?>? TakeHeroFromOtherMaps;
 
-    public void Refresh() => InvalidateVisual();
+    public void Refresh()
+    {
+        if (_preview is not null) _preview = PlayerView.Build(_document);
+        InvalidateVisual();
+    }
+
+    // ---- player view preview (multiplayer) ----
+    private MapDocument? _preview;
+    /// shows exactly what players would be sent. editing is off: left clicks
+    /// do nothing, panning and zooming still work
+    public bool PlayerPreview
+    {
+        get => _preview is not null;
+        set
+        {
+            if (value == PlayerPreview) return;
+            _preview = value ? PlayerView.Build(_document) : null;
+            InvalidateVisual();
+        }
+    }
+
+    private void DrawPreviewBanner(DrawingContext ctx)
+    {
+        if (_preview is null) return;
+        var ft = new FormattedText("player view preview: what players are sent. esc or a tool returns to editing",
+            System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface("Inter", FontStyle.Normal, FontWeight.Bold), 14, Brushes.White);
+        double w = ft.Width + 20, h = ft.Height + 10;
+        var box = new Rect(Math.Max(4, (Bounds.Width - w) / 2), 8, w, h);
+        ctx.DrawRectangle(new SolidColorBrush(Color.FromArgb(220, 120, 40, 110)), new Pen(new SolidColorBrush(Color.FromRgb(236, 90, 220)), 1.5), box, 6, 6);
+        ctx.DrawText(ft, new Point(box.X + 10, box.Y + 5));
+        ctx.DrawRectangle(null, new Pen(new SolidColorBrush(Color.FromRgb(236, 90, 220)), 3), new Rect(Bounds.Size).Deflate(1.5));
+    }
 
     // ---- clipboard / selection ----
     private MapDocument.RegionSnapshot? _clipboard;
@@ -1110,6 +1150,7 @@ public sealed partial class MapCanvas : Control
         DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
+        DrawPreviewBanner(ctx);
     }
 
     // ---- drag preview ----
@@ -1634,6 +1675,8 @@ public sealed partial class MapCanvas : Control
 
     private void Commit()
     {
+        // the preview is a throwaway copy: nothing done to it is an edit
+        if (_preview is not null) { _preview = PlayerView.Build(_document); InvalidateVisual(); return; }
         ActionCompleted?.Invoke();
         InvalidateVisual();
     }
@@ -1656,6 +1699,7 @@ public sealed partial class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
+        if (PlayerPreview) return; // read only
         _pressClicks = e.ClickCount;
 
         var world = ScreenToWorld(e.GetPosition(this));

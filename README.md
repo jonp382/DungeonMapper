@@ -131,6 +131,7 @@ The reveal tool marks what players are allowed to see. It is the groundwork for 
 - New items start DM only. Maps made before this tool load with every item visible and nothing revealed.
 - Each door, label, pawn and object view also has a **DM only** checkbox.
 - While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
+- **View > Player view preview** (or the button in the reveal panel) shows exactly what players would be sent: revealed floor, the walls and doors around it, and the visible items on it. Nothing can be edited while it is on; panning, zooming, saving, undo and redo still work. Esc or picking a tool returns to editing.
 
 ## Saving and safety
 

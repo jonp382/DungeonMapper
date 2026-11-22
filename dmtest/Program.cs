@@ -4069,5 +4069,176 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- multiplayer: player view (the anti-cheat filter) ---
+{
+    // room A (0..3) revealed, room B (4..6) behind a door, room C far away
+    var m = new MapDocument();
+    AddRoom(m, 0, 0, 3, 3);
+    AddRoom(m, 4, 0, 6, 3);
+    AddRoom(m, 10, 0, 12, 3);
+    m.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out var mid); mid.DmOnly = false;
+    m.TryPlaceDoor(new EdgeKey(new CellKey(3, 2), Side.East), out var secret); // DM only
+    m.TryPlaceDoor(new EdgeKey(new CellKey(6, 1), Side.East), out var far); far.DmOnly = false;
+    m.TryPlaceVertexDoor(2, 0, true, "standard", "closed", out var vd); vd.DmOnly = false;
+    m.Stairs[new CellKey(1, 1)] = new Stair();
+    m.Stairs[new CellKey(5, 1)] = new Stair();
+    m.Pawns[new CellKey(1, 2)] = new Pawn { Cell = new CellKey(1, 2), TemplateId = "hero", DmOnly = false };
+    m.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "lurker" }; // DM only
+    m.Pawns[new CellKey(5, 2)] = new Pawn { Cell = new CellKey(5, 2), TemplateId = "monster", DmOnly = false };
+    m.Labels.Add(new MapLabel { Cell = new CellKey(0, 3), Text = "entry", DmOnly = false });
+    m.Labels.Add(new MapLabel { Cell = new CellKey(1, 3), Text = "trap here" }); // DM only
+    m.Labels.Add(new MapLabel { Cell = new CellKey(5, 3), Text = "treasure vault", DmOnly = false });
+    m.Labels.Add(new MapLabel { Cell = new CellKey(3, 0), W = 3, Text = "spans", DmOnly = false });
+    m.Objects.Add(new MapObject { TypeId = "statue", X = 0, Y = 0, DmOnly = false });
+    m.Objects.Add(new MapObject { TypeId = "idol", X = 5, Y = 0, DmOnly = false });
+    m.Objects.Add(new MapObject { TypeId = "altar", X = 2, Y = 1 }); // DM only
+
+    var none = PlayerView.Build(m);
+    Check(none.Cells.Count == 0 && none.Walls.Count == 0 && none.Doors.Count == 0 && none.VertexDoors.Count == 0 && none.Pawns.Count == 0
+        && none.Labels.Count == 0 && none.Objects.Count == 0 && none.Stairs.Count == 0 && none.FloodRegions.Count == 0 && none.AngledWalls.Count == 0,
+        "player view: nothing revealed sends nothing at all");
+
+    m.SetRevealed(m.RevealRoomCells(new CellKey(1, 1)), true);
+    var v = PlayerView.Build(m);
+    Check(v.Cells.SetEquals(m.RevealRoomCells(new CellKey(1, 1))) && v.Cells.Count == 16, "player view: only revealed floor is sent");
+    Check(v.Walls.Keys.All(e => v.Cells.Contains(e.Cell) || v.Cells.Contains(e.NeighborCell())), "player view: every wall sent touches revealed floor");
+    Check(v.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(0, 0), Side.West)) && v.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(3, 1), Side.East)),
+        "player view: the revealed room's outline is sent");
+    Check(!v.Walls.ContainsKey(EdgeKey.Normalize(new CellKey(6, 1), Side.East)) && !v.Walls.Keys.Any(e => e.Cell.X >= 10),
+        "player view: walls past the revealed room are not");
+    Check(v.Doors.ContainsKey(EdgeKey.Normalize(new CellKey(3, 1), Side.East)), "player view: a visible door in the room's wall is sent");
+    Check(!v.Doors.ContainsKey(EdgeKey.Normalize(new CellKey(3, 2), Side.East)), "player view: a DM only door is not (its wall is)");
+    Check(!v.Doors.ContainsKey(EdgeKey.Normalize(new CellKey(6, 1), Side.East)), "player view: a door in a hidden room is not");
+    Check(v.VertexDoors.Count == 1 && MapDocument.VertexStraddles(new VertexDoorKey(2, 0, true)).All(v.HasWall), "player view: a vertex door comes with its walls");
+    Check(v.Stairs.Count == 1 && v.Stairs.ContainsKey(new CellKey(1, 1)), "player view: only stairs on revealed floor");
+    Check(v.Pawns.Count == 1 && v.Pawns.ContainsKey(new CellKey(1, 2)), "player view: only visible pawns on revealed floor");
+    Check(v.Labels.Select(l => l.Text).OrderBy(t => t).SequenceEqual(new[] { "entry", "spans" }), "player view: visible labels touching revealed floor, not DM only or hidden ones");
+    Check(v.Objects.Count == 1 && v.Objects[0].TypeId == "statue", "player view: only visible objects on revealed floor");
+    var vJson = MapSerializer.ToJson(v);
+    Check(!vJson.Contains("trap here") && !vJson.Contains("treasure vault") && !vJson.Contains("lurker") && !vJson.Contains("monster")
+        && !vJson.Contains("idol") && !vJson.Contains("altar"), "player view: no hidden text, pawn or object ids anywhere in the sent json");
+    Check(!vJson.Contains("dm_only") && v.AllItems(RevealItems.All).All(i => !MapDocument.IsDmOnly(i)), "player view: sent items carry no DM only flag");
+    v.Doors.Values.First().State = DoorState.Locked;
+    v.Labels[0].Text = "changed";
+    Check(mid.State != DoorState.Locked && m.Labels[0].Text == "entry", "player view: the copy shares nothing with the DM's map");
+
+    // revealed cells with no floor are ignored
+    m.Revealed.Add(new CellKey(30, 30));
+    Check(!PlayerView.Build(m).Revealed.Contains(new CellKey(30, 30)), "player view: a revealed cell with no floor is dropped");
+
+    // flood floors are cut to the revealed cells
+    var f = new MapDocument();
+    f.FloodRegions.Add(new FloodRegion { Rings = { new() { (20.0, 20.0), (25.0, 20.0), (25.0, 25.0), (20.0, 25.0) } } });
+    f.SetRevealed(new[] { new CellKey(20, 20), new CellKey(21, 20), new CellKey(20, 21), new CellKey(21, 21) }, true);
+    var fv = PlayerView.Build(f);
+    var fb = fv.FloodRegions.Select(r => r.Bounds()).ToList();
+    Check(fv.FloodRegions.Count == 1 && fb[0] == (20, 20, 22, 22), $"player view: a flood floor is clipped to the revealed cells ({string.Join(" ", fb)})");
+    Check(fv.FloorAt(21.5, 21.5) && !fv.FloorAt(23.5, 23.5), "player view: hidden flood floor is gone");
+
+    // angled walls are cut at lattice points, doors follow their piece
+    var a = new MapDocument();
+    var aw = new AngledWall(40, 0, 46, 6);
+    a.AngledWalls.Add(aw);
+    a.AngledDoors[aw] = new List<AngledDoor>
+    {
+        new() { T = 1.4, DmOnly = false },                 // on the revealed part
+        new() { T = 7.0, DmOnly = false },                 // far end, hidden
+        new() { T = 2.1 },                                  // revealed part but DM only
+    };
+    a.Cells.Add(new CellKey(40, 0)); a.Cells.Add(new CellKey(41, 1));
+    a.SetRevealed(new[] { new CellKey(40, 0), new CellKey(41, 1) }, true);
+    var av = PlayerView.Build(a);
+    Check(av.AngledWalls.Count == 1 && av.AngledWalls[0] == new AngledWall(40, 0, 42, 2), $"player view: an angled wall keeps only the revealed piece ({string.Join(" ", av.AngledWalls)})");
+    var ad = av.GetAngledDoors(av.AngledWalls[0]);
+    Check(ad.Count == 1 && Math.Abs(ad[0].T - 1.4) < 1e-9, "player view: only the visible door on that piece goes with it");
+
+    // the package: only what the sent map uses
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "hero", Name = "Hero", Status = "blessed", Favorite = true });
+    lib.Pawns.Add(new PawnTemplate { Id = "lurker", Name = "Lurker" });
+    lib.Pawns.Add(new PawnTemplate { Id = "monster", Name = "Monster" });
+    lib.Formations.Add(new Formation { Name = "party" });
+    var objs = new ObjectLibrary();
+    string pic1 = objs.AddPicture("AAAA"), pic2 = objs.AddPicture("BBBB");
+    objs.Types.Add(new ObjectType { Id = "statue", Name = "Statue", Look = new ObjectLook { PictureId = pic1 } });
+    objs.Types.Add(new ObjectType { Id = "idol", Name = "Idol", Look = new ObjectLook { PictureId = pic2 } });
+    var pre = new CampaignPresets
+    {
+        DoorTypes = { new DoorType { Name = "standard" }, new DoorType { Name = "secret door" } },
+        PawnStatuses = { new PawnStatus { Name = "blessed" }, new PawnStatus { Name = "invisible" } },
+        AffiliationColors = { new AffiliationColor { Name = "Enemy" } },
+    };
+    secret.Type = "secret door";
+    var pk = PlayerView.Package(m, lib, objs, pre);
+    Check(pk.Library.Pawns.Count == 1 && pk.Library.Pawns[0].Id == "hero" && !pk.Library.Pawns[0].Favorite && pk.Library.Formations.Count == 0,
+        "player view package: only templates of sent pawns, no favorites or formations");
+    Check(pk.Objects.Types.Count == 1 && pk.Objects.Types[0].Id == "statue" && pk.Objects.Pictures.Keys.SequenceEqual(new[] { pic1 }),
+        "player view package: only object types and pictures in use");
+    Check(pk.Presets.DoorTypes.Select(t => t.Name).SequenceEqual(new[] { "standard" }), "player view package: a hidden door's type name is not sent");
+    Check(pk.Presets.PawnStatuses.Select(t => t.Name).SequenceEqual(new[] { "blessed" }) && pk.Presets.AffiliationColors.Count == 1,
+        "player view package: statuses in use, every affiliation color");
+}
+
+// --- multiplayer: player view preview (canvas) ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    AddRoom(h.Doc, 0, 0, 3, 3);
+    AddRoom(h.Doc, 4, 0, 6, 3);
+    h.Doc.SetRevealed(h.Doc.RevealRoomCells(new CellKey(1, 1)), true);
+    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
+    c.Mode = ToolMode.Select;
+    var bmp = h.Render();
+    var a0 = h.PixelAt(bmp, (int)h.ScreenOf(1, 2).X + 8, (int)h.ScreenOf(1, 2).Y + 8);
+    var b0 = h.PixelAt(bmp, (int)h.ScreenOf(5, 2).X + 8, (int)h.ScreenOf(5, 2).Y + 8);
+    Check(Lum(a0) == Lum(b0), "preview: off, both rooms draw the same");
+
+    c.PlayerPreview = true;
+    Check(c.Document != h.Doc && c.Document.Cells.Count == 16, "preview: the canvas shows the players' copy");
+    bmp = h.Render();
+    var a1 = h.PixelAt(bmp, (int)h.ScreenOf(1, 2).X + 8, (int)h.ScreenOf(1, 2).Y + 8);
+    var b1 = h.PixelAt(bmp, (int)h.ScreenOf(5, 2).X + 8, (int)h.ScreenOf(5, 2).Y + 8);
+    Check(Lum(a1) == Lum(a0) && Lum(b1) != Lum(b0), "preview: the hidden room is not drawn");
+
+    int commits = h.CommitCount;
+    c.Mode = ToolMode.Room;
+    h.Drag(10, 10, 12, 12);
+    c.Mode = ToolMode.Erase;
+    h.Drag(0, 0, 3, 3);
+    Check(h.CommitCount == commits && h.Doc.Cells.Count == 28 && !h.Doc.Cells.Contains(new CellKey(10, 10)), "preview: clicks and drags edit nothing");
+
+    h.Doc.SetRevealed(new[] { new CellKey(5, 1) }, true);
+    c.Refresh();
+    Check(c.Document.Cells.Contains(new CellKey(5, 1)), "preview: a refresh after a change shows it");
+    c.PlayerPreview = false;
+    Check(c.Document == h.Doc, "preview: off, the canvas is back on the real map");
+}
+
+// --- multiplayer: player view preview (window) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        var panel = (DungeonMapper.Views.ToolPanel)t.GetField("ToolPanel", flags)!.GetValue(w)!;
+        step = "reveal tool"; Call("SetTool", ToolMode.Reveal);
+        step = "preview on"; Call("SetPlayerPreview", true);
+        Check(canvas.PlayerPreview && !panel.IsEnabled, "preview: on from the window, the side panel is disabled");
+        step = "tool switch"; Call("SetTool", ToolMode.Room);
+        Check(!canvas.PlayerPreview && panel.IsEnabled, "preview: picking a tool returns to editing");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"preview: window test (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

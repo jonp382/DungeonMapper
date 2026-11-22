@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
@@ -59,6 +60,7 @@ public partial class MainWindow
             ToolPanel.AddButton("make all ticked visible", () => { int n = Canvas.SetAllDmOnly(false); StatusText.Text = $"{Plural(n, "item")} now visible to players"; FocusCanvas(); });
             ToolPanel.AddButton("make all ticked DM only", () => { int n = Canvas.SetAllDmOnly(true); StatusText.Text = $"{Plural(n, "item")} now DM only"; FocusCanvas(); });
         }
+        ToolPanel.AddButton("preview player view", () => SetPlayerPreview(true));
         RefreshToolInfo();
     }
 
@@ -70,5 +72,45 @@ public partial class MainWindow
         var (l, d, o, p) = doc.DmOnlyCounts();
         return $"{shown} of {Plural(floor.Count, "floor cell")} revealed\n"
              + $"DM only: {Plural(l, "label")}, {Plural(d, "door")}, {Plural(o, "object")}, {Plural(p, "pawn")}";
+    }
+}
+
+// player view preview: the canvas draws the players' copy of the map (see
+// Models/PlayerView.cs), read only. View menu or the reveal panel turns it on,
+// esc or picking a tool turns it off
+public partial class MainWindow
+{
+    private void SetPlayerPreview(bool on)
+    {
+        if (Canvas.PlayerPreview == on) { MenuPlayerPreview.IsChecked = on; return; }
+        if (on) { Canvas.CancelMove(); Canvas.CancelFormation(); Canvas.CancelAreaPick(); Canvas.CancelLine(); }
+        Canvas.PlayerPreview = on;
+        MenuPlayerPreview.IsChecked = on;
+        ToolPanel.IsEnabled = !on; // panel buttons would act on the preview copy
+        StatusText.Text = on
+            ? "player view preview: this is what players are sent. editing is off, esc returns"
+            : "back to editing";
+        FocusCanvas();
+    }
+
+    // keys while previewing: esc leaves, saving, undo and redo, zoom to fit
+    // and tool letters (which leave through SetTool) still work. everything
+    // else that would edit is swallowed. true when the key was handled here
+    private bool PreviewKey(Avalonia.Input.KeyEventArgs e)
+    {
+        var ctrl = e.KeyModifiers == Avalonia.Input.KeyModifiers.Control;
+        if (e.Key == Avalonia.Input.Key.Escape)
+        {
+            if (ModalOverlay.IsVisible || SettingsOverlay.IsVisible || HotkeysOverlay.IsVisible
+                || DoorPresetsOverlay.IsVisible || MapsOverlay.IsVisible) return false;
+            SetPlayerPreview(false);
+            return true;
+        }
+        if (ctrl) return e.Key is not (Avalonia.Input.Key.S or Avalonia.Input.Key.Z or Avalonia.Input.Key.Y);
+        if (e.Key == Avalonia.Input.Key.Delete) return true;
+        if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None) return true; // shift+r and friends
+        if (System.Enum.TryParse<Avalonia.Input.Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FormationHotkey, ""), out var form) && form == e.Key)
+            return true;
+        return false;
     }
 }

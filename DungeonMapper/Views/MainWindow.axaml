@@ -70,6 +70,7 @@
                         </MenuItem>
                         <MenuItem Header="_View">
                             <MenuItem x:Name="MenuFit" Header="Zoom to _fit" />
+                            <MenuItem x:Name="MenuPlayerPreview" Header="_Player view preview" ToggleType="CheckBox" />
                         </MenuItem>
                         <MenuItem Header="_Manage">
                             <MenuItem x:Name="MenuMaps" Header="_Maps..." />
