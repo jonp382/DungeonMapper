@@ -45,6 +45,10 @@ public sealed class PackageWire
     [JsonPropertyName("object_types")] public List<ObjectType>? ObjectTypes { get; set; }
     [JsonPropertyName("object_pictures")] public Dictionary<string, string>? ObjectPictures { get; set; }
     [JsonPropertyName("presets")] public PresetsWire? Presets { get; set; }
+    // the lit circle: x, y (world), radius (cells). absent = all revealed floor lit
+    [JsonPropertyName("light")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<double>? Light { get; set; }
 }
 
 public sealed class ObjectDto
@@ -680,6 +684,7 @@ public static class MapSerializer
         ObjectTypes = p.Objects.Types,
         ObjectPictures = new Dictionary<string, string>(p.Objects.Pictures),
         Presets = p.Presets.ToWire(),
+        Light = p.Map.PlayerLight is { } l ? new List<double> { l.x, l.y, l.radius } : null,
     };
 
     /// a received player package. pictures are added by the caller from its
@@ -691,7 +696,9 @@ public static class MapSerializer
         objs.AddPictures(w.ObjectPictures);
         var presets = CampaignPresets.FromWire(w.Presets ?? new PresetsWire());
         presets.MergeMissing(CampaignPresets.Default());
-        return new PlayerPackage { Map = FromDto(w.Map ?? new MapFileDto()), Library = lib, Objects = objs, Presets = presets };
+        var map = FromDto(w.Map ?? new MapFileDto());
+        if (w.Light is { Count: 3 } l) map.PlayerLight = (l[0], l[1], Math.Clamp((int)l[2], 0, 1000));
+        return new PlayerPackage { Map = map, Library = lib, Objects = objs, Presets = presets };
     }
 
     public static string ObjectTypesToJson(ObjectLibrary lib)

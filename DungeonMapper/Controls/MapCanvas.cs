@@ -1150,6 +1150,7 @@ public sealed partial class MapCanvas : Control
 
         DrawFog(ctx); // under the tool overlays, over the whole map
         DrawRevealOverlay(ctx);
+        DrawUnlit(ctx);
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
         DrawLabelHandles(ctx);

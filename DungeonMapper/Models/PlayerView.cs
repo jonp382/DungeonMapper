@@ -27,6 +27,7 @@ public sealed class PlayerPackage
 ///    straddled walls (a door implies its walls)
 ///  - stairs and pawns: on revealed cells, pawns not DM only
 ///  - labels and objects: not DM only and covering at least one revealed cell
+///  - the players' light (the DM's anchored fog circle), when set
 public static class PlayerView
 {
     public static MapDocument Build(MapDocument doc)
@@ -34,6 +35,7 @@ public static class PlayerView
         var shown = new HashSet<CellKey>(doc.Revealed.Where(doc.IsFloorCell));
         var v = new MapDocument();
         foreach (var c in shown) v.Revealed.Add(c);
+        v.PlayerLight = doc.PlayerLight;
 
         foreach (var c in doc.Cells) if (shown.Contains(c)) v.Cells.Add(c);
         foreach (var fr in doc.FloodRegions) ClipFlood(fr, shown, v);

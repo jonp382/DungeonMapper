@@ -39,6 +39,7 @@ public sealed partial class MapCanvas
             int v = Math.Clamp((int)Math.Round(value / (double)FogStepFeet) * FogStepFeet, 0, FogMaxFeet);
             if (v == _fogFeet) return;
             _fogFeet = v;
+            if (_fogAnchor is not null) SetPlayerLight();
             FogChanged?.Invoke();
             InvalidateVisual();
         }
@@ -80,6 +81,39 @@ public sealed partial class MapCanvas
         FogOn = true;
     }
 
+    // ---- players' light (multiplayer) ----
+    // anchoring the fog lights that circle for players: revealed floor outside
+    // it shows dimmer on their screens. it stays after the anchor is released
+    // or the tool changes, until cleared. kept on the map (session only)
+
+    private void SetPlayerLight()
+    {
+        if (_fogAnchor is not Point a) return;
+        _document.PlayerLight = (a.X, a.Y, FogRadiusCells);
+    }
+
+    public (double x, double y, int radius)? PlayerLight => _document.PlayerLight;
+
+    public void ClearPlayerLight()
+    {
+        if (_document.PlayerLight is null) return;
+        _document.PlayerLight = null;
+        FogChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    // on a player's screen (and the DM's preview): revealed floor outside the
+    // lit circle is dimmed with the viewer's fog settings
+    private void DrawUnlit(DrawingContext ctx)
+    {
+        if (!ReadOnlyView || Document.PlayerLight is not { } l) return;
+        byte alpha = (byte)Math.Clamp(Settings.FogOpacity * 255 / 100, 0, 255);
+        if (alpha == 0) return;
+        var lit = new HashSet<CellKey>(CellsInRadius(new Point(l.x, l.y), l.radius));
+        var col = FogColor;
+        FillCellRuns(ctx, Document.Revealed.Where(c => !lit.Contains(c)), new SolidColorBrush(Color.FromArgb(alpha, col.R, col.G, col.B)));
+    }
+
     /// shift+scroll: +1 grows the radius by one step, -1 shrinks it
     public void StepFog(int dir) => FogFeet = _fogFeet + Math.Sign(dir) * FogStepFeet;
 
@@ -99,6 +133,7 @@ public sealed partial class MapCanvas
     {
         if (Mode != ToolMode.Fog) return false;
         _fogAnchor = FogSnap(world);
+        SetPlayerLight();
         _fogDragging = true;
         e.Pointer.Capture(this);
         FogChanged?.Invoke();
@@ -113,7 +148,7 @@ public sealed partial class MapCanvas
         if (_fogDragging)
         {
             // dragging with the button down moves the anchor along
-            if (_fogAnchor != p) { _fogAnchor = p; FogChanged?.Invoke(); InvalidateVisual(); }
+            if (_fogAnchor != p) { _fogAnchor = p; SetPlayerLight(); FogChanged?.Invoke(); InvalidateVisual(); }
         }
         else if (_fogHover != p)
         {

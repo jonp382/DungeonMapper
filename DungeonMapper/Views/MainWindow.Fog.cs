@@ -10,6 +10,7 @@ public partial class MainWindow
 {
     private Slider? _fogSlider;
     private TextBlock? _fogInfo;
+    private TextBlock? _fogLightInfo;
 
     // wired once from the constructor
     private void InitFog()
@@ -27,6 +28,9 @@ public partial class MainWindow
             v => Canvas.FogFeet = (int)v);
         _fogInfo = ToolPanel.AddInfo("");
         ToolPanel.AddButton("release anchor", () => { Canvas.ReleaseFogAnchor(); FocusCanvas(); });
+        ToolPanel.AddHint("players' light (sessions): clicking to anchor lights that circle for players. revealed floor outside it shows dimmer to them. it stays until cleared.");
+        _fogLightInfo = ToolPanel.AddInfo("");
+        ToolPanel.AddButton("clear players' light", () => { Canvas.ClearPlayerLight(); FocusCanvas(); });
         RefreshFogInfo();
     }
 
@@ -37,5 +41,9 @@ public partial class MainWindow
         string radius = $"radius {MapCanvas.FormatCells(Canvas.FogRadiusCells)}";
         string where = Canvas.FogAnchored ? "anchored (esc releases)" : "following the cursor";
         _fogInfo.Text = $"{radius}\n{where}";
+        if (_fogLightInfo is not null)
+            _fogLightInfo.Text = Canvas.PlayerLight is { } l
+                ? $"players' light: {MapCanvas.FormatCells(l.radius)} at {l.x:0.#},{l.y:0.#}"
+                : "players' light: none, all revealed floor is lit";
     }
 }

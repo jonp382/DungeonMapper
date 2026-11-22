@@ -4596,5 +4596,53 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && c.SandboxMoves.Count == 0, "sandbox: outside a session the move tool moves for real");
 }
 
+// --- multiplayer: players' light ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    AddRoom(h.Doc, 0, 0, 14, 8);
+    h.Doc.SetRevealed(h.Doc.FloorCells(), true);
+    c.Mode = ToolMode.Fog;
+    c.ResetFog();
+    c.FogFeet = 20;
+    h.MoveTo(3, 3);
+    Check(h.Doc.PlayerLight is null, "light: following the cursor lights nothing for players");
+    h.Click(3, 3);
+    Check(h.Doc.PlayerLight == (3.5, 3.5, 4), "light: anchoring the fog lights that circle for players");
+    c.FogFeet = 30;
+    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: a radius change while anchored follows");
+    c.Mode = ToolMode.Select; c.ResetFog();
+    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: it stays when the tool changes");
+    c.Mode = ToolMode.Fog;
+    c.FogFeet = 60;
+    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: an unanchored radius change does not move it");
+    Check(!MapSerializer.ToJson(h.Doc).Contains("light"), "light: never saved");
+    var hist = new History(); hist.Initialize(h.Doc);
+    h.Doc.ApplyFrom(MapSerializer.FromJson(MapSerializer.ToJson(h.Doc)));
+    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: undo leaves it alone");
+
+    var v = PlayerView.Build(h.Doc);
+    Check(v.PlayerLight == (3.5, 3.5, 6), "light: the players' copy carries it");
+    var back = MapSerializer.PackageFromWire(MapSerializer.PackageToWire(new PlayerPackage { Map = v }));
+    Check(back.Map.PlayerLight == (3.5, 3.5, 6), "light: it crosses the wire");
+    Check(MapSerializer.PackageFromWire(MapSerializer.PackageToWire(new PlayerPackage { Map = new MapDocument() })).Map.PlayerLight is null, "light: none crosses as none");
+
+    // drawn on the player's side: outside the circle is dimmer
+    c.Mode = ToolMode.Measure;
+    c.RemoteDocument = v;
+    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
+    var bmp = h.Render();
+    var inside = h.PixelAt(bmp, (int)h.ScreenOf(4, 3).X + 8, (int)h.ScreenOf(4, 3).Y + 8);
+    var outside = h.PixelAt(bmp, (int)h.ScreenOf(13, 3).X + 8, (int)h.ScreenOf(13, 3).Y + 8);
+    Check(Lum(inside) > Lum(outside), "light: unlit revealed floor is dimmer for players");
+    c.RemoteDocument = null;
+    c.Mode = ToolMode.Select;
+    bmp = h.Render();
+    outside = h.PixelAt(bmp, (int)h.ScreenOf(13, 3).X + 8, (int)h.ScreenOf(13, 3).Y + 8);
+    Check(Lum(inside) == Lum(outside), "light: the DM's own view is not dimmed");
+    c.ClearPlayerLight();
+    Check(h.Doc.PlayerLight is null, "light: clear removes it");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
