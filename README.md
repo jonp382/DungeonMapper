@@ -30,6 +30,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
 | Measure | G | Drag to measure a distance, or drag out from a pawn for a spell radius. See [Measuring](#measuring). |
 | Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
+| Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |
 
 You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 
@@ -120,6 +121,16 @@ The fog tool shows how far a character can see. Like the measure tool it only re
 - The fog color (black by default) and how dark it is (30 percent by default) are in settings.
 
 ![fog of war](./images/fog%20of%20war.png)
+
+## Reveal
+
+The reveal tool marks what players are allowed to see. It is the groundwork for multiplayer, where the DM hosts and players only ever receive what has been revealed. Every change is one undo step and is saved with the map.
+
+- **Cells** shows or hides floor. **Box** drags a rectangle (a click is one cell), **room** fills the room you click up to its walls (doors count as walls), and **circle** drags out from a center. **Reveal whole map** and **hide whole map** do every floor cell at once.
+- **Items** marks labels, doors, objects and pawns **visible** or **DM only** with a box. Tick which kinds the box changes. A DM only item is never shown to players, even on revealed floor.
+- New items start DM only. Maps made before this tool load with every item visible and nothing revealed.
+- Each door, label, pawn and object view also has a **DM only** checkbox.
+- While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
 
 ## Saving and safety
 

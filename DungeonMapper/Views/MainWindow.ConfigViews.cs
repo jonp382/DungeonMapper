@@ -71,6 +71,17 @@ public partial class MainWindow
         ToolPanel.AddButtonRaw(row);
     }
 
+    // multiplayer: the item's DM only flag, one undo step per flip
+    private void AddDmOnlyCheck(Func<bool> get, Action<bool> set) =>
+        ToolPanel.AddCheck("DM only", get(), v =>
+        {
+            if (v == get()) return;
+            set(v);
+            ActiveHistory.Commit(_doc);
+            Canvas.Refresh();
+            FocusCanvas();
+        }, "hidden from players, even on revealed floor");
+
     // after a delete: one undo step, every count follows, back to the tool view
     private void AfterDelete(string what)
     {
@@ -123,6 +134,7 @@ public partial class MainWindow
                 FocusCanvas();
             },
             "state");
+        AddDmOnlyCheck(() => door.DmOnly, v => door.DmOnly = v);
         info = ToolPanel.AddInfo("");
         ShowInfo();
         AddActions(("delete", true, () =>
@@ -288,6 +300,7 @@ public partial class MainWindow
                 FocusCanvas();
             },
             "alignment");
+        AddDmOnlyCheck(() => label.DmOnly, v => label.DmOnly = v);
 
         // color: off follows the settings label color, so changing that
         // setting recolors this label. on gives the label its own color, which
@@ -426,6 +439,7 @@ public partial class MainWindow
             ToolPanel.AddInfo($"{count} on this map");
         }
 
+        AddDmOnlyCheck(() => pawn.DmOnly, v => pawn.DmOnly = v);
         AddActions(
             ("change pawn", false, () => ShowChangePawn(pawn)),
             ("delete", true, () =>

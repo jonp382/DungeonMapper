@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -324,12 +324,12 @@ public sealed partial class MapCanvas : Control
         {
             var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
             ClearCellObstacles(Document, nc);
-            Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status };
+            Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly };
         }
         foreach (var (dest, occ) in swaps)
         {
             var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
-            Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status };
+            Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status, DmOnly = occ.DmOnly };
         }
         return snap.Pawns.Count;
     }
@@ -1104,6 +1104,7 @@ public sealed partial class MapCanvas : Control
         }
 
         DrawFog(ctx); // under the tool overlays, over the whole map
+        DrawRevealOverlay(ctx);
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
         DrawLabelHandles(ctx);
@@ -1663,6 +1664,7 @@ public sealed partial class MapCanvas : Control
         if (FormationPressed(e, cell)) return;
         if (MeasurePressed(e, world, cell)) return;
         if (FogPressed(e, world)) return;
+        if (RevealPressed(e, world, cell)) return;
 
         switch (Mode)
         {
@@ -1853,6 +1855,7 @@ public sealed partial class MapCanvas : Control
                     if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
                     {
                         placed.Status = old.Status;
+                        placed.DmOnly = old.DmOnly;
                         StatusMessage?.Invoke($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
                     }
                     Commit();
@@ -1914,6 +1917,7 @@ public sealed partial class MapCanvas : Control
         if (ObjectMoved(world)) return;
         if (MeasureMoved(world)) return;
         if (FogMoved(world)) return;
+        if (RevealMoved(world)) return;
         if (LabelResizeMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
@@ -2008,6 +2012,7 @@ public sealed partial class MapCanvas : Control
         if (ObjectReleased(e)) return;
         if (MeasureReleased(e)) return;
         if (FogReleased(e)) return;
+        if (RevealReleased(e)) return;
         if (LabelResizeReleased(e)) return;
 
         if (_pawnDragging)
@@ -2032,10 +2037,10 @@ public sealed partial class MapCanvas : Control
                 var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
                 ClearCellObstacles(Document, target);
                 Document.Pawns.Remove(_pawnDragStart);
-                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status };
+                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status, DmOnly = pawn.DmOnly };
                 if (occupant is not null)
                 {
-                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status };
+                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status, DmOnly = occupant.DmOnly };
                     StatusMessage?.Invoke("swapped pawns");
                 }
                 else

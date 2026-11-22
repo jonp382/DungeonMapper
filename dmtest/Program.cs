@@ -3868,5 +3868,206 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- multiplayer: dm only flag and revealed cells (model) ---
+{
+    Check(new Door().DmOnly && new VertexDoor().DmOnly && new AngledDoor().DmOnly && new MapLabel().DmOnly
+        && new Pawn().DmOnly && new MapObject().DmOnly, "reveal: new items start DM only");
+
+    // a file from before the flag: everything visible, nothing revealed
+    var old = new MapDocument();
+    AddRoom(old, 0, 0, 3, 3);
+    old.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out _);
+    old.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "x" });
+    old.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p" };
+    old.Objects.Add(new MapObject { TypeId = "t", X = 0, Y = 0 });
+    // clear the flags so nothing writes the key, like a file from before it
+    foreach (var it in old.AllItems(RevealItems.All)) MapDocument.SetDmOnly(it, false);
+    var oldJson = MapSerializer.ToJson(old);
+    Check(!oldJson.Contains("dm_only") && !oldJson.Contains("\"revealed\":[\""), "reveal: test file has no dm_only or revealed cells");
+    var rLoaded = MapSerializer.FromJson(oldJson.Replace(",\"revealed\":[]", ""));
+    Check(rLoaded.Doors.Values.All(d => !d.DmOnly) && rLoaded.Labels.All(l => !l.DmOnly) && rLoaded.Pawns.Values.All(p => !p.DmOnly)
+        && rLoaded.Objects.All(o => !o.DmOnly), "reveal: older files load every item visible");
+    Check(rLoaded.Revealed.Count == 0, "reveal: older files load with nothing revealed");
+
+    // round trip: flags and revealed cells survive, visible items write no key
+    var rDoc = new MapDocument();
+    AddRoom(rDoc, 0, 0, 3, 3);
+    rDoc.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out var door);
+    rDoc.TryPlaceVertexDoor(2, 0, true, "standard", "closed", out var vdoor);
+    vdoor.DmOnly = false;
+    rDoc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "secret" });
+    rDoc.Labels.Add(new MapLabel { Cell = new CellKey(2, 1), Text = "public", DmOnly = false });
+    rDoc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p", DmOnly = false };
+    rDoc.Pawns[new CellKey(1, 2)] = new Pawn { Cell = new CellKey(1, 2), TemplateId = "m" };
+    rDoc.Objects.Add(new MapObject { TypeId = "t", X = 0, Y = 3 });
+    rDoc.SetRevealed(new[] { new CellKey(0, 0), new CellKey(1, 0) }, true);
+    var rJson = MapSerializer.ToJson(rDoc);
+    var back = MapSerializer.FromJson(rJson);
+    Check(back.Doors.Values.Single().DmOnly && !back.VertexDoors.Values.Single().DmOnly, "reveal: door flags round trip");
+    Check(back.Labels.Single(l => l.Text == "secret").DmOnly && !back.Labels.Single(l => l.Text == "public").DmOnly, "reveal: label flags round trip");
+    Check(!back.Pawns[new CellKey(2, 2)].DmOnly && back.Pawns[new CellKey(1, 2)].DmOnly && back.Objects[0].DmOnly, "reveal: pawn and object flags round trip");
+    Check(back.Revealed.SetEquals(rDoc.Revealed) && back.Revealed.Count == 2, "reveal: revealed cells round trip");
+    Check(rJson.Split("dm_only").Length - 1 == 4, "reveal: only DM only items write the key");
+
+    // copy, paste, rotate and undo keep the flags
+    var snap = rDoc.CaptureRegion(0, 0, 3, 3);
+    var copy = new MapDocument();
+    copy.PasteRegion(MapDocument.Rotate(snap, 1), 10, 10);
+    Check(copy.Labels.Count(l => l.DmOnly) == 1 && copy.Labels.Count(l => !l.DmOnly) == 1, "reveal: a pasted, rotated copy keeps label flags");
+    Check(copy.Pawns.Values.Count(p => p.DmOnly) == 1 && copy.Pawns.Values.Count(p => !p.DmOnly) == 1, "reveal: and pawn flags");
+    Check(copy.Doors.Values.Single().DmOnly && !copy.VertexDoors.Values.Single().DmOnly, "reveal: and door flags");
+    Check(copy.Revealed.Count == 0, "reveal: copy and paste do not carry revealed cells");
+    var undo = new MapDocument();
+    undo.ApplyFrom(MapSerializer.FromJson(rJson));
+    Check(undo.Revealed.Count == 2 && !undo.VertexDoors.Values.Single().DmOnly, "reveal: an undo restore brings back revealed cells and flags");
+
+    // only floor is revealed, anything can be hidden
+    var r = new MapDocument();
+    AddRoom(r, 0, 0, 3, 3);
+    Check(r.SetRevealed(new[] { new CellKey(0, 0), new CellKey(9, 9) }, true) == 1 && !r.Revealed.Contains(new CellKey(9, 9)), "reveal: empty space is not revealed");
+    Check(r.SetRevealed(new[] { new CellKey(0, 0) }, true) == 0, "reveal: revealing twice changes nothing");
+    Check(r.SetRevealed(new[] { new CellKey(0, 0) }, false) == 1 && r.Revealed.Count == 0, "reveal: hiding removes it");
+
+    // reveal room stops at walls, doors included
+    var two = new MapDocument();
+    AddRoom(two, 0, 0, 3, 3);
+    AddRoom(two, 4, 0, 6, 3);
+    two.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out _);
+    var room = two.RevealRoomCells(new CellKey(1, 1));
+    Check(room.Count == 16 && room.All(c => c.X <= 3), "reveal: room fills to the walls and stops at a door");
+    Check(two.RevealRoomCells(new CellKey(20, 20)).Count == 0, "reveal: room outside the floor is empty");
+
+    // items in a box, filtered by kind
+    var items = rDoc.ItemsIn(1, 1, 1, 1, RevealItems.All);
+    Check(items.Count == 1 && items[0] is MapLabel, "reveal: a one cell box finds the label on it");
+    Check(rDoc.ItemsIn(3, 1, 3, 1, RevealItems.Doors).Count == 1 && rDoc.ItemsIn(4, 1, 4, 1, RevealItems.Doors).Count == 1,
+        "reveal: an edge door is found from the cell on either side");
+    Check(rDoc.ItemsIn(0, 0, 3, 3, RevealItems.Pawns).Count == 2 && rDoc.ItemsIn(0, 0, 3, 3, RevealItems.Labels | RevealItems.Objects).Count == 3,
+        "reveal: the kind filter picks what is found");
+    Check(rDoc.SetDmOnly(0, 0, 3, 3, RevealItems.Pawns, false) == 1 && rDoc.Pawns.Values.All(p => !p.DmOnly), "reveal: a box marks pawns visible, counting only changes");
+    var (lc, dc, oc, pc) = rDoc.DmOnlyCounts();
+    Check(lc == 1 && dc == 1 && oc == 1 && pc == 0, "reveal: DM only counts per kind");
+
+    // revealing is an unsaved change
+    var proj = new MapProject();
+    proj.Maps.Add(new MapEntry { Name = "a", Doc = two });
+    var k1 = MapSerializer.ProjectContentKey(proj);
+    two.SetRevealed(new[] { new CellKey(5, 1) }, true);
+    Check(k1 != MapSerializer.ProjectContentKey(proj), "reveal: revealing counts as an unsaved change");
+
+    var d = AppSettings.Default();
+    Check(d.ToolHotkeys["Reveal"] == "H" && d.ToolHotkeys.Values.Count(v => v == "H") == 1, "reveal: hotkey H by default, used by nothing else");
+}
+
+// --- multiplayer: reveal tool (canvas) ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    AddRoom(h.Doc, 0, 0, 3, 3);
+    AddRoom(h.Doc, 4, 0, 6, 3);
+    h.Doc.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out var door);
+    c.Mode = ToolMode.Reveal;
+    c.ResetReveal();
+
+    int commits = h.CommitCount;
+    h.Drag(0, 0, 1, 1);
+    Check(h.Doc.Revealed.Count == 4 && h.CommitCount == commits + 1, "reveal tool: a box reveals its floor in one undo step");
+    h.Drag(1, 1, 8, 1);
+    Check(h.Doc.Revealed.Count == 4 + 5 && !h.Doc.Revealed.Contains(new CellKey(8, 1)), "reveal tool: the box skips empty space");
+    c.RevealShow = false;
+    h.Click(0, 0);
+    Check(!h.Doc.Revealed.Contains(new CellKey(0, 0)), "reveal tool: hide with a click hides one cell");
+    commits = h.CommitCount;
+    h.Click(15, 15);
+    Check(h.CommitCount == commits, "reveal tool: a change of nothing takes no undo step");
+
+    c.RevealShow = true;
+    c.RevealShape = RevealShape.Room;
+    h.Click(5, 2);
+    Check(h.Doc.Revealed.Contains(new CellKey(6, 3)) && h.Doc.Revealed.Contains(new CellKey(4, 0)), "reveal tool: room reveals the room clicked");
+    Check(!h.Doc.Revealed.Contains(new CellKey(0, 3)), "reveal tool: and not the room behind the door");
+
+    c.RevealShape = RevealShape.Circle;
+    c.RevealAll(false);
+    Check(h.Doc.Revealed.Count == 0, "reveal tool: hide whole map");
+    h.PressW(1.5, 1.5); h.MoveToAt(h.ScreenWorld(2.5, 1.5)); h.ReleaseW(2.5, 1.5);
+    Check(h.Doc.Revealed.SetEquals(MapCanvas.CellsInRadius(new Point(1.5, 1.5), 1)), "reveal tool: circle reveals the cells in the radius");
+    c.RevealAll(true);
+    Check(h.Doc.Revealed.Count == 28, "reveal tool: reveal whole map takes every floor cell");
+
+    // pixels: revealed floor is brighter than hidden floor while the tool is selected
+    c.RevealShape = RevealShape.Box;
+    c.RevealShow = false;
+    h.Drag(4, 0, 6, 3);
+    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
+    var bmp = h.Render();
+    var shown = h.PixelAt(bmp, (int)h.ScreenOf(1, 2).X + 8, (int)h.ScreenOf(1, 2).Y + 8);
+    var hidden = h.PixelAt(bmp, (int)h.ScreenOf(5, 2).X + 8, (int)h.ScreenOf(5, 2).Y + 8);
+    Check(Lum(shown) > Lum(hidden), "reveal tool: hidden floor is dimmed");
+    c.Mode = ToolMode.Select;
+    bmp = h.Render();
+    hidden = h.PixelAt(bmp, (int)h.ScreenOf(5, 2).X + 8, (int)h.ScreenOf(5, 2).Y + 8);
+    Check(Lum(shown) == Lum(hidden), "reveal tool: no dimming in other tools");
+
+    // items: a box flips the ticked kinds
+    h.Doc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "x" });
+    h.Doc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p" };
+    c.Mode = ToolMode.Reveal;
+    c.RevealTarget = RevealTarget.Items;
+    c.RevealShow = true;
+    c.RevealKinds = RevealItems.Pawns | RevealItems.Doors;
+    commits = h.CommitCount;
+    h.Drag(0, 0, 3, 3);
+    Check(!h.Doc.Pawns[new CellKey(2, 2)].DmOnly && !door.DmOnly && h.Doc.Labels[0].DmOnly, "reveal tool: items box marks ticked kinds visible, leaves others");
+    Check(h.CommitCount == commits + 1, "reveal tool: in one undo step");
+    c.RevealKinds = RevealItems.All;
+    c.SetAllDmOnly(true);
+    Check(h.Doc.AllItems(RevealItems.All).All(MapDocument.IsDmOnly), "reveal tool: make all DM only");
+
+    // a pawn moved with the move tool keeps its flag
+    h.Doc.Pawns[new CellKey(2, 2)].DmOnly = false;
+    c.Mode = ToolMode.Move;
+    h.Drag(2, 2, 1, 2);
+    Check(h.Doc.Pawns.TryGetValue(new CellKey(1, 2), out var moved) && !moved.DmOnly, "reveal: a moved pawn keeps its flag");
+}
+
+// --- multiplayer: reveal tool window smoke test ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        AddRoom(canvas.Document, 0, 0, 3, 3);
+        step = "cells panel"; Call("SetTool", ToolMode.Reveal);
+        canvas.RevealTarget = RevealTarget.Items;
+        step = "items panel"; Call("BuildRevealPanel");
+        canvas.RevealTarget = RevealTarget.Cells;
+        Call("BuildRevealPanel");
+        var p = new Pawn { Cell = new CellKey(1, 1), TemplateId = "none" };
+        canvas.Document.Pawns[p.Cell] = p;
+        canvas.Document.TryPlaceDoor(new EdgeKey(new CellKey(3, 1), Side.East), out var dr);
+        var l = new MapLabel { Cell = new CellKey(2, 2), Text = "x" };
+        canvas.Document.Labels.Add(l);
+        step = "pawn view"; Call("ShowPawnInfo", p);
+        step = "door view"; Call("ShowDoorConfig", dr);
+        step = "label view"; Call("ShowLabelConfig", l);
+        string info = DungeonMapper.Views.MainWindow.RevealInfo(canvas.Document);
+        Check(info.StartsWith("0 of 16 floor cells revealed") && info.Contains("1 label, 1 door") && info.Contains("1 pawn"),
+            $"reveal: panel info counts ({info.Replace('\n', ' ')})");
+        Check(true, "reveal: window views build without errors");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"reveal: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

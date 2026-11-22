@@ -32,6 +32,9 @@ public sealed class MapFileDto
     // placed objects, in placement order (Models/MapObjects.cs). older files
     // have none, which loads as no objects
     [JsonPropertyName("objects")] public List<ObjectDto> Objects { get; set; } = new();
+    // multiplayer: cells the DM has revealed to players. older files have
+    // none, which loads as nothing revealed
+    [JsonPropertyName("revealed")] public List<string> Revealed { get; set; } = new();
 }
 
 public sealed class ObjectDto
@@ -47,6 +50,10 @@ public sealed class ObjectDto
     [JsonPropertyName("look")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ObjectLook? Look { get; set; }
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 public sealed class PolygonDto
@@ -70,6 +77,10 @@ public sealed class AngledDoorDto
     [JsonPropertyName("t")] public double T { get; set; } = 0.5;
     [JsonPropertyName("type")] public string Type { get; set; } = "standard";
     [JsonPropertyName("state")] public string State { get; set; } = "closed";
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 public sealed class VertexDoorDto
@@ -80,6 +91,10 @@ public sealed class VertexDoorDto
     [JsonPropertyName("orientation")] public string Orientation { get; set; } = "horizontal";
     [JsonPropertyName("type")] public string Type { get; set; } = "standard";
     [JsonPropertyName("state")] public string State { get; set; } = "closed";
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 public sealed class DoorDto
@@ -87,6 +102,10 @@ public sealed class DoorDto
     [JsonPropertyName("edge")] public string Edge { get; set; } = "";
     [JsonPropertyName("type")] public string Type { get; set; } = "standard";
     [JsonPropertyName("state")] public string State { get; set; } = "closed";
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 public sealed class StairDto
@@ -109,6 +128,10 @@ public sealed class LabelDto
     [JsonPropertyName("w")] public int W { get; set; } = 1;
     [JsonPropertyName("h")] public int H { get; set; } = 1;
     [JsonPropertyName("align")] public string Align { get; set; } = "center";
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 public sealed class PawnTemplateDto
@@ -143,6 +166,10 @@ public sealed class PawnDto
     [JsonPropertyName("inner")] public string Inner { get; set; } = "";
     [JsonPropertyName("outer")] public string Outer { get; set; } = "";
     [JsonPropertyName("status")] public string Status { get; set; } = "";
+    // multiplayer: hidden from players. absent (older files) = visible
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
 }
 
 /// Wire format for a campaign (full save): a list of named maps plus the
@@ -279,7 +306,7 @@ public static class MapSerializer
                 (x.Ax == w.Bx && x.Ay == w.By && x.Bx == w.Ax && x.By == w.Ay));
             if (wall == default) continue; // door implies wall
             var list = doc.AngledDoors.TryGetValue(wall, out var l) ? l : (doc.AngledDoors[wall] = new List<AngledDoor>());
-            var door = new AngledDoor { T = d.T, Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            var door = new AngledDoor { T = d.T, Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type, DmOnly = d.DmOnly };
             if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
             list.Add(door);
         }
@@ -335,7 +362,7 @@ public static class MapSerializer
             var key = new VertexDoorKey(c.X, c.Y, horizontal);
             var straddles = MapDocument.VertexStraddles(key);
             if (!doc.HasWall(straddles[0]) || !doc.HasWall(straddles[1])) continue; // door implies walls
-            var door = new VertexDoor { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            var door = new VertexDoor { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type, DmOnly = d.DmOnly };
             if (Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st)) door.State = st;
             doc.VertexDoors[key] = door;
         }
@@ -382,6 +409,7 @@ public static class MapSerializer
         Cell = Key(c),
         TemplateId = p.TemplateId,
         Status = p.Status ?? "",
+        DmOnly = p.DmOnly,
     };
 
     private static void AddPawns(MapFileDto dto, MapDocument doc)
@@ -389,7 +417,7 @@ public static class MapSerializer
         foreach (var d in dto.Pawns)
         {
             if (!TryParseCell(d.Cell, out var c)) continue;
-            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Status = string.IsNullOrEmpty(d.Status) ? null : d.Status };
+            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Status = string.IsNullOrEmpty(d.Status) ? null : d.Status, DmOnly = d.DmOnly };
         }
     }
 
@@ -654,14 +682,14 @@ public static class MapSerializer
         foreach (var c in doc.Cells) dto.Cells.Add(Key(c));
         foreach (var (e, w) in doc.Walls) if (w) dto.Walls.Add(Key(e));
         foreach (var (e, d) in doc.Doors)
-            dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+            dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant(), DmOnly = d.DmOnly });
         foreach (var (c, s) in doc.Stairs)
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
         foreach (var l in doc.Labels)
             dto.Labels.Add(new LabelDto
             {
                 Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
-                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(),
+                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(), DmOnly = l.DmOnly,
             });
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
@@ -669,7 +697,7 @@ public static class MapSerializer
         {
             dto.AngledWalls.Add(Key(w));
             foreach (var d in doc.GetAngledDoors(w))
-                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+                dto.AngledDoors.Add(new AngledDoorDto { Wall = Key(w), T = d.T, Type = d.Type, State = d.State.ToString().ToLowerInvariant(), DmOnly = d.DmOnly });
         }
         foreach (var fr in doc.FloodRegions)
         {
@@ -683,13 +711,14 @@ public static class MapSerializer
             dto.FloodRegions.Add(fd);
         }
         foreach (var (k, d) in doc.VertexDoors)
-            dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant() });
+            dto.VertexDoors.Add(new VertexDoorDto { Vertex = $"{k.X},{k.Y}", Orientation = k.Horizontal ? "horizontal" : "vertical", Type = d.Type, State = d.State.ToString().ToLowerInvariant(), DmOnly = d.DmOnly });
         foreach (var o in doc.Objects)
             dto.Objects.Add(new ObjectDto
             {
                 Id = o.Id, TypeId = o.TypeId, Rect = $"{o.X},{o.Y},{o.W},{o.H}",
-                Name = string.IsNullOrWhiteSpace(o.Name) ? null : o.Name, Look = o.Look?.Clone(),
+                Name = string.IsNullOrWhiteSpace(o.Name) ? null : o.Name, Look = o.Look?.Clone(), DmOnly = o.DmOnly,
             });
+        foreach (var c in doc.Revealed) dto.Revealed.Add(Key(c));
         return dto;
     }
 
@@ -704,7 +733,7 @@ public static class MapSerializer
         {
             if (!TryParseEdge(d.Edge, out var e)) continue;
             if (!doc.HasWall(e)) continue;
-            var door = new Door { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type };
+            var door = new Door { Type = string.IsNullOrWhiteSpace(d.Type) ? "standard" : d.Type, DmOnly = d.DmOnly };
             door.State = Enum.TryParse<DoorState>(d.State, ignoreCase: true, out var st) ? st : DoorState.Closed;
             doc.Doors[EdgeKey.Normalize(e.Cell, e.Side)] = door;
         }
@@ -726,6 +755,7 @@ public static class MapSerializer
                 Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
                 W = Math.Max(1, l.W), H = Math.Max(1, l.H),
                 Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
+                DmOnly = l.DmOnly,
             });
         }
         AddPawns(dto, doc);
@@ -734,6 +764,8 @@ public static class MapSerializer
         AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
         AddObjects(dto, doc);
+        foreach (var s in dto.Revealed ?? new())
+            if (TryParseCell(s, out var c)) doc.Revealed.Add(c);
         return doc;
     }
 
@@ -753,6 +785,7 @@ public static class MapSerializer
                 TypeId = d.TypeId ?? "", X = x, Y = y, W = w, H = h,
                 Name = string.IsNullOrWhiteSpace(d.Name) ? null : d.Name,
                 Look = d.Look?.Tidy(),
+                DmOnly = d.DmOnly,
             };
             if (!string.IsNullOrEmpty(d.Id) && ids.Add(d.Id)) o.Id = d.Id; else ids.Add(o.Id);
             doc.Objects.Add(o);

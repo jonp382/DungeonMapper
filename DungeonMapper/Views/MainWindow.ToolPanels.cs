@@ -99,6 +99,10 @@ public partial class MainWindow
             case ToolMode.Measure:
                 BuildMeasurePanel();
                 break;
+            case ToolMode.Reveal:
+                BuildRevealPanel();
+                break;
+
             case ToolMode.Fog:
                 BuildFogPanel();
                 break;
@@ -185,6 +189,7 @@ public partial class MainWindow
         ToolMode.Stair => $"{Plural(doc.Stairs.Count, "stair")} on this map",
         ToolMode.Label => $"{Plural(doc.Labels.Count, "label")} on this map",
         ToolMode.Room or ToolMode.Floor => $"{Plural(doc.Cells.Count, "floor cell")} on this map",
+        ToolMode.Reveal => RevealInfo(doc),
         _ => "",
     };
 

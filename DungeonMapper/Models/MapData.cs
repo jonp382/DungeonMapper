@@ -48,6 +48,9 @@ public sealed class AngledDoor : IDoorConfig
     public double T { get; set; } = 0.5; // door center along the segment, 0..1
     public string Type { get; set; } = "standard";
     public DoorState State { get; set; } = DoorState.Closed;
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 }
 
 /// A grid vertex (lattice point = cell corner) plus the door orientation. A
@@ -66,6 +69,9 @@ public sealed class VertexDoor : IDoorConfig
 {
     public string Type { get; set; } = "standard";
     public DoorState State { get; set; } = DoorState.Closed;
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 }
 
 public enum Side { North, East, South, West }
@@ -110,6 +116,7 @@ public interface IDoorConfig
 {
     string Type { get; set; }
     DoorState State { get; set; }
+    bool DmOnly { get; set; }
 }
 
 /// A door on an edge. A door implies a wall with a gap: the edge must have a wall.
@@ -119,6 +126,9 @@ public sealed class Door : IDoorConfig
 {
     public string Type { get; set; } = "standard";
     public DoorState State { get; set; } = DoorState.Closed;
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 }
 
 public enum StairDirection { Up, Down, Left, Right }
@@ -177,6 +187,9 @@ public sealed class MapLabel
     public int R { get; set; } = -1;
     public int G { get; set; } = -1;
     public int B { get; set; } = -1;
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 
     /// true when the label has its own color, false when it follows the
     /// settings label color
@@ -191,7 +204,7 @@ public sealed class MapLabel
     public MapLabel CopyAt(CellKey cell) => new()
     {
         Cell = cell, W = W, H = H, Align = Align, Text = Text,
-        FontSize = FontSize, R = R, G = G, B = B,
+        FontSize = FontSize, R = R, G = G, B = B, DmOnly = DmOnly,
     };
 }
 
@@ -207,10 +220,13 @@ public sealed class Pawn
     public string TemplateId { get; set; } = "";
     // per-instance status override; null inherits the template's status.
     public string? Status { get; set; }
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 }
 
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.
-public sealed class MapDocument
+public sealed partial class MapDocument
 {
     public HashSet<CellKey> Cells { get; } = new();
     public Dictionary<EdgeKey, bool> Walls { get; } = new();
@@ -224,6 +240,9 @@ public sealed class MapDocument
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
     // placed objects in placement order: later ones draw on top
     public List<MapObject> Objects { get; } = new();
+    // multiplayer: cells the DM has revealed to players. a mask over cell
+    // coordinates, independent of the floor (copy, move and erase leave it)
+    public HashSet<CellKey> Revealed { get; } = new();
 
     /// the topmost object covering the cell, null when none
     public MapObject? ObjectAt(CellKey c)
@@ -715,7 +734,7 @@ public sealed class MapDocument
                 AngledWalls.Add(piece);
                 double start = wlen * u1 / wl2;
                 var keep = doors?.Where(d => d.T - 0.5 >= start - 1e-9)
-                    .Select(d => new AngledDoor { T = d.T - start, Type = d.Type, State = d.State }).ToList();
+                    .Select(d => new AngledDoor { T = d.T - start, Type = d.Type, State = d.State, DmOnly = d.DmOnly }).ToList();
                 if (keep is { Count: > 0 }) AngledDoors[piece] = keep;
             }
         }
@@ -1645,7 +1664,7 @@ public sealed class MapDocument
         foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
-        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status });
+        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly });
         // an object travels when all of it is inside the region
         foreach (var o in Objects) if (o.Inside(x0, y0, x1, y1)) snap.Objects.Add(o.Copy());
         foreach (var w in AngledWalls)
@@ -1653,13 +1672,13 @@ public sealed class MapDocument
             if (!AngledWallIntersectsRect(w, x0, y0, x1, y1)) continue;
             snap.AngledWalls.Add(w);
             if (AngledDoors.TryGetValue(w, out var doors))
-                snap.AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+                snap.AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State, DmOnly = d.DmOnly }).ToList();
         }
         // vertex doors travel when their vertex sits inside the region's world
         // bounds (x in [x0, x1+1], y in [y0, y1+1]).
         foreach (var (k, d) in VertexDoors)
             if (k.X >= x0 && k.X <= x1 + 1 && k.Y >= y0 && k.Y <= y1 + 1)
-                snap.VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
+                snap.VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         // flood floors are cut to the rect, the same as cells
         foreach (var fr in FloodRegions)
         {
@@ -1689,6 +1708,7 @@ public sealed class MapDocument
                 Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
                 TemplateId = p.TemplateId,
                 Status = p.Status,
+                DmOnly = p.DmOnly,
             };
         foreach (var o in snap.Objects)
         {
@@ -1700,7 +1720,7 @@ public sealed class MapDocument
         {
             var edge = new EdgeKey(new CellKey(e.Cell.X + dx, e.Cell.Y + dy), e.Side);
             SetWall(edge, true);
-            Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State };
+            Doors[EdgeKey.Normalize(edge.Cell, edge.Side)] = new Door { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         }
         foreach (var w in snap.AngledWalls)
         {
@@ -1710,7 +1730,7 @@ public sealed class MapDocument
             {
                 var list = AngledDoors.TryGetValue(nw, out var l) ? l : (AngledDoors[nw] = new List<AngledDoor>());
                 foreach (var d in doors)
-                    list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State });
+                    list.Add(new AngledDoor { T = d.T, Type = d.Type, State = d.State, DmOnly = d.DmOnly });
             }
         }
         // vertex doors: the door implies walls, so pasting ensures both straddled
@@ -1718,7 +1738,7 @@ public sealed class MapDocument
         foreach (var (k, d) in snap.VertexDoors)
         {
             var nk = new VertexDoorKey(k.X + dx, k.Y + dy, k.Horizontal);
-            VertexDoors[nk] = new VertexDoor { Type = d.Type, State = d.State };
+            VertexDoors[nk] = new VertexDoor { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
             foreach (var e in VertexStraddles(nk)) SetWall(e, true);
         }
         foreach (var fr in snap.FloodRegions)
@@ -1754,13 +1774,15 @@ public sealed class MapDocument
         foreach (var w in other.AngledWalls) AngledWalls.Add(w);
         AngledDoors.Clear();
         foreach (var (w, doors) in other.AngledDoors)
-            AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+            AngledDoors[w] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State, DmOnly = d.DmOnly }).ToList();
         FloodRegions.Clear();
         foreach (var fr in other.FloodRegions) FloodRegions.Add(fr.Clone());
         VertexDoors.Clear();
-        foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State };
+        foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         Objects.Clear();
         foreach (var o in other.Objects) Objects.Add(o.Copy());
+        Revealed.Clear();
+        foreach (var c in other.Revealed) Revealed.Add(c);
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,
@@ -1864,7 +1886,7 @@ public sealed class MapDocument
         {
             var (rx, ry) = RotCell(e.Cell.X, e.Cell.Y);
             var edge = EdgeKey.Normalize(new CellKey(rx, ry), RotSide(e.Side));
-            s.Doors[edge] = new Door { Type = d.Type, State = d.State };
+            s.Doors[edge] = new Door { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         }
         foreach (var (c, st) in snap.Stairs)
         {
@@ -1884,7 +1906,7 @@ public sealed class MapDocument
         foreach (var p in snap.Pawns)
         {
             var (rx, ry) = RotCell(p.Cell.X, p.Cell.Y);
-            s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Status = p.Status });
+            s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly });
         }
         foreach (var o in snap.Objects)
         {
@@ -1904,14 +1926,14 @@ public sealed class MapDocument
             var nw = new AngledWall(ax, ay, bx, by);
             s.AngledWalls.Add(nw);
             if (snap.AngledDoors.TryGetValue(w, out var doors))
-                s.AngledDoors[nw] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State }).ToList();
+                s.AngledDoors[nw] = doors.Select(d => new AngledDoor { T = d.T, Type = d.Type, State = d.State, DmOnly = d.DmOnly }).ToList();
         }
         foreach (var (k, d) in snap.VertexDoors)
         {
             var (rx, ry) = RotPoint(k.X, k.Y);
             bool h = k.Horizontal;
             for (int i = 0; i < turns; i++) h = !h; // quarter-turn flips horizontal<->vertical
-            s.VertexDoors[new VertexDoorKey(rx, ry, h)] = new VertexDoor { Type = d.Type, State = d.State };
+            s.VertexDoors[new VertexDoorKey(rx, ry, h)] = new VertexDoor { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         }
         return s;
     }

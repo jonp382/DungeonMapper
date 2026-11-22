@@ -219,6 +219,9 @@ public sealed class MapObject
     public int H { get; set; } = 1;
     public string? Name { get; set; }
     public ObjectLook? Look { get; set; }
+    /// hidden from players even on revealed cells (multiplayer). new items
+    /// start hidden, files from before the flag load as visible
+    public bool DmOnly { get; set; } = true;
 
     public bool Contains(CellKey c) => c.X >= X && c.X < X + W && c.Y >= Y && c.Y < Y + H;
 
@@ -230,7 +233,7 @@ public sealed class MapObject
     public MapObject Copy(bool newId = false) => new()
     {
         Id = newId ? ObjectLibrary.NewId() : Id,
-        TypeId = TypeId, X = X, Y = Y, W = W, H = H, Name = Name, Look = Look?.Clone(),
+        TypeId = TypeId, X = X, Y = Y, W = W, H = H, Name = Name, Look = Look?.Clone(), DmOnly = DmOnly,
     };
 
     /// the look to draw: its own, else the type's, else a plain default

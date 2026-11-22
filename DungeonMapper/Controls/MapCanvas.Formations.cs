@@ -113,20 +113,21 @@ public sealed partial class MapCanvas
         // heroes come off the map (and the other maps) first, so a hero
         // standing where another member lands is not overwritten with its status
         var statuses = new Dictionary<string, string?>();
+        var hidden = new Dictionary<string, bool>(); // heroes keep their dm only flag too
         foreach (var id in FormationHeroes())
         {
             foreach (var (c, p) in Document.Pawns.Where(kv => kv.Value.TemplateId == id).ToList())
             {
-                if (!statuses.ContainsKey(id)) statuses[id] = p.Status;
+                if (!statuses.ContainsKey(id)) { statuses[id] = p.Status; hidden[id] = p.DmOnly; }
                 Document.Pawns.Remove(c);
             }
             var other = TakeHeroFromOtherMaps?.Invoke(id);
-            if (!statuses.ContainsKey(id) && other is not null) statuses[id] = other.Status;
+            if (!statuses.ContainsKey(id) && other is not null) { statuses[id] = other.Status; hidden[id] = other.DmOnly; }
         }
         int outside = 0;
         foreach (var (id, cell) in targets)
         {
-            Document.PlacePawn(new Pawn { Cell = cell, TemplateId = id, Status = statuses.GetValueOrDefault(id) });
+            Document.PlacePawn(new Pawn { Cell = cell, TemplateId = id, Status = statuses.GetValueOrDefault(id), DmOnly = hidden.GetValueOrDefault(id, true) });
             if (!Document.FloorAt(cell.X + 0.5, cell.Y + 0.5)) outside++;
         }
         string name = _formationName;

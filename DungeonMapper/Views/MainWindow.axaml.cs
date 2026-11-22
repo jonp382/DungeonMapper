@@ -153,6 +153,14 @@ public partial class MainWindow : Window
             Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
             StrokeLineCap = PenLineCap.Round,
         });
+        // no png for reveal yet: a drawn eye with a slash (show / hide for players)
+        SetIcon(ToolReveal, new Avalonia.Controls.Shapes.Path
+        {
+            Width = 20, Height = 20, Stretch = Stretch.None,
+            Data = Geometry.Parse("M2,10 Q10,2 18,10 Q10,18 2,10 Z M10,7.5 A2.5,2.5 0 1 1 9.99,7.5 Z M3,17 L17,3"),
+            Stroke = new SolidColorBrush(Color.FromRgb(236, 90, 220)), StrokeThickness = 2,
+            StrokeLineCap = PenLineCap.Round,
+        });
         SetIcon(BtnManageMaps, PngIcon("DMMaps", 18));
         ToolTip.SetTip(BtnManageMaps, "Manage maps");
         ToolTip.SetTip(MapList, "Switch map");
@@ -182,6 +190,7 @@ public partial class MainWindow : Window
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
         ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
         ToolFog.Click += (_, _) => SetTool(ToolMode.Fog);
+        ToolReveal.Click += (_, _) => SetTool(ToolMode.Reveal);
 
 
         // file and manage menus
@@ -214,6 +223,7 @@ public partial class MainWindow : Window
         InitSettings();
         InitMeasure();
         InitFog();
+        InitReveal();
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
@@ -428,6 +438,7 @@ public partial class MainWindow : Window
         LabelTool(ToolObject, "Object");
         LabelTool(ToolMeasure, "Measure");
         LabelTool(ToolFog, "Fog");
+        LabelTool(ToolReveal, "Reveal");
         // the view menu shows the zoom to fit letter, display only
         MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
             ? new KeyGesture(fit) : null;
@@ -448,6 +459,7 @@ public partial class MainWindow : Window
         ToolMode.Object => ToolObject,
         ToolMode.Measure => ToolMeasure,
         ToolMode.Fog => ToolFog,
+        ToolMode.Reveal => ToolReveal,
         _ => ToolPolygon,
     };
 
@@ -505,6 +517,7 @@ public partial class MainWindow : Window
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
+        Canvas.ResetReveal();
         StatusText.Text = mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
@@ -520,6 +533,7 @@ public partial class MainWindow : Window
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. drag out from a pawn (or shift+drag) for a radius. esc clears",
             ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",
+            ToolMode.Reveal => "reveal: choose cells or items and show or hide, then drag a box (room: click inside a room, circle: drag out from a center)",
             _ => "",
         };
         PopulatePanel(mode);

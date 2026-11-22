@@ -284,6 +284,7 @@ public partial class MainWindow
                 commit: () => { if (_doc.Objects.Contains(obj)) { ActiveHistory.Commit(_doc); ObjectViewsChanged(); } });
         }
 
+        AddDmOnlyCheck(() => obj.DmOnly, v => obj.DmOnly = v);
         int count = _doc.Objects.Count(o => o.TypeId == obj.TypeId);
         ToolPanel.AddInfo(t is null ? "type missing" : $"{Plural(count, ObjectName(t))} on this map");
 

@@ -235,6 +235,7 @@ public sealed class AppSettings
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             ["Measure"] = "G",
             ["Fog"] = "V",
+            ["Reveal"] = "H",
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
         };
