@@ -41,6 +41,7 @@ public partial class MainWindow
         MenuJoin.Click += (_, _) => { CloseModals(); ShowJoinSession(); };
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
         Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
+        Canvas.SandboxChanged += RefreshSandboxInfo;
     }
 
     private void RefreshSessionUi()
@@ -362,7 +363,7 @@ public partial class MainWindow
     private void SetEditingUi(bool on)
     {
         foreach (var m in Enum.GetValues<ToolMode>())
-            ToolButton(m).IsEnabled = on || m == ToolMode.Measure;
+            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move;
         MenuFile.IsEnabled = on;
         MenuEdit.IsEnabled = on;
         MenuManage.IsEnabled = on;
@@ -380,5 +381,27 @@ public partial class MainWindow
         foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
+    }
+}
+
+// sandbox pawns while joined: the move tool panel
+public partial class MainWindow
+{
+    private TextBlock? _sandboxInfo;
+
+    private void BuildSandboxPanel()
+    {
+        ToolPanel.Clear("try moves");
+        ToolPanel.AddHint("drag pawns to try out moves. only you see them, the DM's map does not change. they stay until you reset them.");
+        _sandboxInfo = ToolPanel.AddInfo("");
+        ToolPanel.AddButton("reset my moves", () => { Canvas.ResetSandbox(); FocusCanvas(); });
+        RefreshSandboxInfo();
+    }
+
+    private void RefreshSandboxInfo()
+    {
+        if (_sandboxInfo is null || _client is null || Canvas.Mode != ToolMode.Move) return;
+        int n = Canvas.SandboxMoves.Count;
+        _sandboxInfo.Text = n == 0 ? "no pawns moved" : $"{Plural(n, "pawn")} moved";
     }
 }

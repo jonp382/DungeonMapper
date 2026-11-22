@@ -40,6 +40,10 @@ public partial class MainWindow
                 ToolPanel.AddButton("clear clipboard", () => { Canvas.ClearClipboard(); FocusCanvas(); });
                 break;
 
+            case ToolMode.Move when _client is not null:
+                BuildSandboxPanel();
+                break;
+
             case ToolMode.Move:
                 ToolPanel.Clear("move");
                 ToolPanel.AddHint("drag on empty space to select a region, then click the destination. drag a pawn to move just that pawn. esc cancels.");

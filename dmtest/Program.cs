@@ -4444,7 +4444,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         var room = (Avalonia.Controls.Button)Field("ToolRoom")!;
         var measure = (Avalonia.Controls.Button)Field("ToolMeasure")!;
         var file = (Avalonia.Controls.MenuItem)Field("MenuFile")!;
-        Check(!room.IsEnabled && measure.IsEnabled && !file.IsEnabled, "player mode: editing tools and the file menu are off");
+        var move = (Avalonia.Controls.Button)Field("ToolMove")!;
+        Check(!room.IsEnabled && measure.IsEnabled && move.IsEnabled && !file.IsEnabled, "player mode: editing tools and the file menu are off, measure and move (sandbox) on");
+        step = "sandbox panel"; Call("SetTool", ToolMode.Move); Call("SetTool", ToolMode.Measure);
         Check(canvas.Document != remote && canvas.Document.Cells.Contains(new CellKey(20, 20)), "player mode: the received copy is drawn");
         th.Stop();
         Check(WaitFor(() => canvas.RemoteDocument is null), "player mode: the host stopping returns the player to their own maps");
@@ -4543,6 +4545,55 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     {
         Check(false, $"ping toast: window test ({(ex.InnerException ?? ex)})");
     }
+}
+
+// --- multiplayer: sandbox pawns ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    MapDocument Remote(params (int x, int y, string id)[] pawns)
+    {
+        var d = new MapDocument();
+        AddRoom(d, 0, 0, 5, 5);
+        foreach (var (x, y, id) in pawns) d.Pawns[new CellKey(x, y)] = new Pawn { Cell = new CellKey(x, y), TemplateId = id, DmOnly = false };
+        return d;
+    }
+    var baseMap = Remote((1, 1, "a"), (2, 2, "b"));
+    c.RemoteDocument = baseMap;
+    c.Mode = ToolMode.Move;
+    int commits = h.CommitCount;
+    h.Drag(1, 1, 4, 1);
+    Check(c.Document.Pawns.ContainsKey(new CellKey(4, 1)) && !c.Document.Pawns.ContainsKey(new CellKey(1, 1)), "sandbox: a player drags a pawn");
+    Check(baseMap.Pawns.ContainsKey(new CellKey(1, 1)) && h.CommitCount == commits, "sandbox: the DM's copy and history are untouched");
+    h.Drag(4, 1, 4, 3);
+    Check(c.SandboxMoves.Count == 1 && c.SandboxMoves[0] == (new CellKey(1, 1), new CellKey(4, 3)), "sandbox: dragging it again updates the same move");
+    h.Drag(4, 3, 2, 2);
+    Check(c.Document.Pawns[new CellKey(2, 2)].TemplateId == "b" && c.SandboxMoves.Count == 1, "sandbox: a cell with a pawn is refused");
+    h.Drag(4, 3, 9, 9);
+    Check(c.SandboxMoves[0].to == new CellKey(4, 3), "sandbox: off the map is refused");
+
+    // a DM update keeps the moves
+    c.RemoteDocument = Remote((1, 1, "a"), (2, 2, "b"), (0, 5, "c"));
+    Check(c.Document.Pawns.ContainsKey(new CellKey(4, 3)) && c.Document.Pawns.ContainsKey(new CellKey(0, 5)), "sandbox: moves stay on top of a DM update");
+    // the DM moved the pawn away: the move drops
+    c.RemoteDocument = Remote((3, 0, "a"), (2, 2, "b"));
+    Check(c.SandboxMoves.Count == 0 && c.Document.Pawns.ContainsKey(new CellKey(3, 0)), "sandbox: a pawn the DM moved shows where the DM put it");
+
+    h.Drag(2, 2, 5, 5);
+    h.Drag(5, 5, 2, 2);
+    Check(c.SandboxMoves.Count == 0, "sandbox: back to its own cell is no move");
+    h.Drag(2, 2, 5, 5);
+    c.ResetSandbox();
+    Check(c.SandboxMoves.Count == 0 && c.Document.Pawns.ContainsKey(new CellKey(2, 2)), "sandbox: reset puts every pawn back");
+    h.Drag(2, 2, 5, 5);
+    c.RemoteDocument = null;
+    Check(c.SandboxMoves.Count == 0 && c.Document == h.Doc, "sandbox: leaving the session forgets the moves");
+
+    // only with a remote map: the DM's move tool is unchanged
+    h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "x" };
+    AddRoom(h.Doc, 0, 0, 5, 5);
+    h.Drag(1, 1, 3, 3);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && c.SandboxMoves.Count == 0, "sandbox: outside a session the move tool moves for real");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");
