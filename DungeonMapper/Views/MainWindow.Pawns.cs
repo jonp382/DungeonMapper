@@ -22,6 +22,13 @@ public partial class MainWindow
 {
     // ---------- pawn bits (the shared builders live in Ui.cs) ----------
 
+    // what the pawn panel, formations and icons work from: this campaign, or
+    // the DM's package while joined (Player pawns, the shown map)
+    private bool Joined => _client is not null;
+    private PawnLibrary PanelLibrary => Joined ? Canvas.Library : ActiveLibrary;
+    private CampaignPresets PanelPresets => Joined ? Canvas.Presets : ActivePresets;
+    private MapDocument PanelDoc => Joined ? Canvas.Document : _doc;
+
     private static string PawnName(PawnTemplate t) => string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name;
     private static bool IsDefaultAffiliation(string n) => n is "Player" or "Ally" or "Enemy" or "Neutral";
 
@@ -30,8 +37,8 @@ public partial class MainWindow
     // effective ones (the import picker shows a file's pawns before they exist).
     private Control PawnIcon(PawnTemplate t, double size, bool ownColors = false)
     {
-        var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(ActivePresets);
-        var st = ActivePresets.FindPawnStatus(t.Status);
+        var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(PanelPresets);
+        var st = PanelPresets.FindPawnStatus(t.Status);
         var bmp = ownColors || string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
         IBrush outerFill = Rgb(eo);
         if (bmp is not null)
@@ -89,8 +96,14 @@ public partial class MainWindow
     private int _locateIdx;
     private void LocatePawn(PawnTemplate t)
     {
-        var cells = _doc.Pawns.Values.Where(p => p.TemplateId == t.Id).Select(p => p.Cell)
+        var cells = PanelDoc.Pawns.Values.Where(p => p.TemplateId == t.Id).Select(p => p.Cell)
             .OrderBy(c => c.Y).ThenBy(c => c.X).ToList();
+        if (cells.Count == 0 && Joined)
+        {
+            StatusText.Text = $"{PawnName(t)} is not on this map";
+            _locateId = null;
+            return;
+        }
         if (cells.Count == 0)
         {
             var others = _project.Maps
@@ -124,12 +137,16 @@ public partial class MainWindow
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4 };
         _pawnSearchBox = SearchBox("search pawns (ctrl+f)", _pawnSearch);
         _pawnSearchBox.TextChanged += (_, _) => { _pawnSearch = _pawnSearchBox.Text ?? ""; RefreshPawnList(); };
-        var manage = Btn("manage");
-        manage.Padding = new Thickness(6, 3);
-        manage.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
-        Grid.SetColumn(manage, 1);
         top.Children.Add(_pawnSearchBox);
-        top.Children.Add(manage);
+        if (!Joined)
+        {
+            var manage = Btn("manage");
+            manage.Padding = new Thickness(6, 3);
+            manage.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
+            Grid.SetColumn(manage, 1);
+            top.Children.Add(manage);
+        }
+        else ToolPanel.AddHint("your party's pawns. click one, then a revealed cell to place it; click a placed one to set its status. it goes on the DM's map for everyone.");
         ToolPanel.Target.Children.Add(top);
 
         _pawnChipHost = new WrapPanel();
@@ -164,14 +181,16 @@ public partial class MainWindow
         _pawnChipHost!.Children.Clear();
         _pawnChipHost.Children.Add(Chip("all", _pawnFilter == "all", null, () => SetPawnFilter("all")));
         _pawnChipHost.Children.Add(Chip("on map", _pawnFilter == "on map", null, () => SetPawnFilter("on map")));
-        foreach (var ac in ActivePresets.AffiliationColors)
-        {
-            var name = ac.Name;
-            _pawnChipHost.Children.Add(Chip(name, _pawnFilter == name, AffDot(ac, 10), () => SetPawnFilter(name)));
-        }
+        // a player only has Player pawns, so no affiliation chips
+        if (!Joined)
+            foreach (var ac in ActivePresets.AffiliationColors)
+            {
+                var name = ac.Name;
+                _pawnChipHost.Children.Add(Chip(name, _pawnFilter == name, AffDot(ac, 10), () => SetPawnFilter(name)));
+            }
 
         _pawnRecentHost!.Children.Clear();
-        var recent = ActiveLibrary.Recent.Select(ActiveLibrary.Find).Where(t => t is not null).Cast<PawnTemplate>().ToList();
+        var recent = Joined ? new List<PawnTemplate>() : ActiveLibrary.Recent.Select(ActiveLibrary.Find).Where(t => t is not null).Cast<PawnTemplate>().ToList();
         _pawnRecentHost.IsVisible = recent.Count > 0;
         if (recent.Count > 0)
         {
@@ -201,14 +220,16 @@ public partial class MainWindow
     {
         if (_pawnListHost is null) return;
         _pawnListHost.Children.Clear();
-        if (ActiveLibrary.Pawns.Count == 0)
+        var pool = Joined ? PanelLibrary.Pawns.Where(PlayerPawns.Controlled).ToList() : ActiveLibrary.Pawns;
+        if (pool.Count == 0)
         {
-            _pawnListHost.Children.Add(new TextBlock { Text = "no pawns yet. use manage to add some.", Classes = { "muted" } });
+            _pawnListHost.Children.Add(new TextBlock { Text = Joined ? "the DM has no player pawns yet." : "no pawns yet. use manage to add some.", Classes = { "muted" }, TextWrapping = TextWrapping.Wrap });
             return;
         }
-        var counts = MapCounts(_doc);
+        var counts = MapCounts(PanelDoc);
         var q = _pawnSearch.Trim();
-        var shown = ActiveLibrary.Pawns.Where(t =>
+        if (Joined && _pawnFilter != "all" && _pawnFilter != "on map") _pawnFilter = "all";
+        var shown = pool.Where(t =>
                 (q.Length == 0 || PawnName(t).Contains(q, StringComparison.OrdinalIgnoreCase))
                 && (_pawnFilter == "all"
                     || (_pawnFilter == "on map" && Get(counts, t.Id) > 0)
@@ -224,8 +245,8 @@ public partial class MainWindow
         if (favs.Count > 0)
             AddPawnGroup("★ favorites", new Ellipse { Width = 8, Height = 8, Classes = { "fav" } }, $"{favs.Count}", favs, counts);
 
-        var known = new HashSet<string>(ActivePresets.AffiliationColors.Select(a => a.Name));
-        foreach (var ac in ActivePresets.AffiliationColors)
+        var known = new HashSet<string>(PanelPresets.AffiliationColors.Select(a => a.Name));
+        foreach (var ac in PanelPresets.AffiliationColors)
         {
             var list = shown.Where(t => PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name).ToList();
             if (list.Count == 0) continue;
@@ -271,7 +292,7 @@ public partial class MainWindow
         Grid.SetColumn(name, 1);
         g.Children.Add(name);
         var star = StarButton(t.Favorite, () => { t.Favorite = !t.Favorite; RefreshPawnList(); RefreshManageModal(); }, 11);
-        star.IsVisible = t.Favorite;
+        star.IsVisible = t.Favorite && !Joined;
         Grid.SetColumn(star, 2);
         g.Children.Add(star);
         var cnt = Tx($"×{onMap}", "count");
@@ -287,8 +308,8 @@ public partial class MainWindow
         if (armed) row.Classes.Add("selected");
         ToolTip.SetTip(row, $"{PawnName(t)} · {PawnTemplate.NormalizeAffiliation(t.Affiliation)}");
         // the star shows on hover so it can be set without opening the manager
-        row.PointerEntered += (_, _) => star.IsVisible = true;
-        row.PointerExited += (_, _) => star.IsVisible = t.Favorite;
+        row.PointerEntered += (_, _) => star.IsVisible = !Joined;
+        row.PointerExited += (_, _) => star.IsVisible = t.Favorite && !Joined;
         row.PointerPressed += (_, _) => ArmPawn(t);
         return row;
     }

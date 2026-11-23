@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
@@ -41,9 +42,23 @@ public sealed class SessionClient : IDisposable
     public Task SendPawnMove(CellKey from, CellKey to) =>
         Send(new NetMessage { Type = "pawn_move", X = from.X, Y = from.Y, ToX = to.X, ToY = to.Y });
 
-    /// asks the DM to place the player's hero at the cell
+    /// asks the DM to place a Player pawn at the cell
     public Task SendPawnPlace(string templateId, CellKey at) =>
         Send(new NetMessage { Type = "pawn_place", TemplateId = templateId, X = at.X, Y = at.Y });
+
+    /// asks the DM to set the status of the player's pawn (null = the template's)
+    public Task SendPawnStatus(CellKey at, string? status) =>
+        Send(new NetMessage { Type = "pawn_status", X = at.X, Y = at.Y, Status = status });
+
+    /// asks the DM to place several pawns at once (a formation)
+    public Task SendDeploy(IEnumerable<(string id, CellKey cell)> pawns) =>
+        Send(new NetMessage { Type = "pawn_deploy", Placements = pawns.Select(p => new PawnPlacement { TemplateId = p.id, X = p.cell.X, Y = p.cell.Y }).ToList() });
+
+    /// asks the DM to keep a formation (new or changed, by id)
+    public Task SendFormation(Formation f) => Send(new NetMessage { Type = "formation_set", Formation = f });
+
+    /// asks the DM to delete a formation
+    public Task SendFormationDelete(string id) => Send(new NetMessage { Type = "formation_delete", Id = id });
 
     /// asks the DM to add or change a label (by its id)
     public Task SendLabel(MapLabel l) => Send(new NetMessage { Type = "label_set", Label = MapSerializer.LabelToDto(l) });

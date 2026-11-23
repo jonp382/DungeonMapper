@@ -43,7 +43,6 @@ public partial class MainWindow
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
         Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
         Canvas.RemoteLabelChanged += SendLabelToHost;
-        Canvas.PlayerArmedChanged += RefreshPlayerPawnsPanel;
         Canvas.PlayerMoveRequested += (from, to) =>
         {
             if (_client is not { } cl) return;
@@ -55,6 +54,11 @@ public partial class MainWindow
             if (_client is not { } cl) return;
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnPlace(id, at));
             StatusText.Text = $"placing {PlayerPawnName(id)}";
+        };
+        Canvas.PlayerDeployRequested += pawns =>
+        {
+            if (_client is not { } cl) return;
+            _ = System.Threading.Tasks.Task.Run(() => cl.SendDeploy(pawns));
         };
     }
 
@@ -170,6 +174,7 @@ public partial class MainWindow
         _shownMap ??= _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
         host.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_host == host) OnHostPing(n, x, y); });
         host.LabelRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnLabelRequest(host, r); });
+        host.FormationRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnFormationRequest(host, r); });
         host.PawnRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnPawnRequest(host, r); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
@@ -204,29 +209,46 @@ public partial class MainWindow
         if (_host.Publish(shown?.Name ?? "", pkg)) RefreshSessionUi();
     }
 
-    // a player moves or places one of their heroes on the map shown to
-    // players. checked again here against the real map, applied as one undo
-    // step of that map and sent back out
+    // a player moves, places, sets the status of or deploys Player pawns on
+    // the map shown to players. checked again here against the real map and
+    // library, applied as one undo step of that map and sent back out
     private void OnPawnRequest(SessionHost host, PawnRequest r)
     {
         var shown = ShownMap();
         if (shown is null) { host.Notice(r, "the DM is not showing a map"); return; }
         var doc = shown.Doc;
-        string? why = r.Place
-            ? PlayerPawns.CheckPlace(doc, ActiveLibrary, r.TemplateId, r.To)
-            : PlayerPawns.CheckMove(doc, ActiveLibrary, r.From, r.To);
+        var lib = ActiveLibrary;
+        bool OnOtherMap(string id) => _project.Maps.Any(m => m.Doc != doc && m.Doc.Pawns.Values.Any(p => p.TemplateId == id));
+        string Name(string id) => lib.Find(id) is { } tpl ? PawnName(tpl) : "pawn";
+        string? why = r.Action switch
+        {
+            PawnAction.Move => PlayerPawns.CheckMove(doc, lib, r.From, r.To),
+            PawnAction.Place => PlayerPawns.CheckPlace(doc, lib, r.TemplateId, r.To, OnOtherMap(r.TemplateId)),
+            PawnAction.Status => PlayerPawns.CheckStatus(doc, lib, ActivePresets, r.To, r.Status),
+            _ => PlayerPawns.CheckDeploy(doc, lib, r.Placements, OnOtherMap),
+        };
         if (why is not null) { host.Notice(r, why); return; }
-        string id = r.Place ? r.TemplateId : doc.Pawns[r.From].TemplateId;
-        string what = ActiveLibrary.Find(id) is { } tpl ? PawnName(tpl) : "pawn";
-        if (r.Place)
+        switch (r.Action)
         {
-            bool moved = PlayerPawns.ApplyPlace(doc, id, r.To, tid => TakeHeroFromMapsExcept(doc, tid));
-            StatusText.Text = $"{r.Name} {(moved ? "moved" : "placed")} {what} to {r.To.X},{r.To.Y}";
-        }
-        else
-        {
-            PlayerPawns.ApplyMove(doc, r.From, r.To);
-            StatusText.Text = $"{r.Name} moved {what} to {r.To.X},{r.To.Y}";
+            case PawnAction.Move:
+                string moving = Name(doc.Pawns[r.From].TemplateId);
+                PlayerPawns.ApplyMove(doc, r.From, r.To);
+                StatusText.Text = $"{r.Name} moved {moving} to {r.To.X},{r.To.Y}";
+                break;
+            case PawnAction.Place:
+                bool moved = PlayerPawns.ApplyPlace(doc, lib.Find(r.TemplateId)!, r.To);
+                StatusText.Text = $"{r.Name} {(moved ? "moved" : "placed")} {Name(r.TemplateId)} to {r.To.X},{r.To.Y}";
+                break;
+            case PawnAction.Status:
+                var pawn = doc.Pawns[r.To];
+                pawn.Status = r.Status;
+                StatusText.Text = $"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}";
+                break;
+            default:
+                var templates = r.Placements.Select(p => lib.Find(p.id)!).Distinct().ToList();
+                PlayerPawns.ApplyDeploy(doc, templates, r.Placements);
+                StatusText.Text = $"{r.Name} deployed {Plural(r.Placements.Count, "pawn")}";
+                break;
         }
         HistoryFor(shown).Commit(doc);
         if (doc == _doc)
@@ -236,6 +258,43 @@ public partial class MainWindow
             RefreshToolInfo();
         }
         RefreshMaps();
+        PublishNow();
+    }
+
+    // a player keeps or deletes a formation in the DM's campaign. only
+    // formations of Player pawns, new or already only Player pawns
+    private void OnFormationRequest(SessionHost host, FormationRequest r)
+    {
+        var lib = ActiveLibrary;
+        string id = r.Formation?.Id ?? r.DeleteId;
+        var existing = lib.Formations.Find(f => f.Id == id);
+        if (existing is not null && PlayerPawns.CheckFormation(lib, existing) is not null) { host.Notice(r, "only the DM changes that formation"); return; }
+        if (r.Formation is { } sent)
+        {
+            sent.Tidy();
+            if (PlayerPawns.CheckFormation(lib, sent) is { } why) { host.Notice(r, why); return; }
+            var name = sent.Name.Trim();
+            if (name.Length == 0) name = Formation.UniqueName(lib.Formations);
+            if (name.Length > 100) name = name[..100];
+            if (existing is null)
+            {
+                lib.Formations.Add(new Formation { Id = sent.Id, Name = name, Members = sent.Members });
+                StatusText.Text = $"{r.Name} saved the formation {name}";
+            }
+            else
+            {
+                existing.Name = name;
+                existing.Members = sent.Members;
+                StatusText.Text = $"{r.Name} changed the formation {name}";
+            }
+        }
+        else
+        {
+            if (existing is null) { host.Notice(r, "that formation is gone"); return; }
+            lib.Formations.Remove(existing);
+            StatusText.Text = $"{r.Name} deleted the formation {existing.Name}";
+        }
+        if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();
         PublishNow();
     }
 
@@ -421,8 +480,18 @@ public partial class MainWindow
         Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
         KeepOpenLabel(pkg.Map);
         Canvas.RemoteDocument = pkg.Map;
-        if (Canvas.PlayerArmed is { } armed && !PlayerPawns.Controlled(pkg.Library.Find(armed))) Canvas.PlayerArmed = null;
-        RefreshPlayerPawnsPanel();
+        // the armed pawn and the panels follow the new library and map
+        if (Canvas.ArmedPawn is { } armed)
+            Canvas.ArmedPawn = pkg.Library.Find(armed.Id) is { } again && PlayerPawns.Controlled(again) ? again : null;
+        if (Canvas.Mode == ToolMode.Pawn)
+        {
+            if (_playerPawnInfoCell is CellKey c)
+            {
+                if (pkg.Map.Pawns.TryGetValue(c, out var p) && PlayerPawns.Controlled(pkg.Library.Find(p.TemplateId))) ShowPlayerPawnInfo(p);
+                else BackToToolView();
+            }
+            else if (_formationRenaming is null) RefreshPawnPanel();
+        }
         if (map != _joinedMap) _fitOnNextState = true;
         _joinedMap = map;
         if (_fitOnNextState && pkg.Map.Cells.Count + pkg.Map.FloodRegions.Count > 0) { Canvas.AutoFit(); _fitOnNextState = false; }
@@ -488,7 +557,7 @@ public partial class MainWindow
     private void SetEditingUi(bool on)
     {
         foreach (var m in Enum.GetValues<ToolMode>())
-            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label;
+            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label or ToolMode.Pawn;
         MenuFile.IsEnabled = on;
         MenuEdit.IsEnabled = on;
         MenuManage.IsEnabled = on;
@@ -497,58 +566,75 @@ public partial class MainWindow
         BtnManageMaps.IsEnabled = on;
     }
 
-    // keys while joined: esc, zoom to fit, measure, move, label and ping. everything
+    // keys while joined: esc, zoom to fit, measure, move, label, pawn, deploy
+    // formation (r rotates it) and ping. everything
     // else is swallowed. true when handled here
     private bool PlayerKey(KeyEventArgs e)
     {
         if (e.Key == Key.Escape) return false;
+        if (e.Key == Key.R && Canvas.FormationArmed && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
-        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), AppSettings.PingHotkey })
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), nameof(ToolMode.Pawn), AppSettings.FormationHotkey, AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
     }
 }
 
-// the player's own heroes while joined: the move tool panel
+// the players' pawns while joined: the move tool hint and a placed pawn's view
+// (the pawn tool panel is the DM's, cut down: MainWindow.Pawns.cs)
 public partial class MainWindow
 {
-    private StackPanel? _playerPawnList;
+    // the cell of the placed pawn whose view is open, null when none
+    private CellKey? _playerPawnInfoCell;
 
-    private void BuildPlayerPawnsPanel()
+    private void BuildPlayerMovePanel()
     {
-        ToolPanel.Clear("your pawns");
-        ToolPanel.AddHint("drag one of your heroes to move it, or pick one below and click an empty revealed cell to place it. the DM's map changes for everyone. other pawns are moved by the DM.");
-        _playerPawnList = new StackPanel { Spacing = 4 };
-        ToolPanel.AddButtonRaw(_playerPawnList);
-        RefreshPlayerPawnsPanel();
+        ToolPanel.Clear("move");
+        ToolPanel.AddHint("drag one of your party's pawns (Player pawns) to an empty revealed cell to move it. it moves on the DM's map for everyone. other pawns are moved by the DM. the pawn tool places pawns and deploys formations.");
     }
 
     private string PlayerPawnName(string? id) => Canvas.Library.Find(id ?? "") is { } t ? PawnName(t) : "pawn";
 
-    private void RefreshPlayerPawnsPanel()
+    // a placed Player pawn: header, status chips (sent to the DM), count
+    private void ShowPlayerPawnInfo(Pawn pawn)
     {
-        if (_playerPawnList is null || _client is null || Canvas.Mode != ToolMode.Move) return;
-        _playerPawnList.Children.Clear();
-        var heroes = Canvas.Library.Pawns.Where(PlayerPawns.Controlled).ToList();
-        if (heroes.Count == 0)
-        {
-            _playerPawnList.Children.Add(Tx("the DM has no player heroes yet", "faint"));
-            return;
-        }
-        var onMap = new HashSet<string>(Canvas.RemoteDocument?.Pawns.Values.Select(p => p.TemplateId) ?? Enumerable.Empty<string>());
-        foreach (var t in heroes)
-        {
-            var id = t.Id;
-            bool armed = Canvas.PlayerArmed == id;
-            var b = Btn((armed ? "placing: " : "place ") + PawnName(t) + (onMap.Contains(id) ? "  (on the map)" : ""), primary: armed);
-            b.HorizontalAlignment = HorizontalAlignment.Stretch;
-            b.Click += (_, _) =>
+        var cell = pawn.Cell;
+        var t = PanelLibrary.Find(pawn.TemplateId);
+        ToolPanel.Clear("pawn");
+        _playerPawnInfoCell = cell;
+        if (t is null) { ToolPanel.AddHint("this pawn's template is missing"); return; }
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*"), ColumnSpacing = 8, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
+        head.Children.Add(PawnIcon(t, 40));
+        var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
+        titles.Children.Add(new TextBlock { Text = PawnName(t), FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis });
+        var aff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
+        var affName = PawnTemplate.NormalizeAffiliation(t.Affiliation);
+        if (PanelPresets.AffiliationColors.FirstOrDefault(a => a.Name == affName) is { } ac) aff.Children.Add(AffDot(ac, 10));
+        aff.Children.Add(Txt(affName, 12, "#9a9aaa"));
+        if (t.Hero) aff.Children.Add(Txt("hero", 10, "#9ab8ff"));
+        titles.Children.Add(aff);
+        Grid.SetColumn(titles, 1);
+        head.Children.Add(titles);
+        ToolPanel.AddButtonRaw(head);
+
+        var statuses = new List<string> { "inherit" };
+        statuses.AddRange(PanelPresets.PawnStatuses.Select(x => x.Name));
+        var dots = PanelPresets.PawnStatuses.GroupBy(x => x.Name).ToDictionary(g => g.Key, g => g.First());
+        ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? "inherit", v =>
             {
-                Canvas.PlayerArmed = armed ? null : id;
-                StatusText.Text = armed ? "placing cancelled" : $"click an empty revealed cell to place {PawnName(t)}" + (onMap.Contains(id) ? " (it moves there)" : "");
+                var status = v == "inherit" ? null : v;
+                if (status == pawn.Status || _client is not { } cl) return;
+                pawn.Status = status; // shown at once, the DM's map confirms it
+                Canvas.Refresh();
+                _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, status));
+                StatusText.Text = $"{PawnName(t)}: {v}";
                 FocusCanvas();
-            };
-            _playerPawnList.Children.Add(b);
-        }
+            },
+            "status",
+            n => dots.TryGetValue(n, out var st)
+                ? new Avalonia.Controls.Shapes.Ellipse { Width = 9, Height = 9, Fill = Rgb((st.R, st.G, st.B)) }
+                : null);
+        ToolPanel.AddInfo($"{PanelDoc.Pawns.Values.Count(p => p.TemplateId == pawn.TemplateId)} on this map");
+        ToolPanel.AddButton("back to pawns", BackToToolView);
     }
 }

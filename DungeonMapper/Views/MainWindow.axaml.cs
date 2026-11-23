@@ -350,7 +350,6 @@ public partial class MainWindow : Window
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
-            if (Canvas.PlayerArmed is not null) { Canvas.PlayerArmed = null; StatusText.Text = "placing cancelled"; e.Handled = true; return; }
             // the maps panel is not modal, so an armed move is cancelled first
             if (MapsOverlay.IsVisible) { CloseMaps(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Polygon && !IsTyping())

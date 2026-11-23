@@ -79,19 +79,26 @@ public static class PlayerView
         return v;
     }
 
-    /// the map plus the pawn templates (those it uses and every player hero),
-    /// object types, pictures, door types and statuses it uses. formations and
-    /// favorites stay behind
+    /// the map plus the pawn templates (those it uses and every Player pawn),
+    /// the formations of only Player pawns, object types, pictures and door
+    /// types it uses, all statuses. other formations and favorites stay behind
     public static PlayerPackage Package(MapDocument doc, PawnLibrary library, ObjectLibrary objects, CampaignPresets presets)
     {
         var map = Build(doc);
 
         var lib = new PawnLibrary();
-        // the players' own heroes always go, so they can place them
+        // the players' own pawns always go, so they can place them, and the
+        // formations made only of them
         var templateIds = new HashSet<string>(map.Pawns.Values.Select(p => p.TemplateId)
             .Concat(library.Pawns.Where(PlayerPawns.Controlled).Select(t => t.Id)));
         foreach (var t in library.Pawns.Where(t => templateIds.Contains(t.Id)))
             lib.Pawns.AddRange(PawnLibraryClone(t));
+        foreach (var f in library.Formations.Where(f => PlayerPawns.CheckFormation(library, f) is null))
+            lib.Formations.Add(new Formation
+            {
+                Id = f.Id, Name = f.Name,
+                Members = f.Members.Select(m => new FormationMember { TemplateId = m.TemplateId, Dx = m.Dx, Dy = m.Dy }).ToList(),
+            });
 
         var types = objects.Types.Where(t => map.Objects.Any(o => o.TypeId == t.Id))
             .Select(t => new ObjectType { Id = t.Id, Name = t.Name, Look = t.Look.Clone() }).ToList();
@@ -99,12 +106,11 @@ public static class PlayerView
         objs.AddPictures(objects.UsedPictures(new[] { map }, types));
 
         var doorTypes = new HashSet<string>(map.AllDoors().Select(d => d.Type));
-        var statuses = new HashSet<string>(map.Pawns.Values.Select(p => p.Status ?? "")
-            .Concat(lib.Pawns.Select(t => t.Status)));
+        // every status goes: players set the status of their own pawns
         var pre = new CampaignPresets
         {
             DoorTypes = presets.DoorTypes.Where(t => doorTypes.Contains(t.Name)).ToList(),
-            PawnStatuses = presets.PawnStatuses.Where(s => statuses.Contains(s.Name)).ToList(),
+            PawnStatuses = presets.PawnStatuses.ToList(),
             AffiliationColors = presets.AffiliationColors.ToList(),
         };
         return new PlayerPackage { Map = map, Library = lib, Objects = objs, Presets = pre };

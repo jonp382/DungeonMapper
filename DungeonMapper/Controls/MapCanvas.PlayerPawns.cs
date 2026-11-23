@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -6,14 +7,14 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-// the session view (multiplayer, player side) and the player's own pawns.
-// with the move tool a joined player drags their heroes (Player affiliation
-// heroes, see PlayerPawns) or places one picked in the panel. nothing changes
-// here: the request goes to the DM, whose app checks it, applies it to the
-// real map and sends the map back. every other pawn is the DM's.
+// the session view (multiplayer, player side) and the players' pawns (the
+// Player affiliation, see PlayerPawns). the move tool drags them, the pawn
+// tool places the armed one, opens a placed one (status) and deploys
+// formations. nothing changes here: the request goes to the DM, whose app
+// checks it, applies it to the real map and sends the map back. every other
+// pawn is the DM's.
 public sealed partial class MapCanvas
 {
-    private string? _playerArmed;
     private CellKey? _playerFrom, _playerOver;
 
     /// a joined session: the map the host sent, drawn read only in place of
@@ -24,45 +25,44 @@ public sealed partial class MapCanvas
         set
         {
             _remote = value;
-            if (value is null) { _playerFrom = _playerOver = null; PlayerArmed = null; }
+            if (value is null) { _playerFrom = _playerOver = null; ArmedPawn = null; CancelFormation(); CancelAreaPick(); }
             InvalidateVisual();
         }
     }
 
-    /// the player's hero (template id) the next click places, null when none
-    public string? PlayerArmed
-    {
-        get => _playerArmed;
-        set
-        {
-            if (_playerArmed == value) return;
-            _playerArmed = value;
-            PlayerArmedChanged?.Invoke();
-        }
-    }
-    public event Action? PlayerArmedChanged;
-    /// the player dragged one of their heroes (from, to); checked, not applied
+    /// the player dragged one of their pawns (from, to); checked, not applied
     public event Action<CellKey, CellKey>? PlayerMoveRequested;
-    /// the player placed one of their heroes (template id, cell); checked, not applied
+    /// the player placed one of their pawns (template id, cell); checked, not applied
     public event Action<string, CellKey>? PlayerPlaceRequested;
+    /// the player deployed a formation (template id, cell each); checked, not applied
+    public event Action<List<(string id, CellKey cell)>>? PlayerDeployRequested;
 
     private bool PlayerPawnsActive => _remote is not null && Mode == ToolMode.Move;
     /// the tools a joined player edits with (the measure tool only reads)
-    private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label;
+    private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label or ToolMode.Pawn;
     /// a joined player added or changed a label (shown here, not yet kept)
     public event Action<MapLabel>? RemoteLabelChanged;
 
     private bool PlayerPawnPressed(PointerPressedEventArgs e, CellKey cell)
     {
-        if (!PlayerPawnsActive) return false;
-        if (PlayerArmed is string id)
+        if (_remote is null) return false;
+        if (Mode == ToolMode.Pawn)
         {
-            if (PlayerPawns.CheckPlace(_remote!, Library, id, cell) is { } why) { StatusMessage?.Invoke(why); return true; }
-            PlayerArmed = null;
-            PlayerPlaceRequested?.Invoke(id, cell);
+            if (_remote.Pawns.TryGetValue(cell, out var placed))
+            {
+                if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) PawnConfigRequested?.Invoke(placed);
+                else StatusMessage?.Invoke("only the DM changes that pawn");
+            }
+            else if (ArmedPawn is { } t)
+            {
+                if (PlayerPawns.CheckPlace(_remote, Library, t.Id, cell) is { } why) StatusMessage?.Invoke(why);
+                else PlayerPlaceRequested?.Invoke(t.Id, cell);
+            }
+            else StatusMessage?.Invoke("select a pawn in the pawn menu first");
             return true;
         }
-        if (_remote!.Pawns.TryGetValue(cell, out var p))
+        if (Mode != ToolMode.Move) return false;
+        if (_remote.Pawns.TryGetValue(cell, out var p))
         {
             if (!PlayerPawns.Controlled(Library.Find(p.TemplateId))) { StatusMessage?.Invoke("only the DM moves that pawn"); return true; }
             _playerFrom = _playerOver = cell;

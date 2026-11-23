@@ -24,9 +24,11 @@ namespace DungeonMapper.Net;
 //                           and whenever what players see changes
 //   either way      ping    (cell; the host fills in who and passes a
 //                           player's ping on to the other players)
-//   player -> host  pawn_move  (x,y -> to_x,to_y) and pawn_place (template
-//                           id, x,y): the player's own heroes. the DM's app
-//                           checks and applies them to the real map
+//   player -> host  pawn_move (x,y -> to_x,to_y), pawn_place (template id,
+//                           x,y), pawn_status (x,y, status), pawn_deploy
+//                           (placements), formation_set (formation) and
+//                           formation_delete (id): Player pawns only. the DM's
+//                           app checks and applies them
 //   player -> host  label_set (a label with its id: new or changed) and
 //                           label_delete (id): labels players may edit
 //   host -> player  notice  (reason) when it refuses one
@@ -141,5 +143,17 @@ public sealed class NetMessage
     // a label a player adds or changes, a label id to delete
     [JsonPropertyName("label")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public LabelDto? Label { get; set; }
     [JsonPropertyName("id")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Id { get; set; }
+    // a pawn's status (pawn_status; null = the template's), a deploy, a formation
+    [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Status { get; set; }
+    [JsonPropertyName("placements")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<PawnPlacement>? Placements { get; set; }
+    [JsonPropertyName("formation")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Formation? Formation { get; set; }
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
+}
+
+/// one pawn of a deploy: template and cell
+public sealed class PawnPlacement
+{
+    [JsonPropertyName("template_id")] public string TemplateId { get; set; } = "";
+    [JsonPropertyName("x")] public int X { get; set; }
+    [JsonPropertyName("y")] public int Y { get; set; }
 }

@@ -110,6 +110,20 @@ public sealed partial class MapCanvas
             InvalidateVisual();
             return false;
         }
+        if (_remote is not null)
+        {
+            // a joined player: the DM's app places them
+            if (PlayerPawns.CheckDeploy(_remote, Library, targets) is { } why)
+            {
+                StatusMessage?.Invoke($"can not deploy {_formationName}: {why}");
+                return false;
+            }
+            _formation = null;
+            InvalidateVisual();
+            PlayerDeployRequested?.Invoke(targets);
+            StatusMessage?.Invoke($"deploying {_formationName}: {targets.Count} pawns");
+            return true;
+        }
         // heroes come off the map (and the other maps) first, so a hero
         // standing where another member lands is not overwritten with its status
         var statuses = new Dictionary<string, string?>();

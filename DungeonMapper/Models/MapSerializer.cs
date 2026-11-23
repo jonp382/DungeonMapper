@@ -49,6 +49,10 @@ public sealed class PackageWire
     [JsonPropertyName("light")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public List<double>? Light { get; set; }
+    // the players' formations (only Player pawns in them)
+    [JsonPropertyName("formations")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<Formation>? Formations { get; set; }
 }
 
 public sealed class ObjectDto
@@ -695,6 +699,7 @@ public static class MapSerializer
         ObjectPictures = new Dictionary<string, string>(p.Objects.Pictures),
         Presets = p.Presets.ToWire(),
         Light = p.Map.PlayerLight is { } l ? new List<double> { l.x, l.y, l.radius } : null,
+        Formations = p.Library.Formations.Count > 0 ? p.Library.Formations : null,
     };
 
     /// a received player package. pictures are added by the caller from its
@@ -702,6 +707,7 @@ public static class MapSerializer
     public static PlayerPackage PackageFromWire(PackageWire w)
     {
         var lib = new PawnLibrary { Pawns = LibraryFromDtos(w.PawnLibrary ?? new()) };
+        foreach (var f in w.Formations ?? new()) if (f is not null) lib.Formations.Add(f.Tidy());
         var objs = new ObjectLibrary { Types = TidyObjectTypes(w.ObjectTypes) };
         objs.AddPictures(w.ObjectPictures);
         var presets = CampaignPresets.FromWire(w.Presets ?? new PresetsWire());

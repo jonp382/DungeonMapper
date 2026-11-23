@@ -412,6 +412,7 @@ public partial class MainWindow
     // change and delete. the template itself is edited in pawn management
     private void ShowPawnInfo(Pawn pawn)
     {
+        if (Joined) { ShowPlayerPawnInfo(pawn); return; }
         var cell = pawn.Cell;
         var t = ActiveLibrary.Find(pawn.TemplateId);
         ToolPanel.Clear("pawn");

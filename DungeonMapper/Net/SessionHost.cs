@@ -16,15 +16,29 @@ namespace DungeonMapper.Net;
 /// them what they may see, and broadcasts a discovery beacon. Publish is the
 /// only way map data leaves; it takes a PlayerPackage, which is already cut
 /// down by PlayerView. Events fire on background threads.
-/// a player asks to move (From -> To) or place (TemplateId at To) one of
-/// their heroes. the DM's app checks it against the real map
+public enum PawnAction { Move, Place, Status, Deploy }
+
+/// a player asks to move (From -> To), place (TemplateId at To), set the
+/// status of (To, Status) or deploy (Placements) Player pawns. the DM's app
+/// checks it against the real map
 public sealed class PawnRequest
 {
     public required string Name { get; init; }
-    public bool Place { get; init; }
+    public PawnAction Action { get; init; }
     public CellKey From { get; init; }
     public CellKey To { get; init; }
     public string TemplateId { get; init; } = "";
+    public string? Status { get; init; }
+    public List<(string id, CellKey cell)> Placements { get; init; } = new();
+    internal object? Peer { get; init; }
+}
+
+/// a player keeps (Formation) or deletes (DeleteId) a formation
+public sealed class FormationRequest
+{
+    public required string Name { get; init; }
+    public Formation? Formation { get; init; }
+    public string DeleteId { get; init; } = "";
     internal object? Peer { get; init; }
 }
 
@@ -70,6 +84,8 @@ public sealed class SessionHost : IDisposable
     public event Action<PawnRequest>? PawnRequested;
     /// a player added, changed or deleted a label
     public event Action<LabelRequest>? LabelRequested;
+    /// a player kept or deleted a formation
+    public event Action<FormationRequest>? FormationRequested;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -164,6 +180,7 @@ public sealed class SessionHost : IDisposable
     /// tells the player who sent the request why it was refused
     public void Notice(PawnRequest r, string reason) => Notice(r.Peer, reason);
     public void Notice(LabelRequest r, string reason) => Notice(r.Peer, reason);
+    public void Notice(FormationRequest r, string reason) => Notice(r.Peer, reason);
 
     private void Notice(object? peer, string reason)
     {
@@ -183,19 +200,32 @@ public sealed class SessionHost : IDisposable
 
     private void OnPawn(Peer from, NetMessage m)
     {
-        if (m.X is not int x || m.Y is not int y) return;
-        PawnRequest r;
-        if (m.Type == "pawn_place")
+        PawnRequest? r = null;
+        if (m.Type == "pawn_deploy")
         {
-            if (string.IsNullOrEmpty(m.TemplateId)) return;
-            r = new PawnRequest { Name = from.Name, Place = true, TemplateId = m.TemplateId, To = new CellKey(x, y), Peer = from };
+            var list = (m.Placements ?? new()).Where(p => !string.IsNullOrEmpty(p.TemplateId)).Select(p => (p.TemplateId, new CellKey(p.X, p.Y))).ToList();
+            if (list.Count == 0 || list.Count > 500) return;
+            r = new PawnRequest { Name = from.Name, Action = PawnAction.Deploy, Placements = list, Peer = from };
         }
-        else
+        else if (m.X is int x && m.Y is int y)
         {
-            if (m.ToX is not int tx || m.ToY is not int ty) return;
-            r = new PawnRequest { Name = from.Name, From = new CellKey(x, y), To = new CellKey(tx, ty), Peer = from };
+            if (m.Type == "pawn_place" && !string.IsNullOrEmpty(m.TemplateId))
+                r = new PawnRequest { Name = from.Name, Action = PawnAction.Place, TemplateId = m.TemplateId, To = new CellKey(x, y), Peer = from };
+            else if (m.Type == "pawn_status")
+                r = new PawnRequest { Name = from.Name, Action = PawnAction.Status, To = new CellKey(x, y), Status = m.Status, Peer = from };
+            else if (m.Type == "pawn_move" && m.ToX is int tx && m.ToY is int ty)
+                r = new PawnRequest { Name = from.Name, Action = PawnAction.Move, From = new CellKey(x, y), To = new CellKey(tx, ty), Peer = from };
         }
-        PawnRequested?.Invoke(r);
+        if (r is not null) PawnRequested?.Invoke(r);
+    }
+
+    private void OnFormation(Peer from, NetMessage m)
+    {
+        if (m.Type == "formation_delete")
+        {
+            if (!string.IsNullOrEmpty(m.Id)) FormationRequested?.Invoke(new FormationRequest { Name = from.Name, DeleteId = m.Id, Peer = from });
+        }
+        else if (m.Formation is { } f) FormationRequested?.Invoke(new FormationRequest { Name = from.Name, Formation = f, Peer = from });
     }
 
     // a player gets only the pictures it does not have yet
@@ -209,7 +239,7 @@ public sealed class SessionHost : IDisposable
             var msg = new NetMessage
             {
                 Type = "state", MapName = full.MapName,
-                Package = new PackageWire { Map = w.Map, PawnLibrary = w.PawnLibrary, ObjectTypes = w.ObjectTypes, ObjectPictures = pics, Presets = w.Presets, Light = w.Light },
+                Package = new PackageWire { Map = w.Map, PawnLibrary = w.PawnLibrary, ObjectTypes = w.ObjectTypes, ObjectPictures = pics, Presets = w.Presets, Light = w.Light, Formations = w.Formations },
             };
             await NetProtocol.WriteAsync(p.Stream, msg);
             foreach (var k in pics.Keys) p.Pictures.Add(k);
@@ -268,7 +298,8 @@ public sealed class SessionHost : IDisposable
             while (await NetProtocol.ReadAsync(s, ct) is { } m)
             {
                 if (m.Type == "ping") OnPing(peer, m);
-                else if (m.Type is "pawn_move" or "pawn_place") OnPawn(peer, m);
+                else if (m.Type is "pawn_move" or "pawn_place" or "pawn_status" or "pawn_deploy") OnPawn(peer, m);
+                else if (m.Type is "formation_set" or "formation_delete") OnFormation(peer, m);
                 else if (m.Type is "label_set" or "label_delete") OnLabel(peer, m);
             }
         }

@@ -4175,8 +4175,8 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(pk.Objects.Types.Count == 1 && pk.Objects.Types[0].Id == "statue" && pk.Objects.Pictures.Keys.SequenceEqual(new[] { pic1 }),
         "player view package: only object types and pictures in use");
     Check(pk.Presets.DoorTypes.Select(t => t.Name).SequenceEqual(new[] { "standard" }), "player view package: a hidden door's type name is not sent");
-    Check(pk.Presets.PawnStatuses.Select(t => t.Name).SequenceEqual(new[] { "blessed" }) && pk.Presets.AffiliationColors.Count == 1,
-        "player view package: statuses in use, every affiliation color");
+    Check(pk.Presets.PawnStatuses.Select(t => t.Name).SequenceEqual(new[] { "blessed", "invisible" }) && pk.Presets.AffiliationColors.Count == 1,
+        "player view package: every status (players set their pawns' status), every affiliation color");
 }
 
 // --- multiplayer: player view preview (canvas) ---
@@ -4552,15 +4552,15 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     var lib = new PawnLibrary();
     PawnTemplate T(string id, string aff, bool hero) { var t = new PawnTemplate { Id = id, Name = id, Affiliation = aff, Hero = hero }; lib.Pawns.Add(t); return t; }
     var pc = T("pc", "Player", true);
-    var pc2 = T("pc2", "Player", true);
+    T("pc2", "Player", true);
     var grunt = T("pg", "Player", false);
     var allyHero = T("ah", "Ally", true);
     T("orc", "Enemy", false);
     T("cat", "Neutral", false);
     T("old", "Friendly", true);
-    Check(PlayerPawns.Controlled(pc) && !PlayerPawns.Controlled(grunt) && !PlayerPawns.Controlled(allyHero)
+    Check(PlayerPawns.Controlled(pc) && PlayerPawns.Controlled(grunt) && !PlayerPawns.Controlled(allyHero)
         && !PlayerPawns.Controlled(lib.Find("orc")) && !PlayerPawns.Controlled(lib.Find("cat")) && !PlayerPawns.Controlled(lib.Find("old")) && !PlayerPawns.Controlled(null),
-        "player pawns: only Player affiliation heroes are the players'");
+        "player pawns: every Player affiliation pawn is the players', hero or not");
 
     var d = new MapDocument();
     AddRoom(d, 0, 0, 5, 5);
@@ -4571,9 +4571,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     d.Pawns[new CellKey(1, 1)].Status = "hasted";
     CellKey K(int x, int y) => new(x, y);
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(1, 4)) is null, "player pawns: a hero moves onto empty revealed floor");
+    Check(PlayerPawns.CheckMove(d, lib, K(3, 3), K(0, 4)) is null, "player pawns: a Player pawn that is not a hero moves too");
     Check(PlayerPawns.CheckMove(d, lib, K(2, 2), K(1, 4)) == "only the DM moves that pawn", "player pawns: an enemy is refused");
-    Check(PlayerPawns.CheckMove(d, lib, K(3, 3), K(1, 4)) == "only the DM moves that pawn", "player pawns: a Player pawn that is not a hero is refused");
-    Check(PlayerPawns.CheckMove(d, lib, K(4, 4), K(1, 4)) == "there is no pawn there", "player pawns: a DM only hero can not be moved by players");
+    Check(PlayerPawns.CheckMove(d, lib, K(4, 4), K(1, 4)) == "there is no pawn there", "player pawns: a DM only pawn can not be moved by players");
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(2, 2)) == "that cell already has a pawn", "player pawns: an occupied cell is refused");
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(8, 1)) == "pawns can only go onto revealed floor", "player pawns: hidden floor is refused");
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(6, 1)) == "pawns can only go onto revealed floor", "player pawns: off the floor is refused");
@@ -4582,26 +4582,56 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
 
     Check(PlayerPawns.CheckPlace(d, lib, "orc", K(0, 0)) == "only the DM places that pawn", "player pawns: placing an enemy is refused");
     Check(PlayerPawns.CheckPlace(d, lib, "ah", K(0, 0)) == "only the DM places that pawn", "player pawns: placing an ally hero is refused");
+    Check(PlayerPawns.CheckPlace(d, lib, "pc2", K(0, 0)) == PlayerPawns.HiddenHero, "player pawns: a hero the DM hid on this map is refused");
+    Check(PlayerPawns.CheckPlace(d, lib, "pc", K(0, 0), onOtherMap: true) == PlayerPawns.HiddenHero, "player pawns: a hero on another map is refused");
+    d.Pawns[K(4, 4)].DmOnly = false;
+    d.Revealed.Remove(K(4, 4));
+    Check(PlayerPawns.CheckPlace(d, lib, "pc2", K(0, 0)) == PlayerPawns.HiddenHero, "player pawns: a hero on unrevealed floor is refused");
+    d.Revealed.Add(K(4, 4));
     Check(PlayerPawns.CheckPlace(d, lib, "pc", K(8, 1)) is not null && PlayerPawns.CheckPlace(d, lib, "pc", K(0, 0)) is null, "player pawns: a hero goes onto revealed floor only");
-    // the hidden hero elsewhere on this map moves and becomes visible, the status stays
     d.Pawns[K(4, 4)].Status = "prone";
-    bool moved = PlayerPawns.ApplyPlace(d, "pc2", K(0, 0), null);
-    Check(moved && !d.Pawns.ContainsKey(K(4, 4)) && d.Pawns[K(0, 0)].Status == "prone" && !d.Pawns[K(0, 0)].DmOnly, "player pawns: placing a hero moves its copy, status kept, visible");
-    // a hero on another map comes off it
-    var other = new MapDocument();
-    other.Pawns[K(9, 9)] = new Pawn { Cell = K(9, 9), TemplateId = "pc", Status = "asleep" };
-    d.Pawns.Remove(K(1, 4));
-    moved = PlayerPawns.ApplyPlace(d, "pc", K(0, 1), id => { var p = other.Pawns[K(9, 9)]; other.Pawns.Remove(K(9, 9)); return p; });
-    Check(moved && other.Pawns.Count == 0 && d.Pawns[K(0, 1)].Status == "asleep", "player pawns: a hero placed from another map keeps its status");
-    d.Pawns.Remove(K(0, 1));
-    Check(!PlayerPawns.ApplyPlace(d, "pc", K(0, 1), _ => null) && d.Pawns[K(0, 1)].Status is null, "player pawns: a hero not on any map is placed fresh");
+    bool moved = PlayerPawns.ApplyPlace(d, lib.Find("pc2")!, K(0, 0));
+    Check(moved && !d.Pawns.ContainsKey(K(4, 4)) && d.Pawns[K(0, 0)].Status == "prone", "player pawns: placing a visible hero moves it, status kept");
+    Check(!PlayerPawns.ApplyPlace(d, grunt, K(0, 1)) && !PlayerPawns.ApplyPlace(d, grunt, K(0, 2)) && d.Pawns.Values.Count(p => p.TemplateId == "pg") == 3,
+        "player pawns: a non-hero Player pawn adds a copy each time");
 
-    // the package carries every player hero, placed or not, and no other unplaced template
-    var pkg = PlayerView.Package(d, lib, new ObjectLibrary(), CampaignPresets.Default());
+    // status
+    var pre = CampaignPresets.Default();
+    string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), st) is null && PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), null) is null, "player pawns: a status on a Player pawn is allowed");
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(2, 2), st) == "only the DM changes that pawn", "player pawns: an enemy's status is refused");
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), "made up") == "that status does not exist", "player pawns: an unknown status is refused");
+
+    // deploy
+    var dep = new List<(string, CellKey)> { ("pc", K(2, 4)), ("pg", K(3, 4)) };
+    Check(PlayerPawns.CheckDeploy(d, lib, dep) is null, "player pawns: a deploy of Player pawns is allowed");
+    Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("pc", K(1, 4)), ("pg", K(3, 4)) }) is null, "player pawns: a deploy may land where its own hero stands");
+    Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("pg", K(2, 2)) }) == "a cell already has a pawn", "player pawns: a deploy onto another pawn is refused");
+    Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("orc", K(4, 1)) }) is not null, "player pawns: a deploy with an enemy is refused");
+    Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("pg", K(8, 1)) }) is not null, "player pawns: a deploy onto hidden floor is refused");
+    Check(PlayerPawns.CheckDeploy(d, lib, dep, id => id == "pc") == PlayerPawns.HiddenHero, "player pawns: a deploy with a hero on another map is refused");
+    d.Pawns[K(1, 4)].Status = "hasted";
+    PlayerPawns.ApplyDeploy(d, new[] { pc, grunt }, dep);
+    Check(!d.Pawns.ContainsKey(K(1, 4)) && d.Pawns[K(2, 4)].Status == "hasted" && d.Pawns[K(3, 4)].TemplateId == "pg" && d.Pawns.Values.Count(p => p.TemplateId == "pc") == 1,
+        "player pawns: a deploy moves the hero (status kept) and adds the rest");
+
+    // formations
+    var good = new Formation { Id = "f1", Name = "party", Members = { new FormationMember { TemplateId = "pc" }, new FormationMember { TemplateId = "pg", Dx = 1 } } };
+    var mixed = new Formation { Id = "f2", Name = "ambush", Members = { new FormationMember { TemplateId = "pc" }, new FormationMember { TemplateId = "orc", Dx = 1 } } };
+    Check(PlayerPawns.CheckFormation(lib, good) is null && PlayerPawns.CheckFormation(lib, mixed) is not null && PlayerPawns.CheckFormation(lib, new Formation { Id = "e" }) is not null,
+        "player pawns: only formations of Player pawns are the players'");
+    lib.Formations.Add(good);
+    lib.Formations.Add(mixed);
+
+    // the package carries every Player pawn, their formations and every status
+    var pkg = PlayerView.Package(d, lib, new ObjectLibrary(), pre);
     var ids = pkg.Library.Pawns.Select(t => t.Id).ToHashSet();
     Check(ids.Contains("pc") && ids.Contains("pc2") && ids.Contains("pg") && !ids.Contains("ah") && ids.Contains("orc") && !ids.Contains("cat"),
-        "player pawns: the package has every player hero plus the templates on the map");
-    Check(pkg.Library.Pawns.Where(PlayerPawns.Controlled).Count() == 2, "player pawns: the hero and affiliation survive the package");
+        "player pawns: the package has every Player pawn plus the templates on the map");
+    Check(pkg.Library.Formations.Select(f => f.Id).SequenceEqual(new[] { "f1" }), "player pawns: only Player formations are sent");
+    Check(pkg.Presets.PawnStatuses.Count == pre.PawnStatuses.Count, "player pawns: every status is sent");
+    var wire = MapSerializer.PackageFromWire(MapSerializer.PackageToWire(pkg));
+    Check(wire.Library.Formations.Count == 1 && wire.Library.Formations[0].Members.Count == 2, "player pawns: formations cross the wire");
 }
 
 // --- multiplayer: player pawns (canvas) ---
@@ -4610,7 +4640,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     var c = h.Canvas;
     var lib = new PawnLibrary();
     lib.Pawns.Add(new PawnTemplate { Id = "pc", Name = "Ana", Affiliation = "Player", Hero = true });
-    lib.Pawns.Add(new PawnTemplate { Id = "pc2", Name = "Bo", Affiliation = "Player", Hero = true });
+    lib.Pawns.Add(new PawnTemplate { Id = "pg", Name = "Hireling", Affiliation = "Player" });
     lib.Pawns.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
     c.Library = lib;
     var r = new MapDocument();
@@ -4619,49 +4649,68 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     r.SetRevealed(r.RevealRoomCells(new CellKey(1, 1)), true);
     r.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false };
     r.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "orc", DmOnly = false };
+    r.Pawns[new CellKey(3, 3)] = new Pawn { Cell = new CellKey(3, 3), TemplateId = "pg", DmOnly = false };
     c.RemoteDocument = r;
     c.Mode = ToolMode.Move;
     var moves = new List<(CellKey, CellKey)>();
     var places = new List<(string, CellKey)>();
+    var deploys = new List<List<(string id, CellKey cell)>>();
+    var opened = new List<Pawn>();
     c.PlayerMoveRequested += (f, t) => moves.Add((f, t));
     c.PlayerPlaceRequested += (id, at) => places.Add((id, at));
+    c.PlayerDeployRequested += l => deploys.Add(l);
+    c.PawnConfigRequested += p => opened.Add(p);
     int commits = h.CommitCount;
 
     h.Drag(1, 1, 4, 1);
     Check(moves.Count == 1 && moves[0] == (new CellKey(1, 1), new CellKey(4, 1)), "player pawns canvas: dragging a hero asks the DM");
+    h.Drag(3, 3, 3, 4);
+    Check(moves.Count == 2, "player pawns canvas: dragging a non-hero Player pawn asks the DM");
     Check(r.Pawns.ContainsKey(new CellKey(1, 1)) && h.CommitCount == commits, "player pawns canvas: nothing changes until the DM sends the map");
     h.Drag(2, 2, 4, 2);
-    Check(moves.Count == 1 && h.LastStatus == "only the DM moves that pawn", "player pawns canvas: an enemy can not be dragged");
+    Check(moves.Count == 2 && h.LastStatus == "only the DM moves that pawn", "player pawns canvas: an enemy can not be dragged");
     h.Drag(1, 1, 8, 1);
-    Check(moves.Count == 1 && h.LastStatus == "pawns can only go onto revealed floor", "player pawns canvas: hidden floor is refused before sending");
-    h.Drag(1, 1, 2, 2);
-    Check(moves.Count == 1 && h.LastStatus == "that cell already has a pawn", "player pawns canvas: an occupied cell is refused");
+    Check(moves.Count == 2 && h.LastStatus == "pawns can only go onto revealed floor", "player pawns canvas: hidden floor is refused before sending");
 
-    c.PlayerArmed = "orc";
+    // the pawn tool: place the armed pawn, open a placed Player pawn
+    c.Mode = ToolMode.Pawn;
+    c.ArmedPawn = lib.Find("orc");
     h.Click(0, 4);
     Check(places.Count == 0 && h.LastStatus == "only the DM places that pawn", "player pawns canvas: an enemy can not be placed");
-    c.PlayerArmed = "pc2";
+    c.ArmedPawn = lib.Find("pg");
     h.Click(9, 9);
-    Check(places.Count == 0 && c.PlayerArmed == "pc2", "player pawns canvas: placing off the revealed floor is refused and stays armed");
+    Check(places.Count == 0, "player pawns canvas: placing off the revealed floor is refused");
     h.Click(0, 4);
-    Check(places.Count == 1 && places[0] == ("pc2", new CellKey(0, 4)) && c.PlayerArmed is null, "player pawns canvas: a click places the armed hero and disarms");
+    h.Click(1, 4);
+    Check(places.Count == 2 && places[0] == ("pg", new CellKey(0, 4)) && c.ArmedPawn?.Id == "pg", "player pawns canvas: a click places the armed pawn and it stays armed");
+    h.Click(3, 3);
+    Check(opened.Count == 1 && opened[0].TemplateId == "pg" && places.Count == 2, "player pawns canvas: clicking a placed Player pawn opens it");
+    h.Click(2, 2);
+    Check(opened.Count == 1 && h.LastStatus == "only the DM changes that pawn", "player pawns canvas: an enemy does not open");
+
+    // formations: a deploy goes to the DM, a blocked one is refused
+    c.ArmFormation("party", new[] { ("pc", 0, 0), ("pg", 1, 0) });
+    h.Click(2, 2);
+    Check(deploys.Count == 0 && c.FormationArmed, "player pawns canvas: a deploy onto an enemy stays armed");
+    h.Click(0, 0);
+    Check(deploys.Count == 1 && deploys[0].Count == 2 && !c.FormationArmed && r.Pawns.Count == 3, "player pawns canvas: a deploy asks the DM and disarms");
 
     c.Mode = ToolMode.Measure;
     h.Drag(1, 1, 4, 1);
-    Check(moves.Count == 1, "player pawns canvas: only the move tool moves");
-    c.Mode = ToolMode.Move;
-    c.PlayerArmed = "pc";
+    Check(moves.Count == 2, "player pawns canvas: the measure tool does not move");
+    c.ArmFormation("party", new[] { ("pc", 0, 0) });
     c.RemoteDocument = null;
-    Check(c.PlayerArmed is null && c.Document == h.Doc, "player pawns canvas: leaving the session disarms");
+    Check(c.ArmedPawn is null && !c.FormationArmed && c.Document == h.Doc, "player pawns canvas: leaving the session disarms");
 
     // outside a session the move tool moves for real
+    c.Mode = ToolMode.Move;
     h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "orc" };
     AddRoom(h.Doc, 0, 0, 5, 5);
     h.Drag(1, 1, 3, 3);
-    Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && moves.Count == 1, "player pawns canvas: outside a session the move tool moves for real");
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && moves.Count == 2, "player pawns canvas: outside a session the move tool moves for real");
 }
 
-// --- multiplayer: player pawns (network and DM window) ---
+// --- multiplayer: player pawns (two windows) ---
 {
     _ = new CanvasHarness();
     string step = "construct";
@@ -4678,63 +4727,108 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
             }
             return cond();
         }
-        var w = new DungeonMapper.Views.MainWindow();
-        w.Show();
         var t = typeof(DungeonMapper.Views.MainWindow);
         var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-        object? Call(string name, params object?[] args) =>
+        object? CallOn(object w, string name, params object?[] args) =>
             t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
-        object? Field(string name) => t.GetField(name, flags)!.GetValue(w);
-        object? Prop(string name) => t.GetProperty(name, flags)!.GetValue(w);
-        var canvas = (MapCanvas)Field("Canvas")!;
-        var lib = (PawnLibrary)Prop("ActiveLibrary")!;
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var lib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(dm)!;
+        var pre = (CampaignPresets)t.GetProperty("ActivePresets", flags)!.GetValue(dm)!;
         lib.Pawns.Add(new PawnTemplate { Id = "pc", Name = "Ana", Affiliation = "Player", Hero = true });
         lib.Pawns.Add(new PawnTemplate { Id = "pc2", Name = "Bo", Affiliation = "Player", Hero = true });
+        lib.Pawns.Add(new PawnTemplate { Id = "pg", Name = "Hireling", Affiliation = "Player" });
         lib.Pawns.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
-        var dmDoc = canvas.Document;
+        lib.Formations.Add(new Formation { Id = "dmf", Name = "ambush", Members = { new FormationMember { TemplateId = "orc" } } });
+        var dmDoc = dmCanvas.Document;
         AddRoom(dmDoc, 0, 0, 5, 5);
         dmDoc.SetRevealed(dmDoc.RevealRoomCells(new CellKey(1, 1)), true);
         dmDoc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false };
         dmDoc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "orc", DmOnly = false };
-        ((History)Prop("ActiveHistory")!).Commit(dmDoc);
+        dmDoc.Pawns[new CellKey(4, 4)] = new Pawn { Cell = new CellKey(4, 4), TemplateId = "pc2", DmOnly = true };
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(dm)!).Commit(dmDoc);
 
         step = "host";
-        t.GetField("_hostPort", flags)!.SetValue(w, 0);
-        Check(Call("StartHosting") is null, "player pawns window: hosting starts");
-        var host = (DungeonMapper.Net.SessionHost)Field("_host")!;
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "pawns window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
         var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
-        PlayerPackage? last = null;
         string? notice = null;
-        client.StateReceived += (_, pk) => last = pk;
         client.NoticeReceived += why => notice = why;
-        client.Start();
-        Check(WaitFor(() => last is not null && last.Library.Find("pc2") is not null), "player pawns window: the player gets their unplaced heroes");
+        CallOn(pl, "EnterPlayerMode", client);
+        Check(WaitFor(() => plCanvas.Library.Find("pg") is not null && plCanvas.RemoteDocument?.Pawns.Count == 2), "pawns window: the player gets every Player pawn");
+        Check(plCanvas.Library.Formations.Count == 0, "pawns window: a DM formation with enemies is not sent");
+        var pawnBtn = (Avalonia.Controls.Button)FieldOf(pl, "ToolPawn")!;
+        Check(pawnBtn.IsEnabled, "pawns window: the pawn tool is on for players");
+
+        step = "panel";
+        CallOn(pl, "SetTool", ToolMode.Pawn);
+        var listHost = (Avalonia.Controls.StackPanel)FieldOf(pl, "_pawnListHost")!;
+        string Texts(Avalonia.Controls.Control root) => string.Join("|", Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(root).OfType<Avalonia.Controls.TextBlock>().Select(x => x.Text));
+        var shownText = Texts(listHost);
+        Check(shownText.Contains("Ana") && shownText.Contains("Hireling") && !shownText.Contains("Orc"), "pawns window: the player's pawn list shows only Player pawns");
 
         step = "move";
-        Task.Run(() => client.SendPawnMove(new CellKey(1, 1), new CellKey(4, 4))).Wait();
-        Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(4, 4))), "player pawns window: a player's move lands on the DM's map");
-        Check(WaitFor(() => last!.Map.Pawns.ContainsKey(new CellKey(4, 4))), "player pawns window: and goes back out to the players");
-        Call("DoUndo");
-        Check(dmDoc.Pawns.ContainsKey(new CellKey(1, 1)) && !dmDoc.Pawns.ContainsKey(new CellKey(4, 4)), "player pawns window: the DM can undo it");
-
-        step = "refused";
-        Task.Run(() => client.SendPawnMove(new CellKey(2, 2), new CellKey(3, 2))).Wait();
-        Check(WaitFor(() => notice == "only the DM moves that pawn") && dmDoc.Pawns.ContainsKey(new CellKey(2, 2)), "player pawns window: moving an enemy is refused with a notice");
-        notice = null;
-        Task.Run(() => client.SendPawnPlace("orc", new CellKey(0, 0))).Wait();
-        Check(WaitFor(() => notice == "only the DM places that pawn") && !dmDoc.Pawns.ContainsKey(new CellKey(0, 0)), "player pawns window: placing an enemy is refused");
+        Task.Run(() => client.SendPawnMove(new CellKey(1, 1), new CellKey(3, 1))).Wait();
+        Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(3, 1))), "pawns window: a player's move lands on the DM's map");
+        CallOn(dm, "DoUndo");
+        Check(dmCanvas.Document.Pawns.ContainsKey(new CellKey(1, 1)), "pawns window: the DM can undo it");
+        CallOn(dm, "PublishNow");
 
         step = "place";
-        Task.Run(() => client.SendPawnPlace("pc2", new CellKey(0, 3))).Wait();
-        Check(WaitFor(() => dmDoc.Pawns.TryGetValue(new CellKey(0, 3), out var p) && p.TemplateId == "pc2" && !p.DmOnly), "player pawns window: a player places their hero, visible");
-        Task.Run(() => client.SendPawnPlace("pc", new CellKey(0, 4))).Wait();
-        Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(0, 4))) && !dmDoc.Pawns.ContainsKey(new CellKey(1, 1)), "player pawns window: placing a hero on the map moves it");
-        client.Dispose();
-        Call("StopHosting");
+        Task.Run(() => client.SendPawnPlace("pg", new CellKey(0, 3))).Wait();
+        Task.Run(() => client.SendPawnPlace("pg", new CellKey(0, 4))).Wait();
+        Check(WaitFor(() => dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == 2), "pawns window: a player places two copies of a non-hero pawn");
+        Task.Run(() => client.SendPawnPlace("pc2", new CellKey(1, 3))).Wait();
+        Check(WaitFor(() => notice == PlayerPawns.HiddenHero) && dmDoc.Pawns.ContainsKey(new CellKey(4, 4)), "pawns window: placing a hidden hero is refused");
+        notice = null;
+        Task.Run(() => client.SendPawnMove(new CellKey(2, 2), new CellKey(3, 2))).Wait();
+        Check(WaitFor(() => notice == "only the DM moves that pawn"), "pawns window: moving an enemy is refused with a notice");
+
+        step = "status";
+        string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
+        Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), st)).Wait();
+        Check(WaitFor(() => dmDoc.Pawns[new CellKey(1, 1)].Status == st), "pawns window: a player sets their pawn's status");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Pawns.TryGetValue(new CellKey(1, 1), out var pp) && pp.Status == st), "pawns window: the status comes back");
+        CallOn(pl, "ShowPawnInfo", plCanvas.Document.Pawns[new CellKey(1, 1)]);
+
+        step = "formations";
+        var f = new Formation { Id = Formation.NewId(), Name = "party", Members = { new FormationMember { TemplateId = "pc" }, new FormationMember { TemplateId = "pg", Dx = 1 } } };
+        Task.Run(() => client.SendFormation(f)).Wait();
+        Check(WaitFor(() => lib.Formations.Any(x => x.Id == f.Id && x.Name == "party")), "pawns window: a player's formation is kept in the DM's campaign");
+        Check(WaitFor(() => plCanvas.Library.Formations.Any(x => x.Id == f.Id)), "pawns window: and comes back to the player");
+        f.Name = "the party";
+        Task.Run(() => client.SendFormation(f)).Wait();
+        Check(WaitFor(() => lib.Formations.Any(x => x.Id == f.Id && x.Name == "the party")), "pawns window: a player renames it");
+        Task.Run(() => client.SendFormation(new Formation { Id = "dmf", Name = "mine now", Members = { new FormationMember { TemplateId = "pc" } } })).Wait();
+        Check(WaitFor(() => notice == "only the DM changes that formation") && lib.Formations.First(x => x.Id == "dmf").Name == "ambush", "pawns window: a DM formation can not be overwritten");
+        Task.Run(() => client.SendFormation(new Formation { Id = "bad", Name = "x", Members = { new FormationMember { TemplateId = "orc" } } })).Wait();
+        Check(WaitFor(() => notice == "formations can only hold player pawns") && !lib.Formations.Any(x => x.Id == "bad"), "pawns window: a formation with an enemy is refused");
+
+        step = "deploy";
+        var pgBefore = dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg");
+        Task.Run(() => client.SendDeploy(new[] { ("pc", new CellKey(2, 4)), ("pg", new CellKey(3, 4)) })).Wait();
+        Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(2, 4))) && !dmDoc.Pawns.ContainsKey(new CellKey(1, 1))
+            && dmDoc.Pawns[new CellKey(2, 4)].Status == st && dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == pgBefore + 1,
+            "pawns window: a deploy moves the hero with its status and adds the rest");
+        CallOn(dm, "DoUndo");
+        Check(dmCanvas.Document.Pawns.ContainsKey(new CellKey(1, 1)) && !dmCanvas.Document.Pawns.ContainsKey(new CellKey(2, 4)), "pawns window: a deploy is one undo step");
+
+        step = "delete formation";
+        Task.Run(() => client.SendFormationDelete(f.Id)).Wait();
+        Check(WaitFor(() => !lib.Formations.Any(x => x.Id == f.Id)), "pawns window: a player deletes their formation");
+        CallOn(pl, "SetTool", ToolMode.Move);
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
     }
     catch (Exception ex)
     {
-        Check(false, $"player pawns window: test failed at {step}: {(ex.InnerException ?? ex)}");
+        Check(false, $"pawns window: test failed at {step}: {(ex.InnerException ?? ex)}");
     }
 }
 

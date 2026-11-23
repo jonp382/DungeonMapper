@@ -49,7 +49,7 @@ public partial class MainWindow
     {
         if (_formationHost is null || !ToolPanel.Target.Children.Contains(_formationHost)) return;
         _formationHost.Children.Clear();
-        var forms = ActiveLibrary.Formations;
+        var forms = PanelLibrary.Formations;
 
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Classes = { "grouphead" } };
         head.Children.Add(Tx("formations", "body", "strong"));
@@ -90,7 +90,7 @@ public partial class MainWindow
                 if (done) return;
                 done = true;
                 var n = (box.Text ?? "").Trim();
-                if (keep && n.Length > 0 && n != f.Name) { f.Name = n; StatusText.Text = $"formation renamed to {n}"; }
+                if (keep && n.Length > 0 && n != f.Name) { f.Name = n; SendFormation(f); StatusText.Text = $"formation renamed to {n}"; }
                 _formationRenaming = null;
                 RefreshFormations();
                 FocusCanvas();
@@ -148,7 +148,7 @@ public partial class MainWindow
         {
             off.Clear();
             for (int i = 0; i < f.Members.Count; i++)
-                if (ActiveLibrary.Find(f.Members[i].TemplateId)?.Hero != true) off.Add(i);
+                if (PanelLibrary.Find(f.Members[i].TemplateId)?.Hero != true) off.Add(i);
             Changed();
         }));
         sp.Children.Add(chips);
@@ -160,7 +160,7 @@ public partial class MainWindow
         if (statuses.Count > 0)
         {
             var skip = new WrapPanel();
-            var dots = ActivePresets.PawnStatuses.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First());
+            var dots = PanelPresets.PawnStatuses.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First());
             foreach (var name in statuses.Select(x => x.st).Distinct())
             {
                 var n = name;
@@ -192,7 +192,8 @@ public partial class MainWindow
         var del = Btn("delete", danger: true);
         del.Click += (_, _) => ConfirmFlyout(del, $"delete the formation {f.Name}? the pawns on the map are not touched.", () =>
         {
-            ActiveLibrary.Formations.Remove(f);
+            PanelLibrary.Formations.Remove(f);
+            if (_client is { } cl) { var fid = f.Id; _ = System.Threading.Tasks.Task.Run(() => cl.SendFormationDelete(fid)); }
             _formationUnticked.Remove(f.Id);
             if (_lastFormationId == f.Id) _lastFormationId = null;
             RefreshFormations();
@@ -210,7 +211,7 @@ public partial class MainWindow
         var off = Unticked(f);
         var q = query.Trim();
         var shown = Enumerable.Range(0, f.Members.Count)
-            .Select(i => (i, t: ActiveLibrary.Find(f.Members[i].TemplateId)))
+            .Select(i => (i, t: PanelLibrary.Find(f.Members[i].TemplateId)))
             .Where(x => q.Length == 0 || (x.t is null ? "missing pawn" : PawnName(x.t)).Contains(q, StringComparison.OrdinalIgnoreCase))
             .ToList();
         if (shown.Count == 0) { list.Children.Add(Tx("no members match", "muted")); return; }
@@ -224,7 +225,7 @@ public partial class MainWindow
                 int on = members.Count(x => !off.Contains(x.i));
                 var gh = new CheckBox { IsChecked = on == members.Count ? true : on == 0 ? false : null, Classes = { "toggle" }, IsThreeState = false };
                 var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
-                if (ActivePresets.AffiliationColors.FirstOrDefault(a => a.Name == grp.Key) is { } ac) label.Children.Add(AffDot(ac, 10));
+                if (PanelPresets.AffiliationColors.FirstOrDefault(a => a.Name == grp.Key) is { } ac) label.Children.Add(AffDot(ac, 10));
                 label.Children.Add(Tx(grp.Key, "body", "strong"));
                 label.Children.Add(Tx($"{on} of {members.Count}", "colhead"));
                 gh.Content = label;
@@ -260,11 +261,11 @@ public partial class MainWindow
     // what a member shows now: a placed hero's own status, else its template's
     private string MemberStatus(string templateId)
     {
-        var t = ActiveLibrary.Find(templateId);
+        var t = PanelLibrary.Find(templateId);
         if (t is null) return CampaignPresets.NoStatus;
         if (t.Hero)
-            foreach (var m in _project.Maps)
-                foreach (var p in m.Doc.Pawns.Values)
+            foreach (var d in Joined ? new[] { PanelDoc } : _project.Maps.Select(m => m.Doc))
+                foreach (var p in d.Pawns.Values)
                     if (p.TemplateId == templateId && p.Status is { } own) return own;
         return string.IsNullOrEmpty(t.Status) ? CampaignPresets.NoStatus : t.Status;
     }
@@ -278,20 +279,23 @@ public partial class MainWindow
             : $"update {target.Name}: drag a box around the pawns on the map. esc cancels";
         Canvas.BeginAreaPick((x0, y0, x1, y1) =>
         {
-            var pawns = _doc.Pawns.Values.Where(p => p.Cell.X >= x0 && p.Cell.X <= x1 && p.Cell.Y >= y0 && p.Cell.Y <= y1).ToList();
-            if (pawns.Count == 0) { StatusText.Text = "no pawns in that area, nothing saved"; return; }
+            var pawns = PanelDoc.Pawns.Values.Where(p => p.Cell.X >= x0 && p.Cell.X <= x1 && p.Cell.Y >= y0 && p.Cell.Y <= y1)
+                .Where(p => !Joined || PlayerPawns.Controlled(PanelLibrary.Find(p.TemplateId))).ToList();
+            if (pawns.Count == 0) { StatusText.Text = Joined ? "no player pawns in that area, nothing saved" : "no pawns in that area, nothing saved"; return; }
             var members = Formation.Capture(pawns);
             if (target is null)
             {
-                var f = new Formation { Id = Formation.NewId(), Name = Formation.UniqueName(ActiveLibrary.Formations), Members = members };
-                ActiveLibrary.Formations.Add(f);
+                var f = new Formation { Id = Formation.NewId(), Name = Formation.UniqueName(PanelLibrary.Formations), Members = members };
+                PanelLibrary.Formations.Add(f);
+                SendFormation(f);
                 _formationOpen = f.Id;
                 _formationRenaming = f.Id; // name it right away
                 StatusText.Text = $"saved a formation of {Plural(members.Count, "pawn")}. type a name, enter keeps it";
             }
-            else if (ActiveLibrary.Formations.Contains(target))
+            else if (PanelLibrary.Formations.Contains(target))
             {
                 target.Members = members;
+                SendFormation(target);
                 _formationUnticked.Remove(target.Id);
                 _formationOpen = target.Id;
                 StatusText.Text = $"updated {target.Name}: {Plural(members.Count, "pawn")}";
@@ -304,9 +308,9 @@ public partial class MainWindow
     {
         var off = Unticked(f);
         var members = f.Members.Select((m, i) => (m, i))
-            .Where(x => !off.Contains(x.i) && ActiveLibrary.Find(x.m.TemplateId) is not null)
+            .Where(x => !off.Contains(x.i) && PanelLibrary.Find(x.m.TemplateId) is not null)
             .Select(x => (x.m.TemplateId, x.m.Dx, x.m.Dy)).ToList();
-        int missing = f.Members.Count(m => ActiveLibrary.Find(m.TemplateId) is null);
+        int missing = f.Members.Count(m => PanelLibrary.Find(m.TemplateId) is null);
         if (members.Count == 0)
         {
             StatusText.Text = missing == f.Members.Count ? $"{f.Name} has no pawns left in the library" : $"no members of {f.Name} are ticked";
@@ -319,10 +323,18 @@ public partial class MainWindow
         FocusCanvas();
     }
 
+    // while joined a formation change goes to the DM, who keeps it in the campaign
+    private void SendFormation(Formation f)
+    {
+        if (_client is not { } cl) return;
+        var copy = new Formation { Id = f.Id, Name = f.Name, Members = f.Members.Select(m => new FormationMember { TemplateId = m.TemplateId, Dx = m.Dx, Dy = m.Dy }).ToList() };
+        _ = System.Threading.Tasks.Task.Run(() => cl.SendFormation(copy));
+    }
+
     // the deploy hotkey: the last formation deployed this session
     private void DeployLastFormation()
     {
-        var f = _lastFormationId is null ? null : ActiveLibrary.Formations.Find(x => x.Id == _lastFormationId);
+        var f = _lastFormationId is null ? null : PanelLibrary.Formations.Find(x => x.Id == _lastFormationId);
         if (f is null) { StatusText.Text = "no formation deployed yet. pick one in the pawn panel's formations"; return; }
         DeployFormation(f);
     }

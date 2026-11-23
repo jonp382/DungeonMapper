@@ -20,6 +20,7 @@ public partial class MainWindow
     {
         _toolInfo = null;
         _measureInfo = null;
+        _playerPawnInfoCell = null;
         // the resize handles belong to an open object view
         if (Canvas.SelectedObjectId is not null) { Canvas.SelectedObjectId = null; Canvas.Refresh(); }
         // and the label resize handles to an open label view
@@ -41,7 +42,7 @@ public partial class MainWindow
                 break;
 
             case ToolMode.Move when _client is not null:
-                BuildPlayerPawnsPanel();
+                BuildPlayerMovePanel();
                 break;
 
             case ToolMode.Move:
