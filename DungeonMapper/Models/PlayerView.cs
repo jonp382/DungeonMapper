@@ -78,14 +78,17 @@ public static class PlayerView
         return v;
     }
 
-    /// the map plus the pawn templates, object types, pictures, door types and
-    /// statuses it uses. formations and favorites stay behind
+    /// the map plus the pawn templates (those it uses and every player hero),
+    /// object types, pictures, door types and statuses it uses. formations and
+    /// favorites stay behind
     public static PlayerPackage Package(MapDocument doc, PawnLibrary library, ObjectLibrary objects, CampaignPresets presets)
     {
         var map = Build(doc);
 
         var lib = new PawnLibrary();
-        var templateIds = new HashSet<string>(map.Pawns.Values.Select(p => p.TemplateId));
+        // the players' own heroes always go, so they can place them
+        var templateIds = new HashSet<string>(map.Pawns.Values.Select(p => p.TemplateId)
+            .Concat(library.Pawns.Where(PlayerPawns.Controlled).Select(t => t.Id)));
         foreach (var t in library.Pawns.Where(t => templateIds.Contains(t.Id)))
             lib.Pawns.AddRange(PawnLibraryClone(t));
 

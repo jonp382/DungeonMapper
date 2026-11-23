@@ -38,6 +38,22 @@ public partial class MainWindow : Window
         return h;
     }
     private History ActiveHistory => HistoryFor(_project.Maps[_project.ActiveIndex]);
+
+    // removes a hero from every map but keep. each map that loses it gets its
+    // own undo step. returns one removed copy, null when there was none
+    private Pawn? TakeHeroFromMapsExcept(MapDocument keep, string id)
+    {
+        Pawn? taken = null;
+        foreach (var m in _project.Maps)
+        {
+            if (m.Doc == keep) continue;
+            var cells = m.Doc.Pawns.Where(kv => kv.Value.TemplateId == id).Select(kv => kv.Key).ToList();
+            if (cells.Count == 0) continue;
+            foreach (var c in cells) { taken ??= m.Doc.Pawns[c]; m.Doc.Pawns.Remove(c); }
+            HistoryFor(m).Commit(m.Doc);
+        }
+        return taken;
+    }
     private readonly AppSettings _settings = AppSettings.Load();
     // per-project pawn library: each project file carries its own library
     // (embedded "pawn_library" field, v3), keyed by project reference, like the
@@ -268,20 +284,7 @@ public partial class MainWindow : Window
             RefreshMaps();
             RefreshToolInfo();
         };
-        Canvas.TakeHeroFromOtherMaps = id =>
-        {
-            // each other map that loses the hero gets its own undo step
-            Pawn? taken = null;
-            foreach (var m in _project.Maps)
-            {
-                if (m.Doc == _doc) continue;
-                var cells = m.Doc.Pawns.Where(kv => kv.Value.TemplateId == id).Select(kv => kv.Key).ToList();
-                if (cells.Count == 0) continue;
-                foreach (var c in cells) { taken ??= m.Doc.Pawns[c]; m.Doc.Pawns.Remove(c); }
-                HistoryFor(m).Commit(m.Doc);
-            }
-            return taken;
-        };
+        Canvas.TakeHeroFromOtherMaps = id => TakeHeroFromMapsExcept(_doc, id);
         Canvas.StatusMessage += msg =>
         {
             StatusText.Text = msg;
@@ -347,6 +350,7 @@ public partial class MainWindow : Window
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
+            if (Canvas.PlayerArmed is not null) { Canvas.PlayerArmed = null; StatusText.Text = "placing cancelled"; e.Handled = true; return; }
             // the maps panel is not modal, so an armed move is cancelled first
             if (MapsOverlay.IsVisible) { CloseMaps(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Polygon && !IsTyping())

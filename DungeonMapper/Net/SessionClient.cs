@@ -10,8 +10,8 @@ namespace DungeonMapper.Net;
 public sealed class SessionRefusedException(string reason) : Exception(reason);
 
 /// A player's side of a session: joins a host, then receives what the DM
-/// shows. read only: the hello and pings are all it sends. Events fire on a
-/// background thread.
+/// shows. it sends the hello, pings and requests to move or place the
+/// player's own heroes (the host decides). Events fire on a background thread.
 public sealed class SessionClient : IDisposable
 {
     private readonly TcpClient _client;
@@ -31,11 +31,24 @@ public sealed class SessionClient : IDisposable
 
     private readonly SemaphoreSlim _writeLock = new(1, 1);
 
+    /// the host refused a request (the reason)
+    public event Action<string>? NoticeReceived;
+
     /// pings a cell on the map the DM shows
-    public async Task SendPing(int x, int y)
+    public Task SendPing(int x, int y) => Send(new NetMessage { Type = "ping", X = x, Y = y });
+
+    /// asks the DM to move the player's pawn at from to to
+    public Task SendPawnMove(CellKey from, CellKey to) =>
+        Send(new NetMessage { Type = "pawn_move", X = from.X, Y = from.Y, ToX = to.X, ToY = to.Y });
+
+    /// asks the DM to place the player's hero at the cell
+    public Task SendPawnPlace(string templateId, CellKey at) =>
+        Send(new NetMessage { Type = "pawn_place", TemplateId = templateId, X = at.X, Y = at.Y });
+
+    private async Task Send(NetMessage m)
     {
         await _writeLock.WaitAsync();
-        try { await NetProtocol.WriteAsync(_stream, new NetMessage { Type = "ping", X = x, Y = y }); }
+        try { await NetProtocol.WriteAsync(_stream, m); }
         catch (Exception) { } // a lost connection is reported by the read loop
         finally { _writeLock.Release(); }
     }
@@ -87,6 +100,7 @@ public sealed class SessionClient : IDisposable
             while (await NetProtocol.ReadAsync(_stream, _cts.Token) is { } m)
             {
                 if (m.Type == "ping" && m.X is int px && m.Y is int py) { PingReceived?.Invoke(m.Name ?? "someone", px, py); continue; }
+                if (m.Type == "notice") { NoticeReceived?.Invoke(m.Reason ?? "refused"); continue; }
                 if (m.Type != "state" || m.Package is null) continue;
                 foreach (var (k, v) in m.Package.ObjectPictures ?? new()) _pictures[k] = v;
                 var pkg = MapSerializer.PackageFromWire(m.Package);

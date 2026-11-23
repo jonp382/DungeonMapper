@@ -1156,7 +1156,7 @@ public sealed partial class MapCanvas : Control
         DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
-        DrawSandbox(ctx);
+        DrawPlayerPawnDrag(ctx);
         DrawPings(ctx);
         DrawPreviewBanner(ctx);
     }
@@ -1708,7 +1708,7 @@ public sealed partial class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
-        if (ReadOnlyView && Mode != ToolMode.Measure && !SandboxActive) return;
+        if (ReadOnlyView && Mode != ToolMode.Measure && !PlayerPawnsActive) return;
         _pressClicks = e.ClickCount;
 
         var world = ScreenToWorld(e.GetPosition(this));
@@ -1718,7 +1718,7 @@ public sealed partial class MapCanvas : Control
         if (MeasurePressed(e, world, cell)) return;
         if (FogPressed(e, world)) return;
         if (RevealPressed(e, world, cell)) return;
-        if (SandboxPressed(e, cell)) return;
+        if (PlayerPawnPressed(e, cell)) return;
 
         switch (Mode)
         {
@@ -1973,7 +1973,7 @@ public sealed partial class MapCanvas : Control
         if (MeasureMoved(world)) return;
         if (FogMoved(world)) return;
         if (RevealMoved(world)) return;
-        if (SandboxMoved(world)) return;
+        if (PlayerPawnMoved(world)) return;
         if (LabelResizeMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
@@ -2069,7 +2069,7 @@ public sealed partial class MapCanvas : Control
         if (MeasureReleased(e)) return;
         if (FogReleased(e)) return;
         if (RevealReleased(e)) return;
-        if (SandboxReleased(e)) return;
+        if (PlayerPawnReleased(e)) return;
         if (LabelResizeReleased(e)) return;
 
         if (_pawnDragging)

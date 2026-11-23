@@ -41,7 +41,7 @@ public partial class MainWindow
                 break;
 
             case ToolMode.Move when _client is not null:
-                BuildSandboxPanel();
+                BuildPlayerPawnsPanel();
                 break;
 
             case ToolMode.Move:

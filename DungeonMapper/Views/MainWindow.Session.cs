@@ -18,8 +18,9 @@ namespace DungeonMapper.Views;
 // multiplayer sessions (see Agent.md "Multiplayer Design", Net/). the DM
 // hosts: a timer sends players the PlayerView package of the map picked to
 // show, only when it changed. a player joins: this window switches to the
-// received map, read only, with only the measure tool; their own campaign is
-// left alone and comes back on leaving.
+// received map, read only, with the measure tool and the move tool for their
+// own heroes (sent to the DM, who applies them); their own campaign is left
+// alone and comes back on leaving.
 public partial class MainWindow
 {
     private SessionHost? _host;
@@ -41,7 +42,19 @@ public partial class MainWindow
         MenuJoin.Click += (_, _) => { CloseModals(); ShowJoinSession(); };
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
         Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
-        Canvas.SandboxChanged += RefreshSandboxInfo;
+        Canvas.PlayerArmedChanged += RefreshPlayerPawnsPanel;
+        Canvas.PlayerMoveRequested += (from, to) =>
+        {
+            if (_client is not { } cl) return;
+            _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnMove(from, to));
+            StatusText.Text = $"moving {PlayerPawnName(Canvas.RemoteDocument?.Pawns.GetValueOrDefault(from)?.TemplateId)}";
+        };
+        Canvas.PlayerPlaceRequested += (id, at) =>
+        {
+            if (_client is not { } cl) return;
+            _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnPlace(id, at));
+            StatusText.Text = $"placing {PlayerPawnName(id)}";
+        };
     }
 
     private void RefreshSessionUi()
@@ -155,6 +168,7 @@ public partial class MainWindow
         _host = host;
         _shownMap ??= _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
         host.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_host == host) OnHostPing(n, x, y); });
+        host.PawnRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnPawnRequest(host, r); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
             RefreshSessionUi();
@@ -186,6 +200,41 @@ public partial class MainWindow
             ? new PlayerPackage()
             : PlayerView.Package(shown.Doc, ActiveLibrary, ActiveObjects, ActivePresets);
         if (_host.Publish(shown?.Name ?? "", pkg)) RefreshSessionUi();
+    }
+
+    // a player moves or places one of their heroes on the map shown to
+    // players. checked again here against the real map, applied as one undo
+    // step of that map and sent back out
+    private void OnPawnRequest(SessionHost host, PawnRequest r)
+    {
+        var shown = ShownMap();
+        if (shown is null) { host.Notice(r, "the DM is not showing a map"); return; }
+        var doc = shown.Doc;
+        string? why = r.Place
+            ? PlayerPawns.CheckPlace(doc, ActiveLibrary, r.TemplateId, r.To)
+            : PlayerPawns.CheckMove(doc, ActiveLibrary, r.From, r.To);
+        if (why is not null) { host.Notice(r, why); return; }
+        string id = r.Place ? r.TemplateId : doc.Pawns[r.From].TemplateId;
+        string what = ActiveLibrary.Find(id) is { } tpl ? PawnName(tpl) : "pawn";
+        if (r.Place)
+        {
+            bool moved = PlayerPawns.ApplyPlace(doc, id, r.To, tid => TakeHeroFromMapsExcept(doc, tid));
+            StatusText.Text = $"{r.Name} {(moved ? "moved" : "placed")} {what} to {r.To.X},{r.To.Y}";
+        }
+        else
+        {
+            PlayerPawns.ApplyMove(doc, r.From, r.To);
+            StatusText.Text = $"{r.Name} moved {what} to {r.To.X},{r.To.Y}";
+        }
+        HistoryFor(shown).Commit(doc);
+        if (doc == _doc)
+        {
+            Canvas.Refresh();
+            PawnViewsChanged();
+            RefreshToolInfo();
+        }
+        RefreshMaps();
+        PublishNow();
     }
 
     // ---------- join ----------
@@ -324,6 +373,7 @@ public partial class MainWindow
         SetEditingUi(false);
         client.StateReceived += (map, pkg) => Dispatcher.UIThread.Post(() => ApplyRemote(client, map, pkg));
         client.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_client == client) OnClientPing(n, x, y); });
+        client.NoticeReceived += why => Dispatcher.UIThread.Post(() => { if (_client == client) StatusText.Text = $"the DM's map refused: {why}"; });
         client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
         client.Start();
         RefreshSessionUi();
@@ -338,6 +388,8 @@ public partial class MainWindow
         Canvas.ObjectTypes = pkg.Objects;
         Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
         Canvas.RemoteDocument = pkg.Map;
+        if (Canvas.PlayerArmed is { } armed && !PlayerPawns.Controlled(pkg.Library.Find(armed))) Canvas.PlayerArmed = null;
+        RefreshPlayerPawnsPanel();
         if (map != _joinedMap) _fitOnNextState = true;
         _joinedMap = map;
         if (_fitOnNextState && pkg.Map.Cells.Count + pkg.Map.FloodRegions.Count > 0) { Canvas.AutoFit(); _fitOnNextState = false; }
@@ -372,7 +424,7 @@ public partial class MainWindow
         BtnManageMaps.IsEnabled = on;
     }
 
-    // keys while joined: esc, zoom to fit and the measure letter. everything
+    // keys while joined: esc, zoom to fit, measure, move and ping. everything
     // else is swallowed. true when handled here
     private bool PlayerKey(KeyEventArgs e)
     {
@@ -384,24 +436,46 @@ public partial class MainWindow
     }
 }
 
-// sandbox pawns while joined: the move tool panel
+// the player's own heroes while joined: the move tool panel
 public partial class MainWindow
 {
-    private TextBlock? _sandboxInfo;
+    private StackPanel? _playerPawnList;
 
-    private void BuildSandboxPanel()
+    private void BuildPlayerPawnsPanel()
     {
-        ToolPanel.Clear("try moves");
-        ToolPanel.AddHint("drag pawns to try out moves. only you see them, the DM's map does not change. they stay until you reset them.");
-        _sandboxInfo = ToolPanel.AddInfo("");
-        ToolPanel.AddButton("reset my moves", () => { Canvas.ResetSandbox(); FocusCanvas(); });
-        RefreshSandboxInfo();
+        ToolPanel.Clear("your pawns");
+        ToolPanel.AddHint("drag one of your heroes to move it, or pick one below and click an empty revealed cell to place it. the DM's map changes for everyone. other pawns are moved by the DM.");
+        _playerPawnList = new StackPanel { Spacing = 4 };
+        ToolPanel.AddButtonRaw(_playerPawnList);
+        RefreshPlayerPawnsPanel();
     }
 
-    private void RefreshSandboxInfo()
+    private string PlayerPawnName(string? id) => Canvas.Library.Find(id ?? "") is { } t ? PawnName(t) : "pawn";
+
+    private void RefreshPlayerPawnsPanel()
     {
-        if (_sandboxInfo is null || _client is null || Canvas.Mode != ToolMode.Move) return;
-        int n = Canvas.SandboxMoves.Count;
-        _sandboxInfo.Text = n == 0 ? "no pawns moved" : $"{Plural(n, "pawn")} moved";
+        if (_playerPawnList is null || _client is null || Canvas.Mode != ToolMode.Move) return;
+        _playerPawnList.Children.Clear();
+        var heroes = Canvas.Library.Pawns.Where(PlayerPawns.Controlled).ToList();
+        if (heroes.Count == 0)
+        {
+            _playerPawnList.Children.Add(Tx("the DM has no player heroes yet", "faint"));
+            return;
+        }
+        var onMap = new HashSet<string>(Canvas.RemoteDocument?.Pawns.Values.Select(p => p.TemplateId) ?? Enumerable.Empty<string>());
+        foreach (var t in heroes)
+        {
+            var id = t.Id;
+            bool armed = Canvas.PlayerArmed == id;
+            var b = Btn((armed ? "placing: " : "place ") + PawnName(t) + (onMap.Contains(id) ? "  (on the map)" : ""), primary: armed);
+            b.HorizontalAlignment = HorizontalAlignment.Stretch;
+            b.Click += (_, _) =>
+            {
+                Canvas.PlayerArmed = armed ? null : id;
+                StatusText.Text = armed ? "placing cancelled" : $"click an empty revealed cell to place {PawnName(t)}" + (onMap.Contains(id) ? " (it moves there)" : "");
+                FocusCanvas();
+            };
+            _playerPawnList.Children.Add(b);
+        }
     }
 }

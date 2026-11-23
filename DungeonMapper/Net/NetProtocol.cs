@@ -24,11 +24,15 @@ namespace DungeonMapper.Net;
 //                           and whenever what players see changes
 //   either way      ping    (cell; the host fills in who and passes a
 //                           player's ping on to the other players)
+//   player -> host  pawn_move  (x,y -> to_x,to_y) and pawn_place (template
+//                           id, x,y): the player's own heroes. the DM's app
+//                           checks and applies them to the real map
+//   host -> player  notice  (reason) when it refuses one
 // discovery: the host broadcasts a beacon over udp every couple of seconds.
 public static class NetProtocol
 {
     /// bump when the messages change in a way older apps can not read
-    public const int Version = 1;
+    public const int Version = 2;
     public const int DefaultPort = 47320;
     public const int DiscoveryPort = 47321;
     public const string AppTag = "DungeonMapper";
@@ -128,5 +132,9 @@ public sealed class NetMessage
     // a ping: the cell, on the map shown to players
     [JsonPropertyName("x")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? X { get; set; }
     [JsonPropertyName("y")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Y { get; set; }
+    // a pawn move's target cell, a pawn place's template
+    [JsonPropertyName("to_x")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ToX { get; set; }
+    [JsonPropertyName("to_y")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ToY { get; set; }
+    [JsonPropertyName("template_id")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? TemplateId { get; set; }
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
 }

@@ -16,6 +16,18 @@ namespace DungeonMapper.Net;
 /// them what they may see, and broadcasts a discovery beacon. Publish is the
 /// only way map data leaves; it takes a PlayerPackage, which is already cut
 /// down by PlayerView. Events fire on background threads.
+/// a player asks to move (From -> To) or place (TemplateId at To) one of
+/// their heroes. the DM's app checks it against the real map
+public sealed class PawnRequest
+{
+    public required string Name { get; init; }
+    public bool Place { get; init; }
+    public CellKey From { get; init; }
+    public CellKey To { get; init; }
+    public string TemplateId { get; init; } = "";
+    internal object? Peer { get; init; }
+}
+
 public sealed class SessionHost : IDisposable
 {
     private sealed class Peer
@@ -44,6 +56,8 @@ public sealed class SessionHost : IDisposable
     public event Action? PlayersChanged;
     /// a player pinged a cell (name, x, y)
     public event Action<string, int, int>? PingReceived;
+    /// a player asked to move or place one of their heroes
+    public event Action<PawnRequest>? PawnRequested;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -135,6 +149,29 @@ public sealed class SessionHost : IDisposable
         foreach (var p in others) _ = Task.Run(() => Send(p, msg));
     }
 
+    /// tells the player who sent the request why it was refused
+    public void Notice(PawnRequest r, string reason)
+    {
+        if (r.Peer is Peer p) _ = Task.Run(() => Send(p, new NetMessage { Type = "notice", Reason = reason }));
+    }
+
+    private void OnPawn(Peer from, NetMessage m)
+    {
+        if (m.X is not int x || m.Y is not int y) return;
+        PawnRequest r;
+        if (m.Type == "pawn_place")
+        {
+            if (string.IsNullOrEmpty(m.TemplateId)) return;
+            r = new PawnRequest { Name = from.Name, Place = true, TemplateId = m.TemplateId, To = new CellKey(x, y), Peer = from };
+        }
+        else
+        {
+            if (m.ToX is not int tx || m.ToY is not int ty) return;
+            r = new PawnRequest { Name = from.Name, From = new CellKey(x, y), To = new CellKey(tx, ty), Peer = from };
+        }
+        PawnRequested?.Invoke(r);
+    }
+
     // a player gets only the pictures it does not have yet
     private async Task SendState(Peer p, NetMessage full)
     {
@@ -201,9 +238,12 @@ public sealed class SessionHost : IDisposable
             NetMessage? state;
             lock (_gate) state = _state;
             if (state is not null) await SendState(peer, state);
-            // players only send pings; read until they leave
+            // players send pings and pawn requests; read until they leave
             while (await NetProtocol.ReadAsync(s, ct) is { } m)
+            {
                 if (m.Type == "ping") OnPing(peer, m);
+                else if (m.Type is "pawn_move" or "pawn_place") OnPawn(peer, m);
+            }
         }
         catch (Exception) { }
         if (peer is not null) Drop(peer); else c.Dispose();
