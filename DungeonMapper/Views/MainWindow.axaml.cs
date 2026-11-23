@@ -882,7 +882,7 @@ public partial class MainWindow : Window
         Canvas.EditingLabel = null;
         _labelEditor.IsVisible = false;
         if (!keep) label.Text = _editOriginal;
-        else if (label.Text != _editOriginal) ActiveHistory.Commit(_doc);
+        else if (label.Text != _editOriginal) CommitLabel(label);
         Canvas.Refresh();
         ShowLabelConfig(label);
         FocusCanvas();

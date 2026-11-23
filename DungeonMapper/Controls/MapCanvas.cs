@@ -1684,7 +1684,13 @@ public sealed partial class MapCanvas : Control
     private void Commit()
     {
         // the preview is a throwaway copy: nothing done to it is an edit
-        if (_remote is not null) { InvalidateVisual(); return; }
+        if (_remote is not null)
+        {
+            // a joined player's label edits (resize) go to the DM
+            if (Mode == ToolMode.Label && SelectedLabel is { } l && PlayerLabels.Editable(l)) RemoteLabelChanged?.Invoke(l);
+            InvalidateVisual();
+            return;
+        }
         if (_preview is not null) { _preview = PlayerView.Build(_document); InvalidateVisual(); return; }
         ActionCompleted?.Invoke();
         InvalidateVisual();
@@ -1708,7 +1714,7 @@ public sealed partial class MapCanvas : Control
         }
 
         if (!props.IsLeftButtonPressed) return;
-        if (ReadOnlyView && Mode != ToolMode.Measure && !PlayerPawnsActive) return;
+        if (ReadOnlyView && Mode != ToolMode.Measure && !JoinedTool) return;
         _pressClicks = e.ClickCount;
 
         var world = ScreenToWorld(e.GetPosition(this));
@@ -1878,6 +1884,11 @@ public sealed partial class MapCanvas : Control
                 // clicking a label edits it. otherwise drag out a range (a
                 // click is a 1x1 range) and the label is placed on release.
                 var lbl = LabelAt(cell);
+                if (lbl is not null && _remote is not null && !PlayerLabels.Editable(lbl))
+                {
+                    StatusMessage?.Invoke("only the DM edits that label");
+                    break;
+                }
                 if (lbl is not null)
                 {
                     // a double click edits the text on the map
@@ -2243,7 +2254,16 @@ public sealed partial class MapCanvas : Control
                     Text = Settings.DefaultLabelText,
                 };
                 Document.Labels.Add(lbl);
-                Commit();
+                if (_remote is not null)
+                {
+                    // a player's label: shown here at once, the DM's app keeps it
+                    lbl.Id = MapLabel.NewId();
+                    lbl.ClientEditable = true;
+                    lbl.DmOnly = false;
+                    RemoteLabelChanged?.Invoke(lbl);
+                    InvalidateVisual();
+                }
+                else Commit();
                 LabelConfigRequested?.Invoke(lbl);
                 LabelEditRequested?.Invoke(lbl);
                 break;

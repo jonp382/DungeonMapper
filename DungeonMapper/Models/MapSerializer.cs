@@ -146,6 +146,16 @@ public sealed class LabelDto
     [JsonPropertyName("dm_only")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool DmOnly { get; set; }
+    // multiplayer: players may edit it, who made it, its id
+    [JsonPropertyName("client_editable")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ClientEditable { get; set; }
+    [JsonPropertyName("created_by")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CreatedBy { get; set; }
+    [JsonPropertyName("id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Id { get; set; }
 }
 
 public sealed class PawnTemplateDto
@@ -714,6 +724,26 @@ public static class MapSerializer
 
     public static MapProject LoadProject(string path) => ProjectFromJson(File.ReadAllText(path));
 
+    public static LabelDto LabelToDto(MapLabel l) => new()
+    {
+        Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+        W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(), DmOnly = l.DmOnly,
+        ClientEditable = l.ClientEditable, CreatedBy = l.CreatedBy, Id = l.Id.Length > 0 ? l.Id : null,
+    };
+
+    /// null when the cell does not parse
+    public static MapLabel? LabelFromDto(LabelDto l)
+    {
+        if (!TryParseCell(l.Cell, out var c)) return null;
+        return new MapLabel
+        {
+            Cell = c, Text = l.Text ?? "", FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
+            W = Math.Max(1, l.W), H = Math.Max(1, l.H),
+            Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
+            DmOnly = l.DmOnly, ClientEditable = l.ClientEditable, CreatedBy = l.CreatedBy, Id = l.Id ?? "",
+        };
+    }
+
     // build a MapFileDto from a document (shared by ToJson and ProjectToJson)
     private static MapFileDto ToDto(MapDocument doc)
     {
@@ -724,12 +754,7 @@ public static class MapSerializer
             dto.Doors.Add(new DoorDto { Edge = Key(e), Type = d.Type, State = d.State.ToString().ToLowerInvariant(), DmOnly = d.DmOnly });
         foreach (var (c, s) in doc.Stairs)
             dto.Stairs.Add(new StairDto { Cell = Key(c), Direction = s.Direction.ToString().ToLowerInvariant(), TargetMap = s.TargetMap });
-        foreach (var l in doc.Labels)
-            dto.Labels.Add(new LabelDto
-            {
-                Cell = Key(l.Cell), Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
-                W = l.W, H = l.H, Align = l.Align.ToString().ToLowerInvariant(), DmOnly = l.DmOnly,
-            });
+        foreach (var l in doc.Labels) dto.Labels.Add(LabelToDto(l));
         foreach (var (c, p) in doc.Pawns)
             dto.Pawns.Add(PawnToDto(c, p));
         foreach (var w in doc.AngledWalls)
@@ -787,16 +812,7 @@ public static class MapSerializer
             doc.Stairs[c] = stair;
         }
         foreach (var l in dto.Labels)
-        {
-            if (!TryParseCell(l.Cell, out var c)) continue;
-            doc.Labels.Add(new MapLabel
-            {
-                Cell = c, Text = l.Text, FontSize = l.FontSize, R = l.R, G = l.G, B = l.B,
-                W = Math.Max(1, l.W), H = Math.Max(1, l.H),
-                Align = Enum.TryParse<LabelAlign>(l.Align, ignoreCase: true, out var al) ? al : LabelAlign.Center,
-                DmOnly = l.DmOnly,
-            });
-        }
+            if (LabelFromDto(l) is { } ml) doc.Labels.Add(ml);
         AddPawns(dto, doc);
         AddAngled(dto, doc);
         AddPolygons(dto, doc);

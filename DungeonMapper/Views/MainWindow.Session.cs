@@ -42,6 +42,7 @@ public partial class MainWindow
         MenuJoin.Click += (_, _) => { CloseModals(); ShowJoinSession(); };
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
         Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
+        Canvas.RemoteLabelChanged += SendLabelToHost;
         Canvas.PlayerArmedChanged += RefreshPlayerPawnsPanel;
         Canvas.PlayerMoveRequested += (from, to) =>
         {
@@ -168,6 +169,7 @@ public partial class MainWindow
         _host = host;
         _shownMap ??= _project.Maps.ElementAtOrDefault(_project.ActiveIndex);
         host.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_host == host) OnHostPing(n, x, y); });
+        host.LabelRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnLabelRequest(host, r); });
         host.PawnRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnPawnRequest(host, r); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
@@ -232,6 +234,31 @@ public partial class MainWindow
             Canvas.Refresh();
             PawnViewsChanged();
             RefreshToolInfo();
+        }
+        RefreshMaps();
+        PublishNow();
+    }
+
+    // a player adds, changes or deletes a label on the map shown to players.
+    // one undo step of that map, then sent back out
+    private void OnLabelRequest(SessionHost host, LabelRequest r)
+    {
+        var shown = ShownMap();
+        if (shown is null) { host.Notice(r, "the DM is not showing a map"); return; }
+        var doc = shown.Doc;
+        var before = r.Label is null ? PlayerLabels.Find(doc, r.DeleteId) : PlayerLabels.Find(doc, r.Label.Id);
+        string? why = r.Label is null ? PlayerLabels.Delete(doc, r.DeleteId) : PlayerLabels.Set(doc, r.Label, r.Name);
+        if (why is not null) { host.Notice(r, why); return; }
+        HistoryFor(shown).Commit(doc);
+        StatusText.Text = r.Label is null ? $"{r.Name} deleted a label" : before is null ? $"{r.Name} added a label" : $"{r.Name} changed a label";
+        if (doc == _doc)
+        {
+            Canvas.Refresh();
+            // the DM's open view of that label follows (or closes when it went)
+            if (before is not null && Canvas.SelectedLabel == before && _editingLabel != before)
+            {
+                if (doc.Labels.Contains(before)) ShowLabelConfig(before); else BackToToolView();
+            }
         }
         RefreshMaps();
         PublishNow();
@@ -373,7 +400,12 @@ public partial class MainWindow
         SetEditingUi(false);
         client.StateReceived += (map, pkg) => Dispatcher.UIThread.Post(() => ApplyRemote(client, map, pkg));
         client.PingReceived += (n, x, y) => Dispatcher.UIThread.Post(() => { if (_client == client) OnClientPing(n, x, y); });
-        client.NoticeReceived += why => Dispatcher.UIThread.Post(() => { if (_client == client) StatusText.Text = $"the DM's map refused: {why}"; });
+        client.NoticeReceived += why => Dispatcher.UIThread.Post(() =>
+        {
+            if (_client != client) return;
+            _pendingLabels.Clear(); // a refused label is not coming back
+            StatusText.Text = $"the DM's map refused: {why}";
+        });
         client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
         client.Start();
         RefreshSessionUi();
@@ -387,6 +419,7 @@ public partial class MainWindow
         Canvas.Presets = pkg.Presets;
         Canvas.ObjectTypes = pkg.Objects;
         Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
+        KeepOpenLabel(pkg.Map);
         Canvas.RemoteDocument = pkg.Map;
         if (Canvas.PlayerArmed is { } armed && !PlayerPawns.Controlled(pkg.Library.Find(armed))) Canvas.PlayerArmed = null;
         RefreshPlayerPawnsPanel();
@@ -396,8 +429,48 @@ public partial class MainWindow
         RefreshSessionUi();
     }
 
+    // labels a player sent that the DM's map has not shown back yet
+    private readonly HashSet<string> _pendingLabels = new();
+
+    /// the map label views and commits work on: the DM's open map, or the
+    /// received map while joined
+    private MapDocument LabelDoc => _client is not null ? Canvas.Document : _doc;
+
+    /// after a label edit: an undo step for the DM, sent to the DM for a player
+    private void CommitLabel(MapLabel label)
+    {
+        if (_client is not null) SendLabelToHost(label);
+        else ActiveHistory.Commit(_doc);
+    }
+
+    private void SendLabelToHost(MapLabel label)
+    {
+        if (_client is not { } cl || !PlayerLabels.Editable(label)) return;
+        _pendingLabels.Add(label.Id);
+        var copy = label.CopyAt(label.Cell); // the wire copy is taken off the ui thread
+        _ = System.Threading.Tasks.Task.Run(() => cl.SendLabel(copy));
+    }
+
+    // a new map from the DM replaces every label object. the label the player
+    // has open (view or on map editor) keeps its object, so typing goes on;
+    // a label the DM removed or took back closes
+    private void KeepOpenLabel(MapDocument incoming)
+    {
+        foreach (var l in incoming.Labels) _pendingLabels.Remove(l.Id);
+        var open = _editingLabel ?? Canvas.SelectedLabel;
+        if (open is null || open.Id.Length == 0 || !(Canvas.RemoteDocument?.Labels.Contains(open) ?? false)) return;
+        int i = incoming.Labels.FindIndex(l => l.Id == open.Id);
+        if (i >= 0 && PlayerLabels.Editable(incoming.Labels[i])) { incoming.Labels[i] = open; return; }
+        if (i < 0 && _pendingLabels.Contains(open.Id)) { incoming.Labels.Add(open); return; }
+        if (_editingLabel == open) EndLabelEdit(false);
+        Canvas.SelectedLabel = null;
+        if (Canvas.Mode == ToolMode.Label) BackToToolView();
+        StatusText.Text = "the DM took that label back";
+    }
+
     private void LeavePlayerMode(string reason)
     {
+        _pendingLabels.Clear();
         var c = _client;
         _client = null;
         c?.Dispose();
@@ -415,7 +488,7 @@ public partial class MainWindow
     private void SetEditingUi(bool on)
     {
         foreach (var m in Enum.GetValues<ToolMode>())
-            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move;
+            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label;
         MenuFile.IsEnabled = on;
         MenuEdit.IsEnabled = on;
         MenuManage.IsEnabled = on;
@@ -424,13 +497,13 @@ public partial class MainWindow
         BtnManageMaps.IsEnabled = on;
     }
 
-    // keys while joined: esc, zoom to fit, measure, move and ping. everything
+    // keys while joined: esc, zoom to fit, measure, move, label and ping. everything
     // else is swallowed. true when handled here
     private bool PlayerKey(KeyEventArgs e)
     {
         if (e.Key == Key.Escape) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
-        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), AppSettings.PingHotkey })
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
     }

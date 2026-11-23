@@ -26,7 +26,8 @@ public sealed class PlayerPackage
 ///  - doors: on a sent wall and not DM only. vertex doors bring their two
 ///    straddled walls (a door implies its walls)
 ///  - stairs and pawns: on revealed cells, pawns not DM only
-///  - labels and objects: not DM only and covering at least one revealed cell
+///  - labels and objects: not DM only and covering at least one revealed cell.
+///    labels players made go wherever they are (the players placed them)
 ///  - the players' light (the DM's anchored fog circle), when set
 public static class PlayerView
 {
@@ -62,7 +63,7 @@ public static class PlayerView
             if (!p.DmOnly && shown.Contains(c))
                 v.Pawns[c] = new Pawn { Cell = c, TemplateId = p.TemplateId, Status = p.Status, DmOnly = false };
         foreach (var l in doc.Labels)
-            if (!l.DmOnly && AnyShown(shown, l.Cell.X, l.Cell.Y, l.W, l.H))
+            if (!l.DmOnly && (l.CreatedBy is not null || AnyShown(shown, l.Cell.X, l.Cell.Y, l.W, l.H)))
             {
                 var n = l.CopyAt(l.Cell);
                 n.DmOnly = false;

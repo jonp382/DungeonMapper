@@ -203,8 +203,8 @@ public partial class MainWindow
 
     private void ShowLabelConfig(MapLabel label)
     {
-        int index = _doc.Labels.IndexOf(label);
-        int count = _doc.Labels.Count;
+        int index = LabelDoc.Labels.IndexOf(label);
+        int count = LabelDoc.Labels.Count;
         var cell = label.Cell;
         ToolPanel.Clear("label");
         // the label tool shows resize handles on this label
@@ -239,12 +239,12 @@ public partial class MainWindow
             ShowSize();
             // undo and redo swap in new label objects, a view left on an old
             // one must not commit the restored map over the redo steps
-            if (!dirty || !_doc.Labels.Contains(label)) return;
+            if (!dirty || !LabelDoc.Labels.Contains(label)) return;
             dirty = false;
             if (label.Text == startText && label.FontSize == startSize) return;
             startText = label.Text;
             startSize = label.FontSize;
-            ActiveHistory.Commit(_doc);
+            CommitLabel(label);
         }
         TextBox? textBox = null;
         textBox = ToolPanel.AddText("text", label.Text, t =>
@@ -295,12 +295,24 @@ public partial class MainWindow
                 var a = Enum.Parse<LabelAlign>(v, ignoreCase: true);
                 if (a == label.Align) return;
                 label.Align = a;
-                ActiveHistory.Commit(_doc);
+                CommitLabel(label);
                 Canvas.Refresh();
                 FocusCanvas();
             },
             "alignment");
-        AddDmOnlyCheck(() => label.DmOnly, v => label.DmOnly = v);
+        if (_client is null)
+        {
+            AddDmOnlyCheck(() => label.DmOnly, v => label.DmOnly = v);
+            ToolPanel.AddCheck("players can edit", label.ClientEditable, v =>
+            {
+                if (v == label.ClientEditable) return;
+                label.ClientEditable = v;
+                if (v && label.Id.Length == 0) label.Id = MapLabel.NewId();
+                ActiveHistory.Commit(_doc);
+                FocusCanvas();
+            }, "players in a session can change and delete it");
+            if (label.CreatedBy is { } who) ToolPanel.AddInfo($"made by {who} (a player)");
+        }
 
         // color: off follows the settings label color, so changing that
         // setting recolors this label. on gives the label its own color, which
@@ -329,7 +341,7 @@ public partial class MainWindow
                 {
                     if (!colorDirty) return;
                     colorDirty = false;
-                    if (_doc.Labels.Contains(label)) ActiveHistory.Commit(_doc);
+                    if (LabelDoc.Labels.Contains(label)) CommitLabel(label);
                 };
             colorHost.Content = b;
         }
@@ -338,7 +350,7 @@ public partial class MainWindow
             if (on == label.HasOwnColor) return;
             if (on) (label.R, label.G, label.B) = (_settings.LabelR, _settings.LabelG, _settings.LabelB);
             else (label.R, label.G, label.B) = (-1, -1, -1);
-            ActiveHistory.Commit(_doc);
+            CommitLabel(label);
             Canvas.Refresh();
             ShowColorState();
         });
@@ -357,14 +369,25 @@ public partial class MainWindow
             {
                 label.FontSize = 0; label.R = -1; label.G = -1; label.B = -1;
                 label.Align = LabelAlign.Center;
-                ActiveHistory.Commit(_doc);
+                CommitLabel(label);
                 Canvas.Refresh();
                 // rebuild so every field shows the defaults
                 ShowLabelConfig(label);
             }),
             ("delete", true, () =>
             {
-                if (_doc.Labels.Remove(label)) AfterDelete("label");
+                if (_client is { } cl)
+                {
+                    if (!LabelDoc.Labels.Remove(label)) return;
+                    _pendingLabels.Remove(label.Id);
+                    var id = label.Id;
+                    _ = System.Threading.Tasks.Task.Run(() => cl.SendLabelDelete(id));
+                    Canvas.Refresh();
+                    BackToToolView();
+                    StatusText.Text = "label deleted";
+                    FocusCanvas();
+                }
+                else if (LabelDoc.Labels.Remove(label)) AfterDelete("label");
             }));
 
         // the same list position on the same cell, or any label on that cell.
@@ -372,7 +395,7 @@ public partial class MainWindow
         // number of labels the same list position is the same label
         SetReopen(() =>
         {
-            var labels = _doc.Labels;
+            var labels = LabelDoc.Labels;
             var again = index >= 0 && index < labels.Count && labels[index].Cell == cell
                 ? labels[index]
                 : labels.FirstOrDefault(l => l.Cell == cell)

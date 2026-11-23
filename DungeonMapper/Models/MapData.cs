@@ -190,6 +190,15 @@ public sealed class MapLabel
     /// hidden from players even on revealed cells (multiplayer). new items
     /// start hidden, files from before the flag load as visible
     public bool DmOnly { get; set; } = true;
+    /// multiplayer: players may edit and delete it (players' own labels start
+    /// that way, the DM can hand over any label). needs an Id
+    public bool ClientEditable { get; set; }
+    /// multiplayer: the joined name of the player who made it, null = the DM
+    public string? CreatedBy { get; set; }
+    /// stable id so players can address the label; "" until it needs one
+    public string Id { get; set; } = "";
+
+    public static string NewId() => Guid.NewGuid().ToString("N")[..12];
 
     /// true when the label has its own color, false when it follows the
     /// settings label color
@@ -205,6 +214,7 @@ public sealed class MapLabel
     {
         Cell = cell, W = W, H = H, Align = Align, Text = Text,
         FontSize = FontSize, R = R, G = G, B = B, DmOnly = DmOnly,
+        ClientEditable = ClientEditable, CreatedBy = CreatedBy, Id = Id,
     };
 }
 
@@ -1705,7 +1715,12 @@ public sealed partial class MapDocument
         foreach (var (c, s) in snap.Stairs)
             Stairs[new CellKey(c.X + dx, c.Y + dy)] = new Stair { Direction = s.Direction, TargetMap = s.TargetMap };
         foreach (var l in snap.Labels)
-            Labels.Add(l.CopyAt(new CellKey(l.Cell.X + dx, l.Cell.Y + dy)));
+        {
+            var nl = l.CopyAt(new CellKey(l.Cell.X + dx, l.Cell.Y + dy));
+            // a copy next to its original gets its own id (a move keeps it)
+            if (nl.Id.Length > 0 && Labels.Any(o => o.Id == nl.Id)) nl.Id = MapLabel.NewId();
+            Labels.Add(nl);
+        }
         foreach (var p in snap.Pawns)
             Pawns[new CellKey(p.Cell.X + dx, p.Cell.Y + dy)] = new Pawn
             {

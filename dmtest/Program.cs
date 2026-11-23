@@ -4738,6 +4738,188 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
+// --- multiplayer: player labels (model) ---
+{
+    var d = new MapDocument();
+    AddRoom(d, 0, 0, 5, 5);
+    d.SetRevealed(d.RevealRoomCells(new CellKey(1, 1)), true);
+    d.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "dm", DmOnly = false });
+    d.Labels.Add(new MapLabel { Cell = new CellKey(2, 2), Text = "open", DmOnly = false, ClientEditable = true, Id = "L1" });
+    var back = MapSerializer.FromJson(MapSerializer.ToJson(d));
+    var l1 = back.Labels.First(l => l.Text == "open");
+    Check(l1.ClientEditable && l1.Id == "L1" && l1.CreatedBy is null, "player labels: id and client editable are saved");
+    var dmL = back.Labels.First(l => l.Text == "dm");
+    Check(!dmL.ClientEditable && dmL.Id == "" && !MapSerializer.ToJson(new MapDocument { }).Contains("client_editable"), "player labels: plain labels save nothing new");
+
+    var sent = new MapLabel { Id = "P1", Cell = new CellKey(30, 30), Text = "trap!", W = 2, R = 900, G = 10, B = 10 };
+    Check(PlayerLabels.Set(d, sent, "Ana") is null, "player labels: a player adds a label");
+    var p1 = PlayerLabels.Find(d, "P1")!;
+    Check(p1.CreatedBy == "Ana" && p1.ClientEditable && !p1.DmOnly && p1.W == 2 && p1.R == 255, "player labels: marked as the player's, visible, color clamped");
+    Check(MapSerializer.FromJson(MapSerializer.ToJson(d)).Labels.Any(l => l.CreatedBy == "Ana" && l.Id == "P1"), "player labels: the creator is saved");
+    var edit = new MapLabel { Id = "P1", Cell = new CellKey(3, 3), Text = "trap here", Align = LabelAlign.Left, FontSize = 20 };
+    Check(PlayerLabels.Set(d, edit, "Bo") is null && p1.Text == "trap here" && p1.Cell == new CellKey(3, 3) && p1.Align == LabelAlign.Left && p1.FontSize == 20 && p1.CreatedBy == "Ana" && !p1.HasOwnColor,
+        "player labels: another player edits it, the creator stays");
+    var dmLabel = d.Labels.First(l => l.Text == "dm");
+    dmLabel.Id = "D1";
+    Check(PlayerLabels.Set(d, new MapLabel { Id = "D1", Text = "hacked" }, "Bo") == "only the DM edits that label" && dmLabel.Text == "dm", "player labels: a DM label is refused");
+    Check(PlayerLabels.Delete(d, "D1") == "only the DM deletes that label", "player labels: deleting a DM label is refused");
+    p1.DmOnly = true;
+    Check(PlayerLabels.Set(d, edit, "Bo") is not null, "player labels: a label the DM hid can not be edited");
+    p1.DmOnly = false;
+    Check(PlayerLabels.Set(d, new MapLabel { Text = "x" }, "Bo") is not null, "player labels: a label without an id is refused");
+    var big = new MapLabel { Id = "P2", Text = new string('a', 5000), W = 9999 };
+    PlayerLabels.Set(d, big, "Bo");
+    Check(PlayerLabels.Find(d, "P2")!.Text.Length == PlayerLabels.MaxText && PlayerLabels.Find(d, "P2")!.W == PlayerLabels.MaxSpan, "player labels: text and size are capped");
+
+    // the players' copy: their own labels go anywhere, ids ride along
+    p1.Cell = new CellKey(40, 40);
+    var v = PlayerView.Build(d);
+    Check(v.Labels.Any(l => l.Id == "P1" && l.ClientEditable) && v.Labels.Any(l => l.Id == "D1" && !l.ClientEditable), "player labels: the players' copy carries ids and the editable flag");
+    dmLabel.Cell = new CellKey(40, 41);
+    Check(!PlayerView.Build(d).Labels.Any(l => l.Id == "D1"), "player labels: a DM label off the revealed floor still stays back");
+    var vw = MapSerializer.PackageFromWire(MapSerializer.PackageToWire(new PlayerPackage { Map = v }));
+    Check(vw.Map.Labels.Any(l => l.Id == "P1" && l.ClientEditable && l.CreatedBy == "Ana"), "player labels: the flag crosses the wire");
+    Check(PlayerLabels.Delete(d, "P1") is null && PlayerLabels.Find(d, "P1") is null, "player labels: a player deletes one");
+
+    // copy keeps ids unique, a move keeps the id
+    var m = new MapDocument();
+    AddRoom(m, 0, 0, 3, 3);
+    m.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "a", Id = "X", ClientEditable = true });
+    var snap = m.CaptureRegion(0, 0, 3, 3);
+    m.PasteRegion(snap, 10, 10);
+    Check(m.Labels.Count == 2 && m.Labels.Select(l => l.Id).Distinct().Count() == 2 && m.Labels.All(l => l.ClientEditable), "player labels: a pasted copy gets its own id");
+    var m2 = new MapDocument();
+    m2.PasteRegion(snap, 5, 5);
+    Check(m2.Labels.Single().Id == "X", "player labels: a moved label keeps its id");
+}
+
+// --- multiplayer: player labels (canvas) ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    var r = new MapDocument();
+    AddRoom(r, 0, 0, 5, 5);
+    r.SetRevealed(r.FloorCells(), true);
+    r.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "dm", DmOnly = false, Id = "D" });
+    r.Labels.Add(new MapLabel { Cell = new CellKey(3, 3), Text = "ours", DmOnly = false, Id = "P", ClientEditable = true });
+    c.RemoteDocument = r;
+    c.Mode = ToolMode.Label;
+    var changed = new List<MapLabel>();
+    var opened = new List<MapLabel>();
+    c.RemoteLabelChanged += l => changed.Add(l);
+    c.LabelConfigRequested += l => opened.Add(l);
+    int commits = h.CommitCount;
+    h.Click(1, 1);
+    Check(opened.Count == 0 && h.LastStatus == "only the DM edits that label", "player labels canvas: a DM label does not open");
+    h.Click(3, 3);
+    Check(opened.Count == 1 && opened[0].Id == "P", "player labels canvas: a players' label opens");
+    h.Drag(0, 4, 2, 4);
+    var made = c.Document.Labels.LastOrDefault();
+    Check(changed.Count == 1 && made is not null && made.W == 3 && made.ClientEditable && made.Id.Length > 0 && !made.DmOnly, "player labels canvas: a drag adds a label and sends it");
+    Check(h.CommitCount == commits && h.Doc.Labels.Count == 0, "player labels canvas: the own map is untouched");
+    c.Mode = ToolMode.Room;
+    h.Drag(0, 0, 2, 2);
+    Check(c.Document.Cells.Count == r.Cells.Count, "player labels canvas: other tools still do nothing");
+    c.RemoteDocument = null;
+}
+
+// --- multiplayer: player labels (two windows) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var dmDoc = dmCanvas.Document;
+        AddRoom(dmDoc, 0, 0, 5, 5);
+        dmDoc.SetRevealed(dmDoc.FloorCells(), true);
+        dmDoc.Labels.Add(new MapLabel { Cell = new CellKey(1, 1), Text = "dm label", DmOnly = false });
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(dm)!).Commit(dmDoc);
+
+        step = "host";
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "labels window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        CallOn(pl, "EnterPlayerMode", client);
+        Check(WaitFor(() => plCanvas.RemoteDocument?.Labels.Count == 1), "labels window: the player sees the DM's map");
+        var labelBtn = (Avalonia.Controls.Button)FieldOf(pl, "ToolLabel")!;
+        Check(labelBtn.IsEnabled, "labels window: the label tool is on for players");
+
+        step = "player adds";
+        CallOn(pl, "SetTool", ToolMode.Label);
+        var mine = new MapLabel { Cell = new CellKey(4, 4), Text = "loot", Id = MapLabel.NewId(), ClientEditable = true, DmOnly = false };
+        plCanvas.Document.Labels.Add(mine);
+        CallOn(pl, "SendLabelToHost", mine);
+        Check(WaitFor(() => dmDoc.Labels.Any(l => l.Text == "loot" && l.CreatedBy == "Dee")), "labels window: a player's label lands on the DM's map, marked with the player");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Labels.Count(l => l.Id == mine.Id) == 1), "labels window: it comes back once");
+
+        step = "player edits in the view";
+        var shownMine = plCanvas.Document.Labels.First(l => l.Id == mine.Id);
+        CallOn(pl, "ShowLabelConfig", shownMine);
+        shownMine.Text = "loot!!";
+        CallOn(pl, "CommitLabel", shownMine);
+        Check(WaitFor(() => dmDoc.Labels.Any(l => l.Text == "loot!!")), "labels window: an edit in the label view reaches the DM");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Labels.Any(l => l.Text == "loot!!")) && plCanvas.Document.Labels.Contains(shownMine), "labels window: the open label keeps its object over a DM update");
+
+        step = "DM takes it back";
+        var onDm = dmDoc.Labels.First(l => l.Text == "loot!!");
+        onDm.ClientEditable = false;
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Labels.Any(l => l.Text == "loot!!" && !l.ClientEditable)) && plCanvas.SelectedLabel is null, "labels window: a label the DM takes back closes for the player");
+        onDm.ClientEditable = true;
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Labels.Any(l => l.Text == "loot!!" && l.ClientEditable)), "labels window: and opens up again");
+
+        step = "refused";
+        var dmL = plCanvas.Document.Labels.First(l => l.Text == "dm label");
+        dmL.Text = "hacked"; dmL.Id = "fake"; dmL.ClientEditable = true;
+        CallOn(pl, "SendLabelToHost", dmL);
+        Check(WaitFor(() => dmDoc.Labels.Count(l => l.Text == "hacked") == 1) && dmDoc.Labels.Any(l => l.Text == "dm label"),
+            "labels window: a forged id only adds a new player label, the DM's label stays");
+
+        step = "delete and undo";
+        var status = (Avalonia.Controls.TextBlock)FieldOf(dm, "StatusText")!;
+        Task.Run(() => client.SendLabelDelete(mine.Id)).Wait();
+        Check(WaitFor(() => !dmDoc.Labels.Any(l => l.Text == "loot!!")), "labels window: a player deletes a label on the DM's map");
+        Check(status.Text.Contains("Dee deleted a label"), "labels window: the DM's status bar says who");
+        CallOn(dm, "DoUndo");
+        Check(dmCanvas.Document.Labels.Any(l => l.Text == "loot!!"), "labels window: the DM can undo it");
+
+        step = "DM view";
+        CallOn(dm, "SetTool", ToolMode.Label);
+        CallOn(dm, "ShowLabelConfig", dmCanvas.Document.Labels.First(l => l.Text == "dm label"));
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"labels window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 // --- multiplayer: players' light ---
 {
     using var h = new CanvasHarness();

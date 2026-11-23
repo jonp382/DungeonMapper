@@ -45,6 +45,12 @@ public sealed class SessionClient : IDisposable
     public Task SendPawnPlace(string templateId, CellKey at) =>
         Send(new NetMessage { Type = "pawn_place", TemplateId = templateId, X = at.X, Y = at.Y });
 
+    /// asks the DM to add or change a label (by its id)
+    public Task SendLabel(MapLabel l) => Send(new NetMessage { Type = "label_set", Label = MapSerializer.LabelToDto(l) });
+
+    /// asks the DM to delete a label
+    public Task SendLabelDelete(string id) => Send(new NetMessage { Type = "label_delete", Id = id });
+
     private async Task Send(NetMessage m)
     {
         await _writeLock.WaitAsync();

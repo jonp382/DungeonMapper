@@ -28,6 +28,16 @@ public sealed class PawnRequest
     internal object? Peer { get; init; }
 }
 
+/// a player adds or changes a label (Label, carrying its id) or deletes one
+/// (Label null, DeleteId). the DM's app checks it against the real map
+public sealed class LabelRequest
+{
+    public required string Name { get; init; }
+    public MapLabel? Label { get; init; }
+    public string DeleteId { get; init; } = "";
+    internal object? Peer { get; init; }
+}
+
 public sealed class SessionHost : IDisposable
 {
     private sealed class Peer
@@ -58,6 +68,8 @@ public sealed class SessionHost : IDisposable
     public event Action<string, int, int>? PingReceived;
     /// a player asked to move or place one of their heroes
     public event Action<PawnRequest>? PawnRequested;
+    /// a player added, changed or deleted a label
+    public event Action<LabelRequest>? LabelRequested;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -150,9 +162,23 @@ public sealed class SessionHost : IDisposable
     }
 
     /// tells the player who sent the request why it was refused
-    public void Notice(PawnRequest r, string reason)
+    public void Notice(PawnRequest r, string reason) => Notice(r.Peer, reason);
+    public void Notice(LabelRequest r, string reason) => Notice(r.Peer, reason);
+
+    private void Notice(object? peer, string reason)
     {
-        if (r.Peer is Peer p) _ = Task.Run(() => Send(p, new NetMessage { Type = "notice", Reason = reason }));
+        if (peer is Peer p) _ = Task.Run(() => Send(p, new NetMessage { Type = "notice", Reason = reason }));
+    }
+
+    private void OnLabel(Peer from, NetMessage m)
+    {
+        if (m.Type == "label_delete")
+        {
+            if (!string.IsNullOrEmpty(m.Id)) LabelRequested?.Invoke(new LabelRequest { Name = from.Name, DeleteId = m.Id, Peer = from });
+            return;
+        }
+        if (m.Label is null || MapSerializer.LabelFromDto(m.Label) is not { } l) return;
+        LabelRequested?.Invoke(new LabelRequest { Name = from.Name, Label = l, Peer = from });
     }
 
     private void OnPawn(Peer from, NetMessage m)
@@ -238,11 +264,12 @@ public sealed class SessionHost : IDisposable
             NetMessage? state;
             lock (_gate) state = _state;
             if (state is not null) await SendState(peer, state);
-            // players send pings and pawn requests; read until they leave
+            // players send pings, pawn and label requests; read until they leave
             while (await NetProtocol.ReadAsync(s, ct) is { } m)
             {
                 if (m.Type == "ping") OnPing(peer, m);
                 else if (m.Type is "pawn_move" or "pawn_place") OnPawn(peer, m);
+                else if (m.Type is "label_set" or "label_delete") OnLabel(peer, m);
             }
         }
         catch (Exception) { }

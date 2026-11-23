@@ -27,6 +27,8 @@ namespace DungeonMapper.Net;
 //   player -> host  pawn_move  (x,y -> to_x,to_y) and pawn_place (template
 //                           id, x,y): the player's own heroes. the DM's app
 //                           checks and applies them to the real map
+//   player -> host  label_set (a label with its id: new or changed) and
+//                           label_delete (id): labels players may edit
 //   host -> player  notice  (reason) when it refuses one
 // discovery: the host broadcasts a beacon over udp every couple of seconds.
 public static class NetProtocol
@@ -136,5 +138,8 @@ public sealed class NetMessage
     [JsonPropertyName("to_x")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ToX { get; set; }
     [JsonPropertyName("to_y")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? ToY { get; set; }
     [JsonPropertyName("template_id")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? TemplateId { get; set; }
+    // a label a player adds or changes, a label id to delete
+    [JsonPropertyName("label")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public LabelDto? Label { get; set; }
+    [JsonPropertyName("id")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Id { get; set; }
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
 }

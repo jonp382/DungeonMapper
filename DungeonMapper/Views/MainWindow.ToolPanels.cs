@@ -86,6 +86,11 @@ public partial class MainWindow
                 _toolInfo = ToolPanel.AddInfo("");
                 break;
 
+            case ToolMode.Label when _client is not null:
+                ToolPanel.Clear("label");
+                ToolPanel.AddHint("click a cell to add a label, drag a range for a label that spans it. it goes on the DM's map for everyone. click a label players can edit to change or delete it; the others are the DM's.");
+                break;
+
             case ToolMode.Label:
                 ToolPanel.Clear("label");
                 ToolPanel.AddHint("click a cell to place a label, drag a range for a label that spans it. click a label to edit it.");
