@@ -103,15 +103,23 @@ public sealed partial class MapCanvas
     }
 
     // on a player's screen (and the DM's preview): revealed floor outside the
-    // lit circle is dimmed with the viewer's fog settings
+    // lit circle is dimmed with the viewer's fog settings, and so are the
+    // cells under images (players get images off the revealed floor too,
+    // like handouts beside the map). one fill, so overlaps are not dimmed twice
     private void DrawUnlit(DrawingContext ctx)
     {
         if (!ReadOnlyView || Document.PlayerLight is not { } l) return;
         byte alpha = (byte)Math.Clamp(Settings.FogOpacity * 255 / 100, 0, 255);
         if (alpha == 0) return;
         var lit = new HashSet<CellKey>(CellsInRadius(new Point(l.x, l.y), l.radius));
+        var dim = new HashSet<CellKey>(Document.Revealed);
+        foreach (var im in Document.Images)
+            for (int y = im.Y; y < im.Y + im.H; y++)
+                for (int x = im.X; x < im.X + im.W; x++)
+                    dim.Add(new CellKey(x, y));
+        dim.ExceptWith(lit);
         var col = FogColor;
-        FillCellRuns(ctx, Document.Revealed.Where(c => !lit.Contains(c)), new SolidColorBrush(Color.FromArgb(alpha, col.R, col.G, col.B)));
+        FillCellRuns(ctx, dim, new SolidColorBrush(Color.FromArgb(alpha, col.R, col.G, col.B)));
     }
 
     /// shift+scroll: +1 grows the radius by one step, -1 shrinks it

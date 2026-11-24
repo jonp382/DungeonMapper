@@ -5242,6 +5242,38 @@ string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
     c.RemoteDocument = null;
 }
 
+// --- images: players' light dims them ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    ImageStore.Folder = imgDir;
+    var red = ImageStore.FromFile(Path.Combine(imgDir, "sub", "Statue.png"))!;
+    AddRoom(h.Doc, 0, 0, 8, 5);
+    h.Doc.SetRevealed(h.Doc.FloorCells(), true);
+    MapImage Img(int x, int y, int w, int hh) { var i = red.Copy(); i.Id = Guid.NewGuid().ToString("N"); i.X = x; i.Y = y; i.W = w; i.H = hh; i.Fit = ImageFit.Stretch; i.DmOnly = false; return i; }
+    h.Doc.Images.Add(Img(1, 1, 1, 1));   // lit, on floor
+    h.Doc.Images.Add(Img(6, 3, 1, 1));   // unlit, on revealed floor
+    h.Doc.Images.Add(Img(12, 2, 2, 2));  // unlit, beside the map (no floor)
+    h.Doc.PlayerLight = (1.5, 1.5, 1);
+    c.Mode = ToolMode.Measure;
+    c.RemoteDocument = PlayerView.Build(h.Doc);
+    foreach (var im in c.Document.Images)
+        for (int i = 0; i < 100 && c.ImageState(im).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
+    Check(c.Document.Images.Count == 3 && c.Document.Images.All(im => c.ImageState(im).bitmap is not null), "images light: the player's pictures load");
+    var bmp = h.Render();
+    (byte r, byte g, byte b, byte a) At(int cx, int cy) => h.PixelAt(bmp, (int)h.ScreenOf(cx, cy).X, (int)h.ScreenOf(cx, cy).Y);
+    var lit = At(1, 1); var onFloor = At(6, 3); var beside = At(12, 2);
+    Check(lit.r > 200 && lit.g < 60, "images light: an image in the lit circle is not dimmed");
+    Check(beside.r < lit.r, "images light: an image beside the map outside the light is dimmed for players");
+    Check(beside == onFloor, "images light: an image on unlit revealed floor is dimmed once, same as one beside the map");
+    c.RemoteDocument = null;
+    c.Mode = ToolMode.Select;
+    foreach (var im in h.Doc.Images)
+        for (int i = 0; i < 100 && c.ImageState(im).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
+    bmp = h.Render();
+    Check(At(12, 2) == lit, "images light: the DM's own view does not dim images");
+}
+
 // --- images: window smoke test ---
 {
     string step = "construct";
