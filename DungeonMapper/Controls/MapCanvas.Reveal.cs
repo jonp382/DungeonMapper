@@ -216,6 +216,7 @@ public sealed partial class MapCanvas
         }
         foreach (var l in Document.Labels) if (l.DmOnly) Box(l.Cell.X, l.Cell.Y, l.Cell.X + l.W, l.Cell.Y + l.H, 0.06);
         foreach (var o in Document.Objects) if (o.DmOnly) Box(o.X, o.Y, o.X + o.W, o.Y + o.H, 0.02);
+        foreach (var im in Document.Images) if (im.DmOnly) Box(im.X, im.Y, im.X + im.W, im.Y + im.H, 0.04);
         foreach (var (c, p) in Document.Pawns)
             if (p.DmOnly)
             {

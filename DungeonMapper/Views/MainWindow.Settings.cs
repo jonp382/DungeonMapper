@@ -146,6 +146,17 @@ public partial class MainWindow
         SettingsResetAll.Click += (_, _) => ConfirmFlyout(SettingsResetAll,
             "put every setting on this page back to its default? door presets and hotkeys are not touched.",
             ResetAllSettings, "reset all");
+        SetImagesFolder.Click += async (_, _) =>
+        {
+            var start = ImageStore.FolderOk ? await StorageProvider.TryGetFolderFromPathAsync(ImageStore.Folder) : null;
+            var picked = await StorageProvider.OpenFolderPickerAsync(new Avalonia.Platform.Storage.FolderPickerOpenOptions
+            {
+                Title = "images folder", AllowMultiple = false, SuggestedStartLocation = start,
+            });
+            if (picked.Count == 0 || picked[0].TryGetLocalPath() is not { } path) return;
+            SetImagesFolderPath(path);
+        };
+        ResetImagesFolder.Click += (_, _) => SetImagesFolderPath("");
         SettingsExport.Click += async (_, _) => await ExportSettings();
         SettingsImport.Click += async (_, _) => await ImportSettings();
     }
@@ -197,6 +208,7 @@ public partial class MainWindow
         SetLabelText.Classes.Remove("invalid");
         SetLabelTextError.IsVisible = false;
         RefreshSettingResets();
+        RefreshImagesFolderText();
         _settingsLoading = false;
     }
 
@@ -218,6 +230,25 @@ public partial class MainWindow
         foreach (var n in _numberSettings) n.Reset.IsVisible = n.Get(_settings) != n.Get(SettingDefaults);
         foreach (var c in _colorSettings) c.Reset.IsVisible = c.Get(_settings) != c.Get(SettingDefaults);
         ResetLabelText.IsVisible = _settings.DefaultLabelText != SettingDefaults.DefaultLabelText;
+    }
+
+    private void SetImagesFolderPath(string path)
+    {
+        _settings.ImagesFolder = path;
+        ImageStore.Folder = path;
+        ImageStore.Forget();
+        Canvas.ReloadImages();
+        MarkSetting();
+        RefreshImagesFolderText();
+        RefreshImagePanel();
+        StatusText.Text = path.Length == 0 ? "images folder cleared" : $"images folder: {path}";
+    }
+
+    private void RefreshImagesFolderText()
+    {
+        var f = _settings.ImagesFolder;
+        SetImagesFolderText.Text = f.Length == 0 ? "not set" : Directory.Exists(f) ? f : f + " (not found)";
+        ResetImagesFolder.IsEnabled = f.Length > 0;
     }
 
     private void SettingChanged()

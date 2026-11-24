@@ -25,6 +25,8 @@ public partial class MainWindow
         if (Canvas.SelectedObjectId is not null) { Canvas.SelectedObjectId = null; Canvas.Refresh(); }
         // and the label resize handles to an open label view
         if (Canvas.SelectedLabel is not null) { Canvas.SelectedLabel = null; Canvas.Refresh(); }
+        if (Canvas.SelectedImageId is not null) { Canvas.SelectedImageId = null; Canvas.Refresh(); }
+        _imageViewId = null;
         switch (mode)
         {
             case ToolMode.Erase:
@@ -106,6 +108,10 @@ public partial class MainWindow
                 BuildObjectPanel();
                 break;
 
+            case ToolMode.Image:
+                BuildImagePanel();
+                break;
+
             case ToolMode.Measure:
                 BuildMeasurePanel();
                 break;
@@ -159,8 +165,8 @@ public partial class MainWindow
 
         void BuildChips()
         {
-            bool all = f.Cells && f.Walls && f.Stairs && f.Labels && f.Pawns && f.Objects;
-            bool none = !(f.Cells || f.Walls || f.Stairs || f.Labels || f.Pawns || f.Objects);
+            bool all = f.Cells && f.Walls && f.Stairs && f.Labels && f.Pawns && f.Objects && f.Images;
+            bool none = !(f.Cells || f.Walls || f.Stairs || f.Labels || f.Pawns || f.Objects || f.Images);
             chips.Children.Clear();
             chips.Children.Add(Chip("all", all, null, () => SetAll(true)));
             chips.Children.Add(Chip("none", none, null, () => SetAll(false)));
@@ -182,6 +188,7 @@ public partial class MainWindow
         Add("labels", f.Labels, v => f.Labels = v);
         Add("pawns", f.Pawns, v => f.Pawns = v);
         Add("objects (any part in the area)", f.Objects, v => f.Objects = v);
+        Add("images (any part in the area)", f.Images, v => f.Images = v);
         BuildChips();
     }
 
@@ -198,6 +205,7 @@ public partial class MainWindow
         ToolMode.Door => DoorInfo(doc, doorType),
         ToolMode.Stair => $"{Plural(doc.Stairs.Count, "stair")} on this map",
         ToolMode.Label => $"{Plural(doc.Labels.Count, "label")} on this map",
+        ToolMode.Image => $"{Plural(doc.Images.Count, "image")} on this map",
         ToolMode.Room or ToolMode.Floor => $"{Plural(doc.Cells.Count, "floor cell")} on this map",
         ToolMode.Reveal => RevealInfo(doc),
         _ => "",

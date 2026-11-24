@@ -39,7 +39,7 @@ public sealed partial class MapCanvas
 
     private bool PlayerPawnsActive => _remote is not null && Mode == ToolMode.Move;
     /// the tools a joined player edits with (the measure tool only reads)
-    private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label or ToolMode.Pawn;
+    private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
     /// a joined player added or changed a label (shown here, not yet kept)
     public event Action<MapLabel>? RemoteLabelChanged;
 

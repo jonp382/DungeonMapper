@@ -56,6 +56,7 @@ public partial class MainWindow
             Kind("doors", RevealItems.Doors);
             Kind("objects", RevealItems.Objects);
             Kind("pawns", RevealItems.Pawns);
+            Kind("images", RevealItems.Images);
             _toolInfo = ToolPanel.AddInfo("");
             ToolPanel.AddButton("make all ticked visible", () => { int n = Canvas.SetAllDmOnly(false); StatusText.Text = $"{Plural(n, "item")} now visible to players"; FocusCanvas(); });
             ToolPanel.AddButton("make all ticked DM only", () => { int n = Canvas.SetAllDmOnly(true); StatusText.Text = $"{Plural(n, "item")} now DM only"; FocusCanvas(); });
@@ -69,9 +70,9 @@ public partial class MainWindow
     {
         var floor = doc.FloorCells();
         int shown = floor.Count(doc.Revealed.Contains);
-        var (l, d, o, p) = doc.DmOnlyCounts();
+        var (l, d, o, p, im) = doc.DmOnlyCounts();
         return $"{shown} of {Plural(floor.Count, "floor cell")} revealed\n"
-             + $"DM only: {Plural(l, "label")}, {Plural(d, "door")}, {Plural(o, "object")}, {Plural(p, "pawn")}";
+             + $"DM only: {Plural(l, "label")}, {Plural(d, "door")}, {Plural(o, "object")}, {Plural(p, "pawn")}, {Plural(im, "image")}";
     }
 }
 

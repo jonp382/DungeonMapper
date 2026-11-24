@@ -3945,7 +3945,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(rDoc.ItemsIn(0, 0, 3, 3, RevealItems.Pawns).Count == 2 && rDoc.ItemsIn(0, 0, 3, 3, RevealItems.Labels | RevealItems.Objects).Count == 3,
         "reveal: the kind filter picks what is found");
     Check(rDoc.SetDmOnly(0, 0, 3, 3, RevealItems.Pawns, false) == 1 && rDoc.Pawns.Values.All(p => !p.DmOnly), "reveal: a box marks pawns visible, counting only changes");
-    var (lc, dc, oc, pc) = rDoc.DmOnlyCounts();
+    var (lc, dc, oc, pc, _) = rDoc.DmOnlyCounts();
     Check(lc == 1 && dc == 1 && oc == 1 && pc == 0, "reveal: DM only counts per kind");
 
     // revealing is an unsaved change
@@ -5061,6 +5061,307 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     c.ClearPlayerLight();
     Check(h.Doc.PlayerLight is null, "light: clear removes it");
 }
+
+// --- images: model and folder ---
+string imgDir = Path.Combine(Path.GetTempPath(), "dmtest_images_" + Guid.NewGuid().ToString("N")[..8]);
+string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
+{
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+    using var bmp = new SkiaSharp.SKBitmap(w, h);
+    bmp.Erase(color);
+    using var data = bmp.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+    File.WriteAllBytes(path, data.ToArray());
+    return path;
+}
+{
+    Check(MapImage.NaturalCells(400, 200) == (4, 2) && MapImage.NaturalCells(40, 40) == (1, 1) && MapImage.NaturalCells(400, 200, 1) == (2, 4),
+        "images: a click size is the picture at 100 px per cell, at least 1, turned swaps");
+    Check(MapImage.Shaped(6, 1, 3.0, true) == (6, 2) && MapImage.Shaped(1, 3, 3.0, false) == (9, 3), "images: keep shape follows the leading side");
+    Check(ImageStore.CleanPath("a\\b.png") == "a/b.png" && ImageStore.CleanPath("../x.png") is null && ImageStore.CleanPath("/etc/x.png") is null
+        && ImageStore.CleanPath("C:/x.png") is null && ImageStore.CleanPath("a/./b.png") is null && ImageStore.CleanPath("") is null,
+        "images: stored paths stay inside the folder");
+
+    ImageStore.Folder = "";
+    Check(!ImageStore.FolderOk && ImageStore.Resolve("a.png", "") is null, "images: no folder resolves nothing");
+    var statue = WritePng(Path.Combine(imgDir, "sub", "Statue.png"), 300, 100, SkiaSharp.SKColors.Red);
+    var outside = WritePng(Path.Combine(Path.GetTempPath(), "dmtest_outside_" + Guid.NewGuid().ToString("N")[..6] + ".png"), 50, 50, SkiaSharp.SKColors.Blue);
+    ImageStore.Folder = imgDir;
+    ImageStore.Forget();
+    Check(ImageStore.Relative(statue) == "sub/Statue.png" && ImageStore.Relative(outside) is null, "images: a file's path inside the folder, none outside it");
+    Check(ImageStore.Resolve("SUB/statue.PNG", "") is { } ci && Path.GetFileName(ci) == "Statue.png", "images: paths match ignoring letter case");
+    var hash = ImageStore.HashFile(statue);
+    Check(ImageStore.Resolve("moved/gone.png", hash) == statue, "images: a renamed or moved file is found by its hash");
+    Check(ImageStore.Resolve("moved/gone.png", "0000000000000000") is null, "images: a missing file with an unknown hash is missing");
+    var made = ImageStore.FromFile(statue);
+    Check(made.Path == "sub/Statue.png" && made.Hash == hash && made.PixelW == 300 && made.PixelH == 100 && made.W == 3 && made.H == 1,
+        "images: a picked file gives its path, hash, pixel size and click size");
+    var copied = ImageStore.CopyIn(outside);
+    Check(Path.GetDirectoryName(copied) == imgDir && File.Exists(copied), "images: a file from outside is copied into the folder");
+    Check(ImageStore.CopyIn(outside) == copied, "images: copying the same file again reuses the copy");
+    var other = WritePng(Path.Combine(Path.GetTempPath(), "dmtest_o2", Path.GetFileName(outside)), 60, 60, SkiaSharp.SKColors.Green);
+    Check(Path.GetFileName(ImageStore.CopyIn(other)).Contains("(2)"), "images: a different file with the same name gets a new name");
+    Check(ImageStore.ImageFiles().Count() == 3, "images: the folder lists its pictures, subfolders too");
+
+    // saving: only the reference
+    var d = new MapDocument();
+    var im = made.Copy(newId: true); im.X = 2; im.Y = 3; im.Fit = ImageFit.Fill; im.KeepShape = false; im.Turns = 1; im.DmOnly = true; im.CreatedBy = "Ana";
+    d.Images.Add(im);
+    var ijson = MapSerializer.ToJson(d);
+    Check(ijson.Contains("\"images\"") && ijson.Contains("sub/Statue.png") && !ijson.Contains("iVBOR"), "images: the map file holds the path, not the picture");
+    var back = MapSerializer.FromJson(ijson).Images.Single();
+    Check(back.Id == im.Id && (back.X, back.Y, back.W, back.H) == (2, 3, 3, 1) && back.Path == im.Path && back.Hash == hash
+        && back.PixelW == 300 && back.PixelH == 100 && back.Fit == ImageFit.Fill && !back.KeepShape && back.Turns == 1 && back.DmOnly && back.CreatedBy == "Ana",
+        "images: every field survives a save and load");
+    var evil = ijson.Replace("sub/Statue.png", "../../etc/passwd");
+    Check(MapSerializer.FromJson(evil).Images.Count == 0, "images: a path leaving the folder is dropped on load");
+    Check(MapSerializer.FromJson(MapSerializer.ToJson(new MapDocument()).Replace(",\n  \"images\": []", "")).Images.Count == 0, "images: older files load with none");
+    var proj = new MapProject(); proj.Maps[0].Doc.Images.Add(im.Copy());
+    Check(MapSerializer.ProjectFromJson(MapSerializer.ProjectToJson(proj)).Maps[0].Doc.Images.Count == 1, "images: campaign files keep them");
+
+    // select, copy, rotate, erase
+    var snap = d.CaptureRegion(2, 3, 4, 3);
+    Check(snap.Images.Count == 1 && d.CaptureRegion(2, 3, 3, 3).Images.Count == 0, "images: a region takes an image when all of it is inside");
+    d.PasteRegion(snap, 10, 10);
+    Check(d.Images.Count == 2 && d.Images[1].Id != im.Id && (d.Images[1].X, d.Images[1].Y) == (10, 10), "images: a paste is a copy with its own id");
+    var rot = MapDocument.Rotate(snap, 1).Images.Single();
+    Check(rot.W == 1 && rot.H == 3 && rot.Turns == 0, "images: rotating a region swaps the box and turns the picture");
+    d.MoveRegion(2, 3, 4, 3, 5, 5);
+    Check(d.FindImage(im.Id) is { X: 5, Y: 5 }, "images: a move keeps the id");
+    var undo = new MapDocument(); undo.ApplyFrom(d);
+    Check(undo.Images.Count == 2 && !ReferenceEquals(undo.Images[0], d.Images[0]), "images: undo restore copies them");
+    Check(d.ContentBounds() is { } cb && cb.maxX >= 12, "images: they count for zoom to fit");
+    Check(d.ItemsIn(5, 5, 5, 5, RevealItems.Images).Count == 1 && d.DmOnlyCounts().images == 2, "images: the reveal tool sees them");
+
+    // players' copy and players' rules
+    var pv = new MapDocument();
+    AddRoom(pv, 0, 0, 5, 5);
+    pv.SetRevealed(pv.FloorCells().Where(c => c.X <= 2), true);
+    pv.Images.Add(new MapImage { Id = "vis", X = 1, Y = 1, Path = "a.png", DmOnly = false });
+    pv.Images.Add(new MapImage { Id = "dm", X = 1, Y = 2, Path = "secret.png", DmOnly = true });
+    pv.Images.Add(new MapImage { Id = "dark", X = 4, Y = 4, Path = "b.png", DmOnly = false });
+    pv.Images.Add(new MapImage { Id = "pl", X = 40, Y = 40, Path = "c.png", DmOnly = false, CreatedBy = "Ana" });
+    var pview = PlayerView.Build(pv);
+    Check(pview.Images.Select(i => i.Id).OrderBy(x => x).SequenceEqual(new[] { "pl", "vis" }), "images: players get visible images on revealed floor and players' images");
+    Check(!MapSerializer.ToJson(pview).Contains("secret.png"), "images: a DM only image's file name never reaches players");
+    Check(PlayerImages.Set(pv, new MapImage { Id = "new1", X = 0, Y = 0, Path = "d.png", DmOnly = true }, "Bo") is null
+        && pv.FindImage("new1") is { DmOnly: false, CreatedBy: "Bo" }, "images: a player's new image is visible and marked with the player");
+    Check(PlayerImages.Set(pv, new MapImage { Id = "dm", X = 0, Y = 0, Path = "x.png" }, "Bo") == "only the DM edits that image"
+        && pv.FindImage("dm")!.Path == "secret.png", "images: players can not change a DM only image");
+    Check(PlayerImages.Set(pv, new MapImage { Id = "vis", X = 2, Y = 2, W = 2, Path = "a.png", Fit = ImageFit.Stretch, DmOnly = true }, "Bo") is null
+        && pv.FindImage("vis") is { X: 2, W: 2, Fit: ImageFit.Stretch, DmOnly: false, CreatedBy: null }, "images: players change any visible image, it stays visible and keeps its maker");
+    Check(PlayerImages.Delete(pv, "dm") == "only the DM deletes that image" && PlayerImages.Delete(pv, "vis") is null && PlayerImages.Delete(pv, "vis") == "that image is gone",
+        "images: players delete only visible images");
+    var wire = MapSerializer.ImageToDto(new MapImage { Id = "w", Path = "a/b.png", W = 2, H = 3 });
+    Check(MapSerializer.ImageFromDto(wire) is { Path: "a/b.png", W: 2, H: 3 }, "images: the wire form round trips");
+    wire.Path = "../x.png";
+    Check(MapSerializer.ImageFromDto(wire) is null, "images: a player can not send a path out of the folder");
+    wire.Path = "a.png"; wire.Rect = "0,0,9999,1";
+    Check(MapSerializer.ImageFromDto(wire) is null, "images: nor a huge box");
+    try { File.Delete(outside); Directory.Delete(Path.GetDirectoryName(other)!, true); } catch { }
+}
+
+// --- images: canvas ---
+{
+    using var h = new CanvasHarness();
+    var c = h.Canvas;
+    ImageStore.Folder = imgDir;
+    var red = ImageStore.FromFile(Path.Combine(imgDir, "sub", "Statue.png"));
+    c.Mode = ToolMode.Image;
+    h.Click(1, 1);
+    Check(h.Doc.Images.Count == 0 && h.LastStatus.Contains("choose a picture"), "images canvas: nothing armed places nothing");
+    c.ArmedImage = red;
+    int commits = h.CommitCount;
+    h.Click(1, 1);
+    var first = h.Doc.Images.SingleOrDefault();
+    Check(first is { X: 1, Y: 1, W: 3, H: 1, DmOnly: true, Fit: ImageFit.Fit, KeepShape: true } && h.CommitCount == commits + 1 && first.Id != red.Id,
+        "images canvas: a click places the picture at its own size as one undo step, DM only");
+    Check(c.SelectedImageId == first!.Id, "images canvas: the new image is open");
+    h.Drag(1, 4, 3, 6);
+    Check(h.Doc.Images.Count == 2 && h.Doc.Images[1] is { X: 1, Y: 4, W: 3, H: 3 }, "images canvas: a drag places the dragged box");
+    var opened = new List<MapImage>();
+    c.ImageConfigRequested += i => opened.Add(i);
+    h.Click(2, 1);
+    Check(opened.LastOrDefault() == first && c.SelectedImageId == first.Id, "images canvas: clicking an image opens it");
+
+    // keep shape: drag the right handle out to x = 7, the box keeps 3:1
+    h.PressAt(h.ScreenWorld(4, 1.5));
+    h.MoveToAt(h.ScreenWorld(7, 1.5));
+    h.ReleaseAt(h.ScreenWorld(7, 1.5));
+    Check(first is { X: 1, Y: 1, W: 6, H: 2 }, "images canvas: resizing with keep shape keeps the picture's proportions");
+    first.KeepShape = false;
+    h.PressAt(h.ScreenWorld(7, 3));
+    h.MoveToAt(h.ScreenWorld(9, 5));
+    h.ReleaseAt(h.ScreenWorld(9, 5));
+    Check(first is { W: 8, H: 4 }, "images canvas: without keep shape the box stretches freely");
+    Check(MapCanvas.ResizedRect(new MapImage { X = 0, Y = 0, W = 4, H = 2, PixelW = 200, PixelH = 100 }, (-1, -1), new Avalonia.Point(-2, 0)) == (-2, -1, 6, 3),
+        "images canvas: a top left corner keeps the bottom right in place");
+
+    // drawing: the picture shows once loaded, a missing one draws a placeholder
+    c.ImageState(first);
+    for (int i = 0; i < 100 && c.ImageState(first).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
+    Check(c.ImageState(first).bitmap is not null, "images canvas: the picture loads from the folder");
+    first.Fit = ImageFit.Stretch;
+    var bmp = h.Render();
+    var px = h.PixelAt(bmp, (int)h.ScreenOf(3, 2).X, (int)h.ScreenOf(3, 2).Y);
+    Check(px.r > 200 && px.g < 60 && px.b < 60, "images canvas: the picture is drawn on the map");
+    h.Doc.Images.Add(new MapImage { X = 12, Y = 1, W = 2, H = 2, Path = "nope/missing.png" });
+    c.ImageState(h.Doc.Images[^1]);
+    for (int i = 0; i < 100 && c.ImageState(h.Doc.Images[^1]).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
+    Check(c.ImageState(h.Doc.Images[^1]).why == "missing", "images canvas: a file not in the folder is missing");
+    h.Render();
+    Check(true, "images canvas: a missing picture draws without failing");
+
+    // erase
+    c.Mode = ToolMode.Erase;
+    c.EraseFilter.Images = false;
+    h.Drag(12, 1, 12, 1);
+    Check(h.Doc.Images.Count == 3, "images canvas: erase leaves images when the filter is off");
+    c.EraseFilter.Images = true;
+    h.Drag(12, 1, 12, 1);
+    Check(h.Doc.Images.Count == 2, "images canvas: erase removes an image it touches");
+
+    // select tool opens it too
+    c.Mode = ToolMode.Select;
+    opened.Clear();
+    h.Click(2, 5);
+    Check(opened.Count == 1 && opened[0] == h.Doc.Images[1], "images canvas: the select tool opens an image");
+
+    // joined: placing goes to the DM, the own map is untouched
+    var r = new MapDocument();
+    AddRoom(r, 0, 0, 5, 5);
+    r.Images.Add(new MapImage { Id = "theirs", X = 4, Y = 4, Path = "a.png", DmOnly = false });
+    c.RemoteDocument = r;
+    c.Mode = ToolMode.Image;
+    c.ArmedImage = red;
+    var sent = new List<MapImage>();
+    c.RemoteImageChanged += i => sent.Add(i);
+    commits = h.CommitCount;
+    h.Click(0, 0);
+    Check(sent.Count == 1 && !sent[0].DmOnly && c.Document.Images.Count == 2 && h.CommitCount == commits && h.Doc.Images.Count == 2,
+        "images canvas: a player's image goes to the DM and shows at once");
+    c.RemoteDocument = null;
+}
+
+// --- images: window smoke test ---
+{
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        ImageStore.Folder = imgDir;
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        step = "tool"; Call("SetTool", ToolMode.Image);
+        var red = ImageStore.FromFile(Path.Combine(imgDir, "sub", "Statue.png"));
+        step = "arm"; Call("ArmImage", red);
+        Check(canvas.ArmedImage == red && canvas.Mode == ToolMode.Image, "images window: arming a picture picks the tool");
+        var im = red.Copy(newId: true);
+        canvas.Document.Images.Add(im);
+        step = "panel"; Call("BuildImagePanel");
+        step = "view"; Call("ShowImageConfig", im);
+        step = "undo"; Call("CommitImage", im);
+        im.W = 9;
+        Call("CommitImage", im);
+        Call("DoUndo");
+        Check(canvas.Document.Images.Single().W == 3, "images window: an image edit is an undo step");
+        step = "no folder"; ImageStore.Folder = ""; Call("BuildImagePanel");
+        Check(true, "images window: the image panel and view build");
+        w.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"images window: failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
+// --- images: player and DM (two windows) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        ImageStore.Folder = imgDir;
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var dmDoc = dmCanvas.Document;
+        AddRoom(dmDoc, 0, 0, 5, 5);
+        dmDoc.SetRevealed(dmDoc.FloorCells(), true);
+        dmDoc.Images.Add(new MapImage { Id = "dmvis", X = 1, Y = 1, Path = "sub/Statue.png", DmOnly = false });
+        dmDoc.Images.Add(new MapImage { Id = "dmhid", X = 2, Y = 2, Path = "sub/Statue.png", DmOnly = true });
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(dm)!).Commit(dmDoc);
+
+        step = "host";
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "images window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        CallOn(pl, "EnterPlayerMode", client);
+        Check(WaitFor(() => plCanvas.RemoteDocument?.Images.Count == 1), "images window: the player sees only the visible image");
+        Check(((Avalonia.Controls.Button)FieldOf(pl, "ToolImage")!).IsEnabled, "images window: the image tool is on for players");
+
+        step = "player places";
+        CallOn(pl, "SetTool", ToolMode.Image);
+        var mine = ImageStore.FromFile(Path.Combine(imgDir, "sub", "Statue.png"));
+        mine.Id = MapImage.NewId(); mine.X = 3; mine.Y = 3; mine.DmOnly = false;
+        plCanvas.Document.Images.Add(mine);
+        CallOn(pl, "SendImageToHost", mine);
+        Check(WaitFor(() => dmDoc.Images.Any(i => i.Id == mine.Id && i.CreatedBy == "Dee" && !i.DmOnly)), "images window: a player's image lands on the DM's map, marked with the player");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Document.Images.Count(i => i.Id == mine.Id) == 1), "images window: it comes back once");
+
+        step = "player edits a DM image";
+        var shown = plCanvas.Document.FindImage("dmvis")!;
+        CallOn(pl, "ShowImageConfig", shown);
+        shown.Fit = ImageFit.Fill;
+        CallOn(pl, "CommitImage", shown);
+        Check(WaitFor(() => dmDoc.FindImage("dmvis")!.Fit == ImageFit.Fill), "images window: a player changes a visible DM image");
+        Check(dmDoc.FindImage("dmvis")!.CreatedBy is null, "images window: it stays the DM's");
+
+        step = "forged";
+        var forged = new MapImage { Id = "dmhid", X = 0, Y = 0, Path = "x.png", DmOnly = false };
+        Task.Run(() => client.SendImage(forged)).Wait();
+        WaitFor(() => false, 300);
+        Check(dmDoc.FindImage("dmhid") is { Path: "sub/Statue.png", DmOnly: true }, "images window: a player can not touch a hidden image by its id");
+
+        step = "delete and undo";
+        CallOn(pl, "SendImageDeleteToHost", mine.Id);
+        Check(WaitFor(() => dmDoc.FindImage(mine.Id) is null), "images window: a player deletes an image on the DM's map");
+        CallOn(dm, "DoUndo");
+        Check(dmCanvas.Document.FindImage(mine.Id) is not null, "images window: the DM can undo it");
+
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"images window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+ImageStore.Folder = "";
+try { Directory.Delete(imgDir, true); } catch { }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

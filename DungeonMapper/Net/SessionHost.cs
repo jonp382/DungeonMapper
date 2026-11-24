@@ -52,6 +52,17 @@ public sealed class LabelRequest
     internal object? Peer { get; init; }
 }
 
+/// a player adds or changes an image (Image, carrying its id) or deletes one
+/// (Image null, DeleteId)
+public sealed class ImageRequest
+{
+    public required string Name { get; init; }
+    public MapImage? Image { get; init; }
+    public string DeleteId { get; init; } = "";
+    internal object? Peer { get; init; }
+}
+
+
 public sealed class SessionHost : IDisposable
 {
     private sealed class Peer
@@ -86,6 +97,8 @@ public sealed class SessionHost : IDisposable
     public event Action<LabelRequest>? LabelRequested;
     /// a player kept or deleted a formation
     public event Action<FormationRequest>? FormationRequested;
+    /// a player added, changed or deleted an image
+    public event Action<ImageRequest>? ImageRequested;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -181,10 +194,22 @@ public sealed class SessionHost : IDisposable
     public void Notice(PawnRequest r, string reason) => Notice(r.Peer, reason);
     public void Notice(LabelRequest r, string reason) => Notice(r.Peer, reason);
     public void Notice(FormationRequest r, string reason) => Notice(r.Peer, reason);
+    public void Notice(ImageRequest r, string reason) => Notice(r.Peer, reason);
 
     private void Notice(object? peer, string reason)
     {
         if (peer is Peer p) _ = Task.Run(() => Send(p, new NetMessage { Type = "notice", Reason = reason }));
+    }
+
+    private void OnImage(Peer from, NetMessage m)
+    {
+        if (m.Type == "image_delete")
+        {
+            if (!string.IsNullOrEmpty(m.Id)) ImageRequested?.Invoke(new ImageRequest { Name = from.Name, DeleteId = m.Id, Peer = from });
+            return;
+        }
+        if (m.Image is null || MapSerializer.ImageFromDto(m.Image) is not { } im) return;
+        ImageRequested?.Invoke(new ImageRequest { Name = from.Name, Image = im, Peer = from });
     }
 
     private void OnLabel(Peer from, NetMessage m)
@@ -301,6 +326,7 @@ public sealed class SessionHost : IDisposable
                 else if (m.Type is "pawn_move" or "pawn_place" or "pawn_status" or "pawn_deploy") OnPawn(peer, m);
                 else if (m.Type is "formation_set" or "formation_delete") OnFormation(peer, m);
                 else if (m.Type is "label_set" or "label_delete") OnLabel(peer, m);
+                else if (m.Type is "image_set" or "image_delete") OnImage(peer, m);
             }
         }
         catch (Exception) { }

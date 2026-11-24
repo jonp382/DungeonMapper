@@ -43,6 +43,7 @@ public partial class MainWindow
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
         Closed += (_, _) => { _host?.Dispose(); _client?.Dispose(); _browser?.Dispose(); };
         Canvas.RemoteLabelChanged += SendLabelToHost;
+        Canvas.RemoteImageChanged += SendImageToHost;
         Canvas.PlayerMoveRequested += (from, to) =>
         {
             if (_client is not { } cl) return;
@@ -176,6 +177,7 @@ public partial class MainWindow
         host.LabelRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnLabelRequest(host, r); });
         host.FormationRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnFormationRequest(host, r); });
         host.PawnRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnPawnRequest(host, r); });
+        host.ImageRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnImageRequest(host, r); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
             RefreshSessionUi();
@@ -323,6 +325,28 @@ public partial class MainWindow
         PublishNow();
     }
 
+    // a player adds, changes or deletes an image on the map shown to players.
+    // one undo step of that map, then sent back out
+    private void OnImageRequest(SessionHost host, ImageRequest r)
+    {
+        var shown = ShownMap();
+        if (shown is null) { host.Notice(r, "the DM is not showing a map"); return; }
+        var doc = shown.Doc;
+        var before = PlayerImages.Find(doc, r.Image?.Id ?? r.DeleteId);
+        string? why = r.Image is null ? PlayerImages.Delete(doc, r.DeleteId) : PlayerImages.Set(doc, r.Image, r.Name);
+        if (why is not null) { host.Notice(r, why); return; }
+        HistoryFor(shown).Commit(doc);
+        StatusText.Text = r.Image is null ? $"{r.Name} deleted an image" : before is null ? $"{r.Name} placed an image" : $"{r.Name} changed an image";
+        if (doc == _doc)
+        {
+            Canvas.Refresh();
+            RefreshImagePanel();
+            RefreshToolInfo();
+        }
+        RefreshMaps();
+        PublishNow();
+    }
+
     // ---------- join ----------
 
     private void ShowJoinSession(string? error = null)
@@ -463,6 +487,7 @@ public partial class MainWindow
         {
             if (_client != client) return;
             _pendingLabels.Clear(); // a refused label is not coming back
+            _pendingImages.Clear();
             StatusText.Text = $"the DM's map refused: {why}";
         });
         client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
@@ -479,6 +504,7 @@ public partial class MainWindow
         Canvas.ObjectTypes = pkg.Objects;
         Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
         KeepOpenLabel(pkg.Map);
+        KeepPendingImages(pkg.Map);
         Canvas.RemoteDocument = pkg.Map;
         // the armed pawn and the panels follow the new library and map
         if (Canvas.ArmedPawn is { } armed)
@@ -492,6 +518,7 @@ public partial class MainWindow
             }
             else if (_formationRenaming is null) RefreshPawnPanel();
         }
+        if (Canvas.Mode == ToolMode.Image) RefreshImagePanel();
         if (map != _joinedMap) _fitOnNextState = true;
         _joinedMap = map;
         if (_fitOnNextState && pkg.Map.Cells.Count + pkg.Map.FloodRegions.Count > 0) { Canvas.AutoFit(); _fitOnNextState = false; }
@@ -537,9 +564,56 @@ public partial class MainWindow
         StatusText.Text = "the DM took that label back";
     }
 
+    // images a player sent (null = deleted) that the DM's map has not shown
+    // back yet, with when. kept over new maps for a few seconds so a change
+    // does not flicker back, then the DM's map wins
+    private readonly Dictionary<string, (MapImage? image, DateTime at)> _pendingImages = new();
+    private static readonly TimeSpan PendingImageTime = TimeSpan.FromSeconds(3);
+
+    private void SendImageToHost(MapImage im)
+    {
+        if (_client is not { } cl || !PlayerImages.Editable(im)) return;
+        var copy = im.Copy();
+        _pendingImages[im.Id] = (copy, DateTime.UtcNow);
+        _ = System.Threading.Tasks.Task.Run(() => cl.SendImage(copy));
+    }
+
+    private void SendImageDeleteToHost(string id)
+    {
+        if (_client is not { } cl) return;
+        _pendingImages[id] = (null, DateTime.UtcNow);
+        _ = System.Threading.Tasks.Task.Run(() => cl.SendImageDelete(id));
+    }
+
+    // a new map from the DM: what the player sent and the DM has not shown
+    // yet stays as the player left it; what came back as sent is done
+    private void KeepPendingImages(MapDocument incoming)
+    {
+        var now = DateTime.UtcNow;
+        foreach (var (id, (sent, at)) in _pendingImages.ToList())
+        {
+            int i = incoming.Images.FindIndex(x => x.Id == id);
+            bool arrived = sent is null ? i < 0 : i >= 0 && SameImage(incoming.Images[i], sent);
+            if (arrived || now - at > PendingImageTime) { _pendingImages.Remove(id); continue; }
+            if (sent is null) incoming.Images.RemoveAt(i);
+            else if (i >= 0) { if (PlayerImages.Editable(incoming.Images[i])) incoming.Images[i] = sent.Copy(); }
+            else incoming.Images.Add(sent.Copy());
+        }
+        // the open image view or handles go when the DM hid or removed it
+        if (Canvas.SelectedImageId is { } open && !PlayerImages.Editable(incoming.FindImage(open)))
+        {
+            Canvas.SelectedImageId = null;
+            if (_imageViewId is not null && Canvas.Mode == ToolMode.Image) { _imageViewId = null; BuildImagePanel(); }
+        }
+    }
+
+    private static bool SameImage(MapImage a, MapImage b) =>
+        (a.X, a.Y, a.W, a.H, a.Path, a.Hash, a.Fit, a.KeepShape, a.Turns) == (b.X, b.Y, b.W, b.H, b.Path, b.Hash, b.Fit, b.KeepShape, b.Turns);
+
     private void LeavePlayerMode(string reason)
     {
         _pendingLabels.Clear();
+        _pendingImages.Clear();
         var c = _client;
         _client = null;
         c?.Dispose();
@@ -557,7 +631,7 @@ public partial class MainWindow
     private void SetEditingUi(bool on)
     {
         foreach (var m in Enum.GetValues<ToolMode>())
-            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label or ToolMode.Pawn;
+            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
         MenuFile.IsEnabled = on;
         MenuEdit.IsEnabled = on;
         MenuManage.IsEnabled = on;
@@ -574,7 +648,7 @@ public partial class MainWindow
         if (e.Key == Key.Escape) return false;
         if (e.Key == Key.R && Canvas.FormationArmed && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
-        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), nameof(ToolMode.Pawn), AppSettings.FormationHotkey, AppSettings.PingHotkey })
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), nameof(ToolMode.Pawn), nameof(ToolMode.Image), AppSettings.FormationHotkey, AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
     }

@@ -63,6 +63,12 @@ public sealed class SessionClient : IDisposable
     /// asks the DM to add or change a label (by its id)
     public Task SendLabel(MapLabel l) => Send(new NetMessage { Type = "label_set", Label = MapSerializer.LabelToDto(l) });
 
+    /// asks the DM to add or change an image (by its id)
+    public Task SendImage(MapImage im) => Send(new NetMessage { Type = "image_set", Image = MapSerializer.ImageToDto(im) });
+
+    /// asks the DM to delete an image
+    public Task SendImageDelete(string id) => Send(new NetMessage { Type = "image_delete", Id = id });
+
     /// asks the DM to delete a label
     public Task SendLabelDelete(string id) => Send(new NetMessage { Type = "label_delete", Id = id });
 

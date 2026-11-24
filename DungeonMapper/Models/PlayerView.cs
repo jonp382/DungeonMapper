@@ -76,6 +76,14 @@ public static class PlayerView
                 n.DmOnly = false;
                 v.Objects.Add(n);
             }
+        // images like labels: visible ones on revealed cells, players' wherever
+        foreach (var im in doc.Images)
+            if (!im.DmOnly && (im.CreatedBy is not null || AnyShown(shown, im.X, im.Y, im.W, im.H)))
+            {
+                var n = im.Copy();
+                n.DmOnly = false;
+                v.Images.Add(n);
+            }
         return v;
     }
 

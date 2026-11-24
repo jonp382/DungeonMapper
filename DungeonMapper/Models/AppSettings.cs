@@ -202,6 +202,10 @@ public sealed class AppSettings
     // maps/autosaves/ with a standardized name (index + datetime stamp).
     [JsonPropertyName("autosave_minutes")] public int AutosaveMinutes { get; set; } = 0;
 
+    // the image tool's folder (Models/MapImages.cs), usually a shared drive.
+    // per machine: a settings import keeps this machine's folder
+    [JsonPropertyName("images_folder")] public string ImagesFolder { get; set; } = "";
+
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     // FitHotkey is the one non tool entry (zoom to fit).
     public const string FitHotkey = "Fit";
@@ -263,6 +267,7 @@ public sealed class AppSettings
             ["Pawn"] = "P",
             ["Polygon"] = "N",
             ["Object"] = "O",
+            ["Image"] = "B",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             ["Measure"] = "G",
             ["Fog"] = "V",
@@ -413,9 +418,11 @@ public sealed class AppSettings
     // import copies into it instead of swapping it out.
     public void CopyAppWideFrom(AppSettings other)
     {
+        var folder = ImagesFolder;
         foreach (var p in DmJson.Default.AppSettings.Properties)
             if (p.Get is not null && p.Set is not null)
                 p.Set(this, p.Get(other));
+        ImagesFolder = folder;
         ToolHotkeys = new Dictionary<string, string>(other.ToolHotkeys);
     }
 }

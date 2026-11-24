@@ -100,7 +100,7 @@ internal static class Ui
     }
 
     // asks before a destructive action: message, danger confirm, normal cancel
-    public static void ConfirmFlyout(Control anchor, string message, Action onYes, string yesLabel = "delete")
+    public static Flyout ConfirmFlyout(Control anchor, string message, Action onYes, string yesLabel = "delete")
     {
         var popup = new StackPanel { Spacing = 8 };
         popup.Children.Add(new TextBlock { Text = message, Classes = { "body" }, TextWrapping = TextWrapping.Wrap, MaxWidth = 240 });
@@ -114,6 +114,7 @@ internal static class Ui
         row.Children.Add(no);
         popup.Children.Add(row);
         flyout.ShowAt(anchor);
+        return flyout;
     }
 
     // ---------- inputs ----------

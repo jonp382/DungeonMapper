@@ -125,6 +125,7 @@ public partial class MainWindow : Window
 
         Canvas.Document = _doc;
         Canvas.Settings = _settings;
+        ImageStore.Folder = _settings.ImagesFolder;
         // the door presets, statuses and affiliations used to live in
         // settings.json. the first start after they moved into the campaign
         // seeds the campaign it opens with them. settings.json drops them the
@@ -151,6 +152,14 @@ public partial class MainWindow : Window
             Width = 18, Height = 14, CornerRadius = new CornerRadius(3),
             Background = new SolidColorBrush(Color.FromRgb(140, 140, 150)),
             BorderBrush = new SolidColorBrush(Color.FromRgb(216, 216, 224)), BorderThickness = new Thickness(1.5),
+        });
+        // no png for images yet: a drawn picture frame with a mountain and sun
+        SetIcon(ToolImage, new Avalonia.Controls.Shapes.Path
+        {
+            Width = 20, Height = 20, Stretch = Stretch.None,
+            Data = Geometry.Parse("M2,4 L18,4 L18,16 L2,16 Z M3,15 L8,9 L11,12 L13,10 L17,15 M13.5,6.5 A1.5,1.5 0 1 1 13.49,6.5 Z"),
+            Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 1.6,
+            StrokeLineCap = PenLineCap.Round, StrokeJoin = PenLineJoin.Round,
         });
         SetIcon(ToolErase, PngIcon("DMErase"));
         // no png for measure yet: a drawn ruler line with end ticks
@@ -203,6 +212,7 @@ public partial class MainWindow : Window
         ToolErase.Click += (_, _) => SetTool(ToolMode.Erase);
         ToolPawn.Click += (_, _) => SetTool(ToolMode.Pawn);
         ToolObject.Click += (_, _) => SetTool(ToolMode.Object);
+        ToolImage.Click += (_, _) => SetTool(ToolMode.Image);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
         ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
         ToolFog.Click += (_, _) => SetTool(ToolMode.Fog);
@@ -276,6 +286,10 @@ public partial class MainWindow : Window
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
         Canvas.FormationDeployed += () => { PawnViewsChanged(); RefreshMaps(); };
         Canvas.ObjectsChanged += () => { RefreshObjectPanel(); RefreshObjectManager(); };
+        Canvas.ImageConfigRequested += im => ShowImageConfig(im);
+        Canvas.ImagesChanged += () => { if (_imageViewId is null) RefreshImagePanel(); };
+        // a picture finished loading: thumbnails and "missing" lines follow
+        Canvas.ImagesLoaded += () => RefreshImagePanel();
         Canvas.PawnPlaced += id =>
         {
             ActiveLibrary.NoteRecent(id);
@@ -445,6 +459,7 @@ public partial class MainWindow : Window
         LabelTool(ToolPawn, "Pawn");
         LabelTool(ToolPolygon, "Polygon");
         LabelTool(ToolObject, "Object");
+        LabelTool(ToolImage, "Image");
         LabelTool(ToolMeasure, "Measure");
         LabelTool(ToolFog, "Fog");
         LabelTool(ToolReveal, "Reveal");
@@ -466,6 +481,7 @@ public partial class MainWindow : Window
         ToolMode.Erase => ToolErase,
         ToolMode.Pawn => ToolPawn,
         ToolMode.Object => ToolObject,
+        ToolMode.Image => ToolImage,
         ToolMode.Measure => ToolMeasure,
         ToolMode.Fog => ToolFog,
         ToolMode.Reveal => ToolReveal,
@@ -525,6 +541,7 @@ public partial class MainWindow : Window
         // clicking the pawn tool again to clear a stale selection.
         Canvas.ArmedPawn = null;
         Canvas.ArmedObject = null;
+        Canvas.ArmedImage = null;
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
@@ -541,6 +558,7 @@ public partial class MainWindow : Window
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
             ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize",
+            ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. drag out from a pawn (or shift+drag) for a radius. esc clears",
             ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",

@@ -32,6 +32,9 @@ public sealed class MapFileDto
     // placed objects, in placement order (Models/MapObjects.cs). older files
     // have none, which loads as no objects
     [JsonPropertyName("objects")] public List<ObjectDto> Objects { get; set; } = new();
+    // placed images (Models/MapImages.cs): references into the images
+    // folder, never the picture. older files have none
+    [JsonPropertyName("images")] public List<ImageDto> Images { get; set; } = new();
     // multiplayer: cells the DM has revealed to players. older files have
     // none, which loads as nothing revealed
     [JsonPropertyName("revealed")] public List<string> Revealed { get; set; } = new();
@@ -72,6 +75,29 @@ public sealed class ObjectDto
     [JsonPropertyName("dm_only")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool DmOnly { get; set; }
+}
+
+public sealed class ImageDto
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    // "x,y,w,h" in cells
+    [JsonPropertyName("rect")] public string Rect { get; set; } = "";
+    // path inside the images folder (forward slashes) and content hash
+    [JsonPropertyName("path")] public string Path { get; set; } = "";
+    [JsonPropertyName("hash")] public string Hash { get; set; } = "";
+    // the picture's pixel size when picked
+    [JsonPropertyName("px")] public string Pixels { get; set; } = "";
+    [JsonPropertyName("fit")] public string Fit { get; set; } = "fit";
+    [JsonPropertyName("keep_shape")] public bool KeepShape { get; set; } = true;
+    [JsonPropertyName("turns")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public int Turns { get; set; }
+    [JsonPropertyName("dm_only")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool DmOnly { get; set; }
+    [JsonPropertyName("created_by")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CreatedBy { get; set; }
 }
 
 public sealed class PolygonDto
@@ -788,6 +814,7 @@ public static class MapSerializer
                 Id = o.Id, TypeId = o.TypeId, Rect = $"{o.X},{o.Y},{o.W},{o.H}",
                 Name = string.IsNullOrWhiteSpace(o.Name) ? null : o.Name, Look = o.Look?.Clone(), DmOnly = o.DmOnly,
             });
+        foreach (var im in doc.Images) dto.Images.Add(ImageToDto(im));
         foreach (var c in doc.Revealed) dto.Revealed.Add(Key(c));
         return dto;
     }
@@ -825,9 +852,49 @@ public static class MapSerializer
         AddFloodRegions(dto, doc);
         AddVertexDoors(dto, doc);
         AddObjects(dto, doc);
+        var imageIds = new HashSet<string>();
+        foreach (var d in dto.Images ?? new())
+            if (ImageFromDto(d) is { } im)
+            {
+                if (!imageIds.Add(im.Id)) { im.Id = MapImage.NewId(); imageIds.Add(im.Id); }
+                doc.Images.Add(im);
+            }
         foreach (var s in dto.Revealed ?? new())
             if (TryParseCell(s, out var c)) doc.Revealed.Add(c);
         return doc;
+    }
+
+    public static ImageDto ImageToDto(MapImage im) => new()
+    {
+        Id = im.Id, Rect = $"{im.X},{im.Y},{im.W},{im.H}", Path = im.Path, Hash = im.Hash,
+        Pixels = $"{im.PixelW},{im.PixelH}", Fit = im.Fit.ToString().ToLowerInvariant(), KeepShape = im.KeepShape,
+        Turns = im.Turns, DmOnly = im.DmOnly, CreatedBy = im.CreatedBy,
+    };
+
+    /// null when the rect does not parse, has no size or the path is unsafe
+    /// (it may come from a player). a missing id gets a fresh one
+    public static MapImage? ImageFromDto(ImageDto d)
+    {
+        var parts = (d.Rect ?? "").Split(',');
+        if (parts.Length != 4 || !int.TryParse(parts[0], out int x) || !int.TryParse(parts[1], out int y)
+            || !int.TryParse(parts[2], out int w) || !int.TryParse(parts[3], out int h)
+            || w < 1 || h < 1 || w > MapImage.MaxCells || h > MapImage.MaxCells) return null;
+        var path = ImageStore.CleanPath(d.Path);
+        if (path is null) return null;
+        int pw = 0, ph = 0;
+        var px = (d.Pixels ?? "").Split(',');
+        if (px.Length == 2 && int.TryParse(px[0], out int a) && int.TryParse(px[1], out int b) && a > 0 && b > 0) (pw, ph) = (a, b);
+        var hash = d.Hash ?? "";
+        if (hash.Length > 64 || !hash.All(Uri.IsHexDigit)) hash = "";
+        var im = new MapImage
+        {
+            X = x, Y = y, W = w, H = h, Path = path, Hash = hash, PixelW = pw, PixelH = ph,
+            Fit = Enum.TryParse<ImageFit>(d.Fit, ignoreCase: true, out var f) ? f : ImageFit.Fit,
+            KeepShape = d.KeepShape, Turns = d.Turns, DmOnly = d.DmOnly,
+            CreatedBy = string.IsNullOrWhiteSpace(d.CreatedBy) ? null : d.CreatedBy,
+        };
+        if (!string.IsNullOrEmpty(d.Id) && d.Id.Length <= 40) im.Id = d.Id;
+        return im;
     }
 
     // a rect that does not parse or has no size is dropped. ids are kept so

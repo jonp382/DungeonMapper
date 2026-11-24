@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal, Image }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -23,6 +23,7 @@ public sealed class EraseFilter
     public bool Labels = true;
     public bool Pawns = true;
     public bool Objects = true;
+    public bool Images = true;
 }
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
@@ -451,6 +452,7 @@ public sealed partial class MapCanvas : Control
             Document.AngledWalls.RemoveAll(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
         }
         if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
+        if (f.Images && EraseImages(x0, y0, x1, y1) > 0) ImagesChanged?.Invoke();
         if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
         StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
@@ -1079,6 +1081,9 @@ public sealed partial class MapCanvas : Control
             DrawDoorGlyph(ctx, v, k.Horizontal ? 0 : Math.PI / 2, DoorBrush(d.Type), d.State);
         }
 
+        // images, like labels: over doors, under labels and pawns
+        DrawImages(ctx, topLeft, bottomRight);
+
         // Labels: centered vertically in their range, aligned across it
         foreach (var l in Document.Labels)
         {
@@ -1153,6 +1158,7 @@ public sealed partial class MapCanvas : Control
         DrawUnlit(ctx);
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
+        DrawImageOverlay(ctx);
         DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
@@ -1473,6 +1479,11 @@ public sealed partial class MapCanvas : Control
                 var look = o.EffectiveLook(ObjectTypes);
                 DrawObjectShape(ctx, new Rect(p0.X, p0.Y, o.W * _scale, o.H * _scale), look, "", 0.5);
             }
+            foreach (var im in _clipboard.Images)
+            {
+                var p0 = WorldToScreen(im.X + dx, im.Y + dy);
+                DrawImageIn(ctx, im, new Rect(p0.X, p0.Y, im.W * _scale, im.H * _scale), 0.5);
+            }
             // a pawns only move has no cells, the ghost is the pawns themselves
             if (Mode == ToolMode.Move && MovePawnsOnly)
                 foreach (var p in _clipboard.Pawns)
@@ -1688,6 +1699,7 @@ public sealed partial class MapCanvas : Control
         {
             // a joined player's label edits (resize) go to the DM
             if (Mode == ToolMode.Label && SelectedLabel is { } l && PlayerLabels.Editable(l)) RemoteLabelChanged?.Invoke(l);
+            if (Mode == ToolMode.Image && SelectedImage is { } im && PlayerImages.Editable(im)) RemoteImageChanged?.Invoke(im);
             InvalidateVisual();
             return;
         }
@@ -1906,6 +1918,10 @@ public sealed partial class MapCanvas : Control
                 ObjectPressed(e, cell);
                 break;
 
+            case ToolMode.Image:
+                ImagePressed(e, cell);
+                break;
+
             case ToolMode.Pawn:
                 if (Document.Pawns.TryGetValue(cell, out var existingPawn))
                 {
@@ -1981,6 +1997,7 @@ public sealed partial class MapCanvas : Control
         CursorCell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
+        if (ImageMoved(world)) return;
         if (MeasureMoved(world)) return;
         if (FogMoved(world)) return;
         if (RevealMoved(world)) return;
@@ -2077,6 +2094,7 @@ public sealed partial class MapCanvas : Control
         }
         if (FormationReleased(e)) return;
         if (ObjectReleased(e)) return;
+        if (ImageReleased(e)) return;
         if (MeasureReleased(e)) return;
         if (FogReleased(e)) return;
         if (RevealReleased(e)) return;
@@ -2189,6 +2207,11 @@ public sealed partial class MapCanvas : Control
                     {
                         if (_pressClicks >= 2) LabelEditRequested?.Invoke(lbl);
                         else LabelConfigRequested?.Invoke(lbl);
+                    }
+                    else if (Document.ImageAt(cell) is { } img)
+                    {
+                        SelectedImageId = img.Id;
+                        ImageConfigRequested?.Invoke(img);
                     }
                     else if (Document.ObjectAt(cell) is { } obj)
                     {
@@ -2338,6 +2361,7 @@ public sealed partial class MapCanvas : Control
                 if (f.Cells) Document.SubtractFloorRect(x0, y0, x1, y1);
                 // objects go when the erase rect touches any part of them
                 if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
+                if (f.Images && EraseImages(x0, y0, x1, y1) > 0) ImagesChanged?.Invoke();
                 // "adjust walls": the erase may have removed outer walls (or the
                 // room cells they sat on) - rebuild the room boundary so the new
                 // outer edge gets fresh walls, including along a clipped floor.

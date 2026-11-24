@@ -6,7 +6,7 @@ namespace DungeonMapper.Models;
 
 /// which kinds of items the reveal tool's item mode touches
 [Flags]
-public enum RevealItems { None = 0, Labels = 1, Doors = 2, Objects = 4, Pawns = 8, All = Labels | Doors | Objects | Pawns }
+public enum RevealItems { None = 0, Labels = 1, Doors = 2, Objects = 4, Pawns = 8, Images = 16, All = Labels | Doors | Objects | Pawns | Images }
 
 // multiplayer reveal state (see Agent.md "Multiplayer Design"). Revealed is a
 // mask of cells the DM has shown to players; DmOnly on labels, doors, objects
@@ -106,6 +106,8 @@ public sealed partial class MapDocument
         }
         if (kinds.HasFlag(RevealItems.Objects))
             foreach (var o in Objects) if (o.Touches(x0, y0, x1, y1)) list.Add(o);
+        if (kinds.HasFlag(RevealItems.Images))
+            foreach (var im in Images) if (im.Touches(x0, y0, x1, y1)) list.Add(im);
         if (kinds.HasFlag(RevealItems.Pawns))
             foreach (var (c, p) in Pawns) if (In(c)) list.Add(p);
         return list;
@@ -113,7 +115,7 @@ public sealed partial class MapDocument
 
     public static bool IsDmOnly(object item) => item switch
     {
-        MapLabel l => l.DmOnly, IDoorConfig d => d.DmOnly, MapObject o => o.DmOnly, Pawn p => p.DmOnly, _ => false,
+        MapLabel l => l.DmOnly, IDoorConfig d => d.DmOnly, MapObject o => o.DmOnly, Pawn p => p.DmOnly, MapImage im => im.DmOnly, _ => false,
     };
 
     public static void SetDmOnly(object item, bool dmOnly)
@@ -124,6 +126,7 @@ public sealed partial class MapDocument
             case IDoorConfig d: d.DmOnly = dmOnly; break;
             case MapObject o: o.DmOnly = dmOnly; break;
             case Pawn p: p.DmOnly = dmOnly; break;
+            case MapImage im: im.DmOnly = dmOnly; break;
         }
     }
 
@@ -149,14 +152,16 @@ public sealed partial class MapDocument
             foreach (var doors in AngledDoors.Values) list.AddRange(doors);
         }
         if (kinds.HasFlag(RevealItems.Objects)) list.AddRange(Objects);
+        if (kinds.HasFlag(RevealItems.Images)) list.AddRange(Images);
         if (kinds.HasFlag(RevealItems.Pawns)) list.AddRange(Pawns.Values);
         return list;
     }
 
     /// DM-only count per kind, for the reveal panel
-    public (int labels, int doors, int objects, int pawns) DmOnlyCounts() => (
+    public (int labels, int doors, int objects, int pawns, int images) DmOnlyCounts() => (
         AllItems(RevealItems.Labels).Count(IsDmOnly),
         AllItems(RevealItems.Doors).Count(IsDmOnly),
         AllItems(RevealItems.Objects).Count(IsDmOnly),
-        AllItems(RevealItems.Pawns).Count(IsDmOnly));
+        AllItems(RevealItems.Pawns).Count(IsDmOnly),
+        AllItems(RevealItems.Images).Count(IsDmOnly));
 }

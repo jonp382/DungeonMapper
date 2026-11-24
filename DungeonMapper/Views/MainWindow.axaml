@@ -105,6 +105,7 @@
                             <Button x:Name="ToolLabel" Classes="hot" />
                             <Button x:Name="ToolPawn" Classes="hot" />
                             <Button x:Name="ToolObject" Classes="hot" />
+                            <Button x:Name="ToolImage" Classes="hot" />
                             <Border Classes="sep" />
                             <Button x:Name="ToolErase" Classes="hot" />
                             <Button x:Name="ToolMeasure" Classes="hot" />
@@ -363,6 +364,19 @@
                                         </StackPanel>
                                         <TextBox x:Name="SetAutosave" Grid.Column="1" Classes="field number" />
                                         <Button x:Name="ResetAutosave" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Classes="section" Text="images" />
+                                <Border Classes="group">
+                                    <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="images folder" />
+                                            <TextBlock Classes="hint" Text="where the image tool's pictures live (a shared drive). maps keep only the file names. this computer only." TextWrapping="Wrap" />
+                                            <TextBlock x:Name="SetImagesFolderText" Classes="hint" TextWrapping="Wrap" />
+                                        </StackPanel>
+                                        <Button x:Name="SetImagesFolder" Grid.Column="1" Classes="btn" Content="choose…" VerticalAlignment="Center" />
+                                        <Button x:Name="ResetImagesFolder" Grid.Column="2" Classes="btn quiet" Content="clear" />
                                     </Grid>
                                 </Border>
                             </StackPanel>

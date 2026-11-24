@@ -28,6 +28,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
+| Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, and drag its handles to resize it. See [Images](#images). |
 | Measure | G | Drag to measure a distance, or drag out from a pawn for a spell radius. See [Measuring](#measuring). |
 | Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
 | Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |
@@ -89,6 +90,16 @@ The object panel lists your types with how many are on the map and a button that
 
 ![objects](./images/objects.png)
 
+## Images
+
+The image tool puts pictures on the map: room art, a handout, a painted floor. Pictures are never saved in the map file. The map keeps only which file it is (its place in the images folder plus a fingerprint of its content), so maps stay small and the same picture can be used anywhere.
+
+- **Images folder:** set it in settings (Images). Point it at the folder your group shares, for example a shared drive. Each computer picks its own path to it, so drive letters do not matter. A settings import keeps this computer's folder.
+- **Placing:** choose a picture (PNG, JPG, WEBP, GIF or BMP). A picture from outside the images folder can be copied into it, since the other computers could not find it otherwise. A click places it at its own size (100 picture pixels per 5 ft cell); a drag places it in the box you drag. The panel lists the pictures already on the map, click one to place more.
+- **An image's view:** **fit** shows all of the picture, **fill** covers the box and crops what does not fit, **stretch** fills the box exactly. **Keep shape while resizing** (on for new images) keeps the box close to the picture's proportions when you drag the handles. **Turn left / right**, **picture size** (back to its own size), **replace picture**, **place more**, **DM only** and delete.
+- If a picture is renamed or moved inside the folder, it is still found by its fingerprint. A picture that can not be found, or a computer with no images folder, shows a dashed box with the file name, which you can still move, resize or delete. **Reload pictures** in the panel picks up files that changed.
+- Images draw over doors and under labels and pawns. Select, move, copy and paste, rotate (which turns the picture too), erase ("images" filter) and the reveal tool work on them.
+
 ## Measuring
 
 The measure tool only reads the map. It never changes anything, adds an undo step or counts as an unsaved change. Distances show in cells and feet (5 ft per cell).
@@ -128,9 +139,9 @@ The fog tool shows how far a character can see. Like the measure tool it only re
 The reveal tool marks what players are allowed to see. It is the groundwork for multiplayer, where the DM hosts and players only ever receive what has been revealed. Every change is one undo step and is saved with the map.
 
 - **Cells** shows or hides floor. **Box** drags a rectangle (a click is one cell), **room** fills the room you click up to its walls (doors count as walls), and **circle** drags out from a center. **Reveal whole map** and **hide whole map** do every floor cell at once.
-- **Items** marks labels, doors, objects and pawns **visible** or **DM only** with a box. Tick which kinds the box changes. A DM only item is never shown to players, even on revealed floor.
+- **Items** marks labels, doors, objects, pawns and images **visible** or **DM only** with a box. Tick which kinds the box changes. A DM only item is never shown to players, even on revealed floor.
 - New items start DM only. Maps made before this tool load with every item visible and nothing revealed.
-- Each door, label, pawn and object view also has a **DM only** checkbox.
+- Each door, label, pawn, object and image view also has a **DM only** checkbox.
 - While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
 - **View > Player view preview** (or the button in the reveal panel) shows exactly what players would be sent: revealed floor, the walls and doors around it, and the visible items on it. Nothing can be edited while it is on; panning, zooming, saving, undo and redo still work. Esc or picking a tool returns to editing.
 
@@ -143,6 +154,7 @@ The DM can host a session for players on the same network (home wifi or LAN). Pl
 - **While joined** you see the DM's map read only, with the measure tool and panning and zooming. Your own campaign is untouched and comes back when you leave (Session > Leave session) or the DM stops hosting.
 - **Your pawns:** pawns with the **Player** affiliation (hero or not) belong to the players. The **pawn** tool shows the DM's pawn menu cut down to Player pawns: search, all / on map, names on map, formations and the list with counts and find buttons. Click a pawn, then an empty revealed floor cell to place it (a hero already on this map moves there and keeps its status; a hero the DM has hidden, or on another map, can not be placed). Click a placed Player pawn to set its status. The **move** tool drags Player pawns to empty revealed floor. **Formations** work as for the DM, with Player pawns only: + new and update from area capture them, rename, delete, and deploy with the member checklist (r / shift+r rotates, I deploys the last one). Every change goes to the DM's app, lands on the real map (formations in the DM's campaign) as an undo step and shows for everyone. Ally, Enemy and Neutral pawns, and DM formations with them, only the DM touches. A refused change says why in the status bar.
 - **Labels:** joined players have the **label** tool. A label a player adds goes onto the DM's map for everyone (and is saved in the DM's file), marked with the player's name; it shows to players wherever it is. Any player can change (text, size, alignment, color, resize) or delete labels that players can edit; the DM's own labels stay the DM's. The DM's label view has a **players can edit** checkbox to hand any label over or take one back, and shows which player made a label. Each player change is one undo step for the DM.
+- **Images:** joined players have the **image** tool and use their own images folder. Any player can place images, and change or delete any image that is not DM only. Each change is one undo step for the DM. A DM only image is never sent to players (the shared folder itself is not hidden from them).
 - **Light:** in the fog tool, clicking to anchor the circle also lights it for players: revealed floor outside it shows dimmer on their screens (in their own fog color and darkness). The light stays when you change tools; **clear players' light** in the fog panel lights all revealed floor again. It is not saved.
 - **Ping:** press backslash (changeable in the hotkeys menu, which now also takes digits and keys like [ ] ; ,) to ping the cell under the cursor. Everyone else in the session sees rings on it and a note at the top right, "Ana pinged 12,7", with a **jump** button. The DM's pings go to the map shown to players, so the DM pings from that map.
 - The status bar shows the session on the right. The first time you host, your firewall may ask to allow Dungeon Mapper; allow it on private networks. Sessions use port 47320 (TCP) and 47321 (UDP, for the list of sessions).
@@ -157,4 +169,4 @@ The DM can host a session for players on the same network (home wifi or LAN). Pl
 
 ## Settings
 
-The settings menu covers grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, how much wall is cleared next to a door, the default label text and the autosave interval. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.
+The settings menu covers grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, how much wall is cleared next to a door, the default label text, the autosave interval and the images folder. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.

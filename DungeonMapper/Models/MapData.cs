@@ -250,6 +250,8 @@ public sealed partial class MapDocument
     public Dictionary<VertexDoorKey, VertexDoor> VertexDoors { get; } = new();
     // placed objects in placement order: later ones draw on top
     public List<MapObject> Objects { get; } = new();
+    // placed images (Models/MapImages.cs) in placement order: later on top
+    public List<MapImage> Images { get; } = new();
     // multiplayer: cells the DM has revealed to players. a mask over cell
     // coordinates, independent of the floor (copy, move and erase leave it)
     public HashSet<CellKey> Revealed { get; } = new();
@@ -267,6 +269,16 @@ public sealed partial class MapDocument
     }
 
     public MapObject? FindObject(string id) => Objects.Find(o => o.Id == id);
+
+    /// the topmost image covering the cell, null when none
+    public MapImage? ImageAt(CellKey c)
+    {
+        for (int i = Images.Count - 1; i >= 0; i--)
+            if (Images[i].Contains(c)) return Images[i];
+        return null;
+    }
+
+    public MapImage? FindImage(string id) => Images.Find(o => o.Id == id);
 
     /// Door tool "close open doors": every open door of the type becomes
     /// closed. Locked and closed doors are left alone. Returns how many closed.
@@ -1641,8 +1653,9 @@ public sealed partial class MapDocument
         public List<FloodRegion> FloodRegions = new();
         public Dictionary<VertexDoorKey, VertexDoor> VertexDoors = new();
         public List<MapObject> Objects = new();
+        public List<MapImage> Images = new();
         public bool Empty => Cells.Count == 0 && Walls.Count == 0 && Doors.Count == 0
-                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0 && Objects.Count == 0
+                              && Stairs.Count == 0 && Labels.Count == 0 && Pawns.Count == 0 && Objects.Count == 0 && Images.Count == 0
                               && AngledWalls.Count == 0 && AngledDoors.Count == 0
                               && FloodRegions.Count == 0 && VertexDoors.Count == 0;
     }
@@ -1681,6 +1694,7 @@ public sealed partial class MapDocument
         foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly });
         // an object travels when all of it is inside the region
         foreach (var o in Objects) if (o.Inside(x0, y0, x1, y1)) snap.Objects.Add(o.Copy());
+        foreach (var im in Images) if (im.Inside(x0, y0, x1, y1)) snap.Images.Add(im.Copy());
         foreach (var w in AngledWalls)
         {
             if (!AngledWallIntersectsRect(w, x0, y0, x1, y1)) continue;
@@ -1734,6 +1748,13 @@ public sealed partial class MapDocument
             var n = o.Copy(newId: true); // a paste can land many copies
             n.X += dx; n.Y += dy;
             Objects.Add(n);
+        }
+        foreach (var im in snap.Images)
+        {
+            // a copy next to its original gets its own id (a move keeps it)
+            var n = im.Copy(newId: Images.Any(o => o.Id == im.Id));
+            n.X += dx; n.Y += dy;
+            Images.Add(n);
         }
         foreach (var (e, d) in snap.Doors)
         {
@@ -1800,6 +1821,8 @@ public sealed partial class MapDocument
         foreach (var (k, d) in other.VertexDoors) VertexDoors[k] = new VertexDoor { Type = d.Type, State = d.State, DmOnly = d.DmOnly };
         Objects.Clear();
         foreach (var o in other.Objects) Objects.Add(o.Copy());
+        Images.Clear();
+        foreach (var im in other.Images) Images.Add(im.Copy());
         Revealed.Clear();
         foreach (var c in other.Revealed) Revealed.Add(c);
     }
@@ -1826,6 +1849,7 @@ public sealed partial class MapDocument
         // objects go when all of them is inside, the same rule as capture, so a
         // move or cut never deletes an object it did not pick up
         Objects.RemoveAll(o => o.Inside(x0, y0, x1, y1));
+        Images.RemoveAll(o => o.Inside(x0, y0, x1, y1));
 
         // flood floors lose the rect, the rest of each floor stays
         SubtractFloorRect(x0, y0, x1, y1);
@@ -1938,6 +1962,18 @@ public sealed partial class MapDocument
             n.W = Math.Abs(bx - ax) + 1; n.H = Math.Abs(by - ay) + 1;
             s.Objects.Add(n);
         }
+        foreach (var im in snap.Images)
+        {
+            // like objects, and the picture turns with the region (the region
+            // turns counterclockwise, image turns count clockwise)
+            var (ax, ay) = RotCell(im.X, im.Y);
+            var (bx, by) = RotCell(im.X + im.W - 1, im.Y + im.H - 1);
+            var n = im.Copy();
+            n.X = Math.Min(ax, bx); n.Y = Math.Min(ay, by);
+            n.W = Math.Abs(bx - ax) + 1; n.H = Math.Abs(by - ay) + 1;
+            n.Turns = im.Turns - turns;
+            s.Images.Add(n);
+        }
         foreach (var w in snap.AngledWalls)
         {
             var (ax, ay) = RotPoint(w.Ax, w.Ay);
@@ -1988,7 +2024,7 @@ public sealed partial class MapDocument
             if (w.By < minY) minY = w.By; if (w.By > maxY) maxY = w.By;
             any = true;
         }
-        foreach (var o in Objects)
+        foreach (var o in Objects.Select(o => (o.X, o.Y, o.W, o.H)).Concat(Images.Select(i => (i.X, i.Y, i.W, i.H))))
         {
             if (o.X < minX) minX = o.X;
             if (o.Y < minY) minY = o.Y;
