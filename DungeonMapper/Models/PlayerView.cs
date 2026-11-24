@@ -76,9 +76,10 @@ public static class PlayerView
                 n.DmOnly = false;
                 v.Objects.Add(n);
             }
-        // images like labels: visible ones on revealed cells, players' wherever
+        // images: every one not DM only, wherever it is (no floor needed under
+        // it, so handouts beside the map work). DM only is what hides one
         foreach (var im in doc.Images)
-            if (!im.DmOnly && (im.CreatedBy is not null || AnyShown(shown, im.X, im.Y, im.W, im.H)))
+            if (!im.DmOnly)
             {
                 var n = im.Copy();
                 n.DmOnly = false;

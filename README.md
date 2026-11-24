@@ -98,6 +98,7 @@ The image tool puts pictures on the map: room art, a handout, a painted floor. P
 - **Placing:** choose a picture (PNG, JPG, WEBP, GIF or BMP). A picture from outside the images folder can be copied into it, since the other computers could not find it otherwise. A click places it at its own size (100 picture pixels per 5 ft cell); a drag places it in the box you drag. The panel lists the pictures already on the map, click one to place more.
 - **An image's view:** **fit** shows all of the picture, **fill** covers the box and crops what does not fit, **stretch** fills the box exactly. **Keep shape while resizing** (on for new images) keeps the box close to the picture's proportions when you drag the handles. **Turn left / right**, **picture size** (back to its own size), **replace picture**, **place more**, **DM only** and delete.
 - If a picture is renamed or moved inside the folder, it is still found by its fingerprint. A picture that can not be found, or a computer with no images folder, shows a dashed box with the file name, which you can still move, resize or delete. **Reload pictures** in the panel picks up files that changed.
+- In a session, an image is shown to players unless it is DM only. Unlike other items it does not need revealed floor under it, so handouts beside the map work.
 - Images draw over doors and under labels and pawns. Select, move, copy and paste, rotate (which turns the picture too), erase ("images" filter) and the reveal tool work on them.
 
 ## Measuring

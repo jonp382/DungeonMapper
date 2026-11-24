@@ -5141,7 +5141,7 @@ string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
     pv.Images.Add(new MapImage { Id = "dark", X = 4, Y = 4, Path = "b.png", DmOnly = false });
     pv.Images.Add(new MapImage { Id = "pl", X = 40, Y = 40, Path = "c.png", DmOnly = false, CreatedBy = "Ana" });
     var pview = PlayerView.Build(pv);
-    Check(pview.Images.Select(i => i.Id).OrderBy(x => x).SequenceEqual(new[] { "pl", "vis" }), "images: players get visible images on revealed floor and players' images");
+    Check(pview.Images.Select(i => i.Id).OrderBy(x => x).SequenceEqual(new[] { "dark", "pl", "vis" }), "images: players get every image that is not DM only, revealed floor or not");
     Check(!MapSerializer.ToJson(pview).Contains("secret.png"), "images: a DM only image's file name never reaches players");
     Check(PlayerImages.Set(pv, new MapImage { Id = "new1", X = 0, Y = 0, Path = "d.png", DmOnly = true }, "Bo") is null
         && pv.FindImage("new1") is { DmOnly: false, CreatedBy: "Bo" }, "images: a player's new image is visible and marked with the player");
