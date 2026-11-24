@@ -5363,5 +5363,147 @@ string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
 ImageStore.Folder = "";
 try { Directory.Delete(imgDir, true); } catch { }
 
+// --- multiplayer: players manage Player pawns (rules) ---
+{
+    var lib = new PawnLibrary();
+    var pre = CampaignPresets.Default();
+    lib.Add(new PawnTemplate { Id = "ana", Name = "Ana", Affiliation = "Player", Hero = true, Favorite = true, Status = "none" });
+    lib.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
+    Check(PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "ana", Name = "  Ana the Bold  ", Affiliation = "Enemy", Hero = false, Favorite = false, Status = "no such status", ColorOverride = true, OuterR = 999, InnerG = -5 }) is null,
+        "player pawns manage: a player changes a Player pawn");
+    var ana = lib.Find("ana")!;
+    Check(ana.Name == "Ana the Bold" && ana.Affiliation == "Player" && ana.Hero && ana.Favorite && ana.Status == "none" && ana.ColorOverride && ana.OuterR == 255 && ana.InnerG == 0,
+        "player pawns manage: name and colors change, affiliation, hero, favorite stay the DM's, unknown statuses and bad colors are refused");
+    Check(PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "orc", Name = "pwned", Affiliation = "Player" }) == "only the DM edits that pawn" && lib.Find("orc")!.Name == "Orc",
+        "player pawns manage: players can not touch other pawns");
+    var newId = PlayerTemplates.NewId();
+    Check(newId.StartsWith("pp") && PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = newId, Name = new string('x', 200), Affiliation = "Enemy", Hero = true, Favorite = true }) is null,
+        "player pawns manage: a player adds a pawn");
+    var added = lib.Find(newId)!;
+    Check(added.Affiliation == "Player" && !added.Hero && !added.Favorite && added.Name.Length == PlayerTemplates.MaxName, "player pawns manage: a new pawn is a Player pawn, never a hero, name capped");
+    Check(PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "" }) is not null, "player pawns manage: no id is refused");
+    Check(PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "ana", Name = "Ana", ImageB64 = "bm90IGFuIGltYWdl" }) == "that image could not be read" && ana.Name == "Ana the Bold",
+        "player pawns manage: a broken image is refused and nothing changes");
+    using (var big = new SkiaSharp.SKBitmap(120, 80))
+    {
+        big.Erase(SkiaSharp.SKColors.Purple);
+        using var data = big.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+        var raw = Convert.ToBase64String(data.ToArray());
+        Check(PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "ana", Name = "Ana", ImageB64 = raw }) is null && ana.ImageB64 != raw
+            && PawnImage.IsNormalized(Convert.FromBase64String(ana.ImageB64)), "player pawns manage: an image that is not 50x50 is remade");
+        var norm = Convert.ToBase64String(PawnImage.Compress(data.ToArray()));
+        PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "ana", Name = "Ana", ImageB64 = norm });
+        Check(ana.ImageB64 == norm && ana.ImageExt == ".png", "player pawns manage: a 50x50 png is kept as sent");
+        PlayerTemplates.Set(lib, pre, new PawnTemplate { Id = "ana", Name = "Ana", ImageB64 = "" });
+        Check(ana.ImageB64 == "" && ana.ImageExt == "", "player pawns manage: the image can be removed");
+    }
+    Check(lib.Pawns.Count == 3, "player pawns manage: nothing is ever deleted");
+}
+
+// --- multiplayer: players manage Player pawns (two windows) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var dmLib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(dm)!;
+        dmLib.Add(new PawnTemplate { Id = "ana", Name = "Ana", Affiliation = "Player", Hero = true });
+        dmLib.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
+        var dmDoc = dmCanvas.Document;
+        AddRoom(dmDoc, 0, 0, 5, 5);
+        dmDoc.SetRevealed(dmDoc.FloorCells(), true);
+        dmDoc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "orc", DmOnly = false };
+
+        step = "host";
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "pawn manage window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        CallOn(pl, "EnterPlayerMode", client);
+        Check(WaitFor(() => plCanvas.Library.Find("ana") is not null && plCanvas.Library.Find("orc") is not null), "pawn manage window: the player has Ana and the visible Orc");
+
+        step = "open";
+        CallOn(pl, "SetTool", ToolMode.Pawn);
+        CallOn(pl, "ShowPawnManagement");
+        var listHost = (Avalonia.Controls.StackPanel)FieldOf(pl, "_manageListHost")!;
+        Check(listHost.Children.Count == 1, "pawn manage window: the player's list has only Player pawns");
+        Check(!((Avalonia.Controls.Button)FieldOf(pl, "ManageTabAffiliations")!).IsVisible && !((Avalonia.Controls.Button)FieldOf(pl, "ManageTabStatuses")!).IsVisible,
+            "pawn manage window: no affiliations or status styles tabs for players");
+        t.GetField("_manageEditId", flags)!.SetValue(pl, "orc");
+        CallOn(pl, "RefreshManageEditor");
+        Check(FieldOf(pl, "_manageEditId") is null, "pawn manage window: a player can not open an Enemy pawn");
+
+        step = "edit";
+        t.GetField("_manageEditId", flags)!.SetValue(pl, "ana");
+        CallOn(pl, "RefreshManageEditor");
+        var mine = plCanvas.Library.Find("ana")!;
+        var editorHost = (Avalonia.Controls.Border)FieldOf(pl, "_manageEditorHost")!;
+        var nameBox = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(editorHost).OfType<Avalonia.Controls.TextBox>().FirstOrDefault()
+            ?? ((Avalonia.Controls.StackPanel)editorHost.Child!).Children.OfType<Avalonia.Controls.TextBox>().First();
+        nameBox.Text = "Ana Brightblade";
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        Check(mine.Name == "Ana Brightblade", "pawn manage window: typing in the name box changes the player's pawn");
+        Check(dmLib.Find("ana")!.Name == "Ana", "pawn manage window: typing waits for a pause");
+        CallOn(pl, "FlushTemplates");
+        Check(WaitFor(() => dmLib.Find("ana")!.Name == "Ana Brightblade"), "pawn manage window: the edit reaches the DM's library");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Library.Find("ana")!.Name == "Ana Brightblade") && ReferenceEquals(plCanvas.Library.Find("ana"), mine),
+            "pawn manage window: the open pawn keeps its object over the DM's update");
+
+        step = "forged";
+        var forged = new PawnTemplate { Id = "ana", Name = "Ana", Affiliation = "Enemy", Hero = false };
+        Task.Run(() => client.SendTemplate(forged)).Wait();
+        Check(WaitFor(() => dmLib.Find("ana")!.Name == "Ana") && dmLib.Find("ana") is { Affiliation: "Player", Hero: true }, "pawn manage window: a player can not change affiliation or hero");
+        Task.Run(() => client.SendTemplate(new PawnTemplate { Id = "orc", Name = "pwned", Affiliation = "Player" })).Wait();
+        WaitFor(() => false, 300);
+        Check(dmLib.Find("orc")!.Name == "Orc", "pawn manage window: a player can not change an Enemy pawn");
+
+        step = "add";
+        var fresh = new PawnTemplate { Id = PlayerTemplates.NewId(), Name = "Bo", Affiliation = "Player" };
+        plCanvas.Library.Add(fresh);
+        CallOn(pl, "TemplateEdited", fresh, true);
+        Check(WaitFor(() => dmLib.Find(fresh.Id) is { Name: "Bo", Affiliation: "Player" }), "pawn manage window: a player's new pawn lands in the DM's library");
+        var status = (Avalonia.Controls.TextBlock)FieldOf(dm, "StatusText")!;
+        Check(status.Text?.Contains("Dee added the pawn Bo") == true, "pawn manage window: the DM's status bar says who");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Library.Find(fresh.Id) is not null), "pawn manage window: it comes back to the player");
+
+        step = "DM takes it";
+        dmLib.Find("ana")!.Affiliation = "Ally";
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.Library.Find("ana") is not { Affiliation: "Player" }), "pawn manage window: a pawn the DM moves to another affiliation leaves the player's control");
+        Check(WaitFor(() => FieldOf(pl, "_manageEditId") is null), "pawn manage window: and its editor closes");
+
+        CallOn(pl, "CloseManage");
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"pawn manage window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

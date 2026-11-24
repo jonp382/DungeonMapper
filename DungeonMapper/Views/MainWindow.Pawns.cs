@@ -138,15 +138,13 @@ public partial class MainWindow
         _pawnSearchBox = SearchBox("search pawns (ctrl+f)", _pawnSearch);
         _pawnSearchBox.TextChanged += (_, _) => { _pawnSearch = _pawnSearchBox.Text ?? ""; RefreshPawnList(); };
         top.Children.Add(_pawnSearchBox);
-        if (!Joined)
-        {
-            var manage = Btn("manage");
-            manage.Padding = new Thickness(6, 3);
-            manage.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
-            Grid.SetColumn(manage, 1);
-            top.Children.Add(manage);
-        }
-        else ToolPanel.AddHint("your party's pawns. click one, then a revealed cell to place it; click a placed one to set its status. it goes on the DM's map for everyone.");
+        // players manage their party's pawns too (MainWindow.PlayerTemplates.cs)
+        var manage = Btn("manage");
+        manage.Padding = new Thickness(6, 3);
+        manage.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
+        Grid.SetColumn(manage, 1);
+        top.Children.Add(manage);
+        if (Joined) ToolPanel.AddHint("your party's pawns. click one, then a revealed cell to place it; click a placed one to set its status. it goes on the DM's map for everyone.");
         ToolPanel.Target.Children.Add(top);
 
         _pawnChipHost = new WrapPanel();
@@ -344,6 +342,7 @@ public partial class MainWindow
     private void ShowPawnManagement()
     {
         _modalKind = "manage";
+        if (Joined) _manageTab = "pawns";
         _statusCombo = null;
         _statusComboTemplate = null;
 
@@ -353,7 +352,10 @@ public partial class MainWindow
             "statuses" => PresetTab(BuildStatusesTab(), CampaignPresets.Part.Statuses),
             _ => BuildPawnsTab(),
         };
-        ShowModal(760, 640, "Pawn management", null, body, tabbed: true);
+        ShowModal(760, 640, Joined ? "Your party's pawns" : "Pawn management", null, body, tabbed: true);
+        // players manage Player pawns only: no affiliations or status styles
+        ManageTabAffiliations.IsVisible = !Joined;
+        ManageTabStatuses.IsVisible = !Joined;
     }
 
     // the modal frame lives in MainWindow.axaml. management shows the tabs and
@@ -398,6 +400,7 @@ public partial class MainWindow
     private void CloseManage()
     {
         FlushSettings();
+        FlushTemplates();
         ModalOverlay.IsVisible = false;
         _modalKind = null;
         _statusCombo = null;
@@ -440,7 +443,7 @@ public partial class MainWindow
         // left: search, filters, list, bulk bar, footer
         var left = new DockPanel { Margin = new Thickness(12, 12, 12, 10) };
         var tools = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 6, Margin = new Thickness(0, 0, 0, 8) };
-        var search = SearchBox($"search {ActiveLibrary.Pawns.Count} pawns", _manageSearch);
+        var search = SearchBox($"search {PanelLibrary.Pawns.Count} pawns", _manageSearch);
         search.TextChanged += (_, _) => { _manageSearch = search.Text ?? ""; RefreshManageList(); };
         tools.Children.Add(search);
         var sort = new ComboBox { ItemsSource = ManageSorts.Select(s => "sort: " + s).ToArray(), FontSize = 12, MinWidth = 140, SelectedIndex = Math.Max(0, Array.IndexOf(ManageSorts, _manageSort)) };
@@ -450,9 +453,14 @@ public partial class MainWindow
         var add = Btn("+ add pawn", primary: true);
         add.Click += (_, _) =>
         {
-            var t = new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
+            // a player's new pawn is a Player pawn with an id that never
+            // clashes with the DM's
+            var t = Joined
+                ? new PawnTemplate { Id = PlayerTemplates.NewId(), Name = "new pawn", Affiliation = "Player", Status = "none" }
+                : new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
             t.ApplyAffiliationDefaults();
-            ActiveLibrary.Add(t);
+            PanelLibrary.Add(t);
+            TemplateEdited(t, now: true);
             _manageEditId = t.Id;
             _manageSearch = "";
             search.Text = "";
@@ -470,11 +478,11 @@ public partial class MainWindow
         left.Children.Add(_manageChipHost);
 
         var colHead = ManageRowGrid();
-        _manageAllCheck = new CheckBox { MinWidth = 0, Padding = new Thickness(0) };
+        _manageAllCheck = new CheckBox { MinWidth = 0, Padding = new Thickness(0), IsVisible = !Joined };
         ToolTip.SetTip(_manageAllCheck, "select all shown");
         _manageAllCheck.Click += (_, _) =>
         {
-            var shown = ManageShown(CampaignCounts(), MapCounts(_doc));
+            var shown = ManageShown(CampaignCounts(), MapCounts(PanelDoc));
             if (_manageAllCheck.IsChecked == true) foreach (var t in shown) _manageSelected.Add(t.Id);
             else foreach (var t in shown) _manageSelected.Remove(t.Id);
             RefreshManageList();
@@ -483,7 +491,7 @@ public partial class MainWindow
         AddCell(colHead, Tx("name", "colhead"), 2);
         AddCell(colHead, Tx("affiliation", "colhead"), 3);
         var hm = Tx("map", "colhead"); hm.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hm, 4);
-        var hc = Tx("campaign", "colhead"); hc.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hc, 5);
+        var hc = Tx(Joined ? "" : "campaign", "colhead"); hc.HorizontalAlignment = HorizontalAlignment.Right; AddCell(colHead, hc, 5);
         var headBorder = new Border { Child = colHead, Classes = { "colhead" }, Padding = new Thickness(6, 0, 6, 4), Margin = new Thickness(0) };
         DockPanel.SetDock(headBorder, Dock.Top);
         left.Children.Add(headBorder);
@@ -491,10 +499,12 @@ public partial class MainWindow
         // footer: import / export all / totals
         var foot = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*"), ColumnSpacing = 6 };
         var imp = Btn("import…");
+        imp.IsVisible = !Joined; // import and export are the DM's
         imp.Click += (_, _) => ShowImportPicker();
         foot.Children.Add(imp);
         var expAll = Btn("export all");
-        expAll.Click += (_, _) => ExportPawns(ActiveLibrary, "all pawns");
+        expAll.IsVisible = !Joined;
+        expAll.Click += (_, _) => ExportPawns(PanelLibrary, "all pawns");
         Grid.SetColumn(expAll, 1);
         foot.Children.Add(expAll);
         _manageFooter = Tx("", "small");
@@ -542,7 +552,7 @@ public partial class MainWindow
     private List<PawnTemplate> ManageShown(Dictionary<string, int> camp, Dictionary<string, int> map)
     {
         var q = _manageSearch.Trim();
-        var list = ActiveLibrary.Pawns.Where(t =>
+        var list = PanelLibrary.Pawns.Where(t => (!Joined || PlayerPawns.Controlled(t)) &&
             (q.Length == 0 || PawnName(t).Contains(q, StringComparison.OrdinalIgnoreCase))
             && _manageFilter switch
             {
@@ -567,9 +577,12 @@ public partial class MainWindow
     private void RefreshManageList()
     {
         if (_manageListHost is null || _manageChipHost is null) return;
-        var camp = CampaignCounts();
-        var map = MapCounts(_doc);
-        _manageSelected.RemoveWhere(id => ActiveLibrary.Find(id) is null);
+        // a player knows only the shown map, not the DM's campaign
+        var camp = Joined ? new Dictionary<string, int>() : CampaignCounts();
+        var map = MapCounts(PanelDoc);
+        _manageSelected.RemoveWhere(id => PanelLibrary.Find(id) is null);
+        if (Joined) _manageSelected.Clear();
+        if (Joined && _manageFilter is not ("all" or "on map")) _manageFilter = "all";
 
         // view filters on the first line, affiliations on their own line so the
         // row never wraps a single chip however many affiliations there are
@@ -578,9 +591,10 @@ public partial class MainWindow
         var affs = new WrapPanel();
         _manageChipHost.Children.Add(views);
         _manageChipHost.Children.Add(affs);
-        foreach (var f in new[] { "all", "favorites", "on map", "unused" })
+        foreach (var f in Joined ? new[] { "all", "on map" } : new[] { "all", "favorites", "on map", "unused" })
             views.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
-        foreach (var ac in ActivePresets.AffiliationColors)
+        if (!Joined)
+        foreach (var ac in PanelPresets.AffiliationColors)
         {
             var n = ac.Name;
             affs.Children.Add(Chip(n, _manageFilter == n, AffDot(ac, 10), () => { _manageFilter = n; RefreshManageList(); }));
@@ -591,7 +605,7 @@ public partial class MainWindow
         foreach (var t in shown) _manageListHost.Children.Add(ManageRow(t, Get(map, t.Id), Get(camp, t.Id)));
         if (shown.Count == 0)
             {
-            var none = Tx(ActiveLibrary.Pawns.Count == 0 ? "no pawns yet. add one or import a file." : "no pawns match", "muted");
+            var none = Tx(PanelLibrary.Pawns.Count == 0 ? "no pawns yet. add one or import a file." : "no pawns match", "muted");
             none.Margin = new Thickness(6);
             _manageListHost.Children.Add(none);
         }
@@ -599,17 +613,18 @@ public partial class MainWindow
         if (_manageAllCheck is not null)
             _manageAllCheck.IsChecked = shown.Count > 0 && shown.All(t => _manageSelected.Contains(t.Id));
 
-        int bad = ActiveLibrary.Pawns.Count(IsInvalid);
+        var all = Joined ? PanelLibrary.Pawns.Where(PlayerPawns.Controlled).ToList() : PanelLibrary.Pawns;
+        int bad = all.Count(IsInvalid);
         if (_manageFooter is not null)
-            _manageFooter.Text = $"{ActiveLibrary.Pawns.Count} pawns" + (bad > 0 ? $" · {bad} need attention" : "");
+            _manageFooter.Text = $"{all.Count} pawns" + (bad > 0 ? $" · {bad} need attention" : "");
 
         if (_manageBulkBar is not null)
         {
-            _manageBulkBar.IsVisible = _manageSelected.Count > 0;
+            _manageBulkBar.IsVisible = _manageSelected.Count > 0 && !Joined;
             var bar = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto,Auto"), ColumnSpacing = 6 };
             bar.Children.Add(Tx($"{_manageSelected.Count} selected", "body"));
             var exp = Btn("export selected");
-            exp.Click += (_, _) => ExportPawns(ActiveLibrary.Subset(_manageSelected), $"{_manageSelected.Count} pawns");
+            exp.Click += (_, _) => ExportPawns(PanelLibrary.Subset(_manageSelected), $"{_manageSelected.Count} pawns");
             AddCell(bar, exp, 1);
             var del = Btn("delete selected", danger: true);
             del.Click += (_, _) => DeleteSelectedPawns(del);
@@ -625,7 +640,7 @@ public partial class MainWindow
     {
         bool editing = _manageEditId == t.Id;
         var g = ManageRowGrid();
-        var check = new CheckBox { IsChecked = _manageSelected.Contains(t.Id), MinWidth = 0, Padding = new Thickness(0) };
+        var check = new CheckBox { IsChecked = _manageSelected.Contains(t.Id), MinWidth = 0, Padding = new Thickness(0), IsVisible = !Joined };
         check.Click += (_, _) =>
         {
             if (check.IsChecked == true) _manageSelected.Add(t.Id); else _manageSelected.Remove(t.Id);
@@ -637,7 +652,7 @@ public partial class MainWindow
         var nameTb = Tx(PawnName(t), "body");
         nameTb.TextTrimming = TextTrimming.CharacterEllipsis;
         nameSp.Children.Add(nameTb);
-        if (t.Favorite)
+        if (t.Favorite && !Joined)
         {
             var star = Tx("★", "warn");
             star.FontSize = 10;
@@ -656,7 +671,7 @@ public partial class MainWindow
         aff.TextTrimming = TextTrimming.CharacterEllipsis;
         AddCell(g, aff, 3);
         var m = Tx($"×{onMap}", "count"); m.Classes.Set("zero", onMap == 0); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
-        var c = Tx($"×{inCampaign}", "count"); c.Classes.Set("zero", inCampaign == 0); c.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, c, 5);
+        var c = Tx($"×{inCampaign}", "count"); c.Classes.Set("zero", inCampaign == 0); c.HorizontalAlignment = HorizontalAlignment.Right; c.IsVisible = !Joined; AddCell(g, c, 5);
 
         var row = new Border { Child = g, Classes = { "row", "dense" } };
         row.Classes.Set("selected", editing);
@@ -672,7 +687,7 @@ public partial class MainWindow
     private string InvalidReason(PawnTemplate t)
     {
         var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
-        if (!ActivePresets.AffiliationColors.Any(a => a.Name == aff)) return $"affiliation \"{aff}\" no longer exists";
+        if (!PanelPresets.AffiliationColors.Any(a => a.Name == aff)) return $"affiliation \"{aff}\" no longer exists";
         return "another pawn has the same name and affiliation";
     }
 
@@ -686,7 +701,7 @@ public partial class MainWindow
             foreach (var id in ids)
             {
                 if (Canvas.ArmedPawn?.Id == id) Canvas.ArmedPawn = null;
-                ActiveLibrary.Remove(id);
+                PanelLibrary.Remove(id);
             }
             if (_manageEditId is not null && ids.Contains(_manageEditId)) _manageEditId = null;
             _manageSelected.Clear();
@@ -702,7 +717,8 @@ public partial class MainWindow
     private void RefreshManageEditor()
     {
         if (_manageEditorHost is null) return;
-        var t = _manageEditId is null ? null : ActiveLibrary.Find(_manageEditId);
+        var t = _manageEditId is null ? null : PanelLibrary.Find(_manageEditId);
+        if (t is not null && Joined && !PlayerPawns.Controlled(t)) t = null;
         _statusCombo = null;
         _statusComboTemplate = null;
         if (t is null)
@@ -725,13 +741,14 @@ public partial class MainWindow
         titles.Children.Add(bigName);
         titles.Children.Add(Tx(PawnTemplate.NormalizeAffiliation(t.Affiliation), "muted"));
         AddCell(head, titles, 1);
-        AddCell(head, StarButton(t.Favorite, () => { t.Favorite = !t.Favorite; PawnsChanged(); RefreshManageEditor(); }, 18), 2);
+        if (!Joined) AddCell(head, StarButton(t.Favorite, () => { t.Favorite = !t.Favorite; PawnsChanged(); RefreshManageEditor(); }, 18), 2);
         sp.Children.Add(head);
 
         void Redraw()
         {
             preview.Child = PawnIcon(t, 56);
             PawnsChanged();
+            TemplateEdited(t);
         }
 
         sp.Children.Add(FieldLabel("name"));
@@ -742,16 +759,19 @@ public partial class MainWindow
             t.Name = name.Text ?? "";
             bigName.Text = PawnName(t);
             PawnsChanged();
+            TemplateEdited(t); // a player's typing goes after a short pause
         };
+        name.LostFocus += (_, _) => FlushTemplates();
         sp.Children.Add(name);
 
         var pair = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), ColumnSpacing = 8 };
         var affCol = new StackPanel();
         affCol.Children.Add(FieldLabel("affiliation"));
-        var affNames = ActivePresets.AffiliationColors.Select(a => a.Name).ToList();
+        var affNames = PanelPresets.AffiliationColors.Select(a => a.Name).ToList();
         var curAff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
         if (!affNames.Contains(curAff)) affNames.Add(curAff);
-        var aff = new ComboBox { ItemsSource = affNames, SelectedItem = curAff, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+        // only the DM changes an affiliation
+        var aff = new ComboBox { ItemsSource = affNames, SelectedItem = curAff, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = !Joined };
         aff.SelectionChanged += (_, _) =>
         {
             if (aff.SelectedItem is not string a || a == t.Affiliation) return;
@@ -763,7 +783,7 @@ public partial class MainWindow
         pair.Children.Add(affCol);
         var stCol = new StackPanel();
         stCol.Children.Add(FieldLabel("status"));
-        var stNames = ActivePresets.PawnStatuses.Select(s => s.Name).ToArray();
+        var stNames = PanelPresets.PawnStatuses.Select(s => s.Name).ToArray();
         var status = new ComboBox { ItemsSource = stNames, SelectedItem = Array.IndexOf(stNames, t.Status) >= 0 ? t.Status : null, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
         status.SelectionChanged += (_, _) =>
         {
@@ -779,7 +799,8 @@ public partial class MainWindow
 
         // hero: one copy across the whole campaign. refused while more than one
         // copy is placed, since it could not say which one to keep
-        var hero = new CheckBox { Content = "hero (only one can exist, placing it again moves it)", Classes = { "toggle" }, IsChecked = t.Hero, Margin = new Thickness(0, 6, 0, 0) };
+        // the hero mark is the DM's (it counts copies across the whole campaign)
+        var hero = new CheckBox { Content = "hero (only one can exist, placing it again moves it)", Classes = { "toggle" }, IsChecked = t.Hero, Margin = new Thickness(0, 6, 0, 0), IsEnabled = !Joined };
         var heroMsg = new TextBlock { Classes = { "refusal" }, IsVisible = false };
         hero.IsCheckedChanged += (_, _) =>
         {
@@ -806,7 +827,7 @@ public partial class MainWindow
         sp.Children.Add(FieldLabel("colors"));
         var useAff = new CheckBox { Content = "use affiliation colors", Classes = { "toggle" }, IsChecked = !t.ColorOverride };
         sp.Children.Add(useAff);
-        var (eo, ei) = t.Effective(ActivePresets);
+        var (eo, ei) = t.Effective(PanelPresets);
         var colors = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto"), ColumnSpacing = 6 };
         colors.Children.Add(Tx("outer", "hint"));
         AddCell(colors, ColorButton(eo, c => { t.OuterR = c.r; t.OuterG = c.g; t.OuterB = c.b; Redraw(); }, t.ColorOverride), 1);
@@ -820,12 +841,13 @@ public partial class MainWindow
             if (own)
             {
                 // start the pawn's own colors from what it looks like now
-                var (o, i) = t.Effective(ActivePresets);
+                var (o, i) = t.Effective(PanelPresets);
                 t.OuterR = o.r; t.OuterG = o.g; t.OuterB = o.b;
                 t.InnerR = i.r; t.InnerG = i.g; t.InnerB = i.b;
             }
             t.ColorOverride = own;
             PawnsChanged();
+            TemplateEdited(t);
             RefreshManageEditor();
         };
 
@@ -847,6 +869,7 @@ public partial class MainWindow
                 t.ImageExt = ".png";
                 Canvas.InvalidateImageCache();
                 PawnsChanged();
+                TemplateEdited(t, now: true);
                 RefreshManageEditor();
                 StatusText.Text = $"image compressed to 50x50 png ({png.Length / 1024} KB)";
             }
@@ -865,6 +888,7 @@ public partial class MainWindow
                 t.ImageExt = "";
                 Canvas.InvalidateImageCache();
                 PawnsChanged();
+                TemplateEdited(t, now: true);
                 RefreshManageEditor();
             };
             imgRow.Children.Add(rm);
@@ -874,19 +898,24 @@ public partial class MainWindow
         // placed counts: this map, campaign, then each map that has it
         sp.Children.Add(FieldLabel("placed"));
         var perMap = _project.Maps.Select(m => (m.Name, n: m.Doc.Pawns.Values.Count(p => p.TemplateId == t.Id))).ToList();
-        int here = _doc.Pawns.Values.Count(p => p.TemplateId == t.Id);
+        int here = PanelDoc.Pawns.Values.Count(p => p.TemplateId == t.Id);
         var counts = new Border { Classes = { "infobox" } };
         var cg = new StackPanel { Spacing = 2 };
         cg.Children.Add(CountLine("this map", here, true));
-        cg.Children.Add(CountLine("campaign", perMap.Sum(x => x.n), true));
-        foreach (var (mn, n) in perMap.Where(x => x.n > 0))
-            cg.Children.Add(CountLine("  " + mn, n, false));
+        // the DM's other maps are not the players' business
+        if (!Joined)
+        {
+            cg.Children.Add(CountLine("campaign", perMap.Sum(x => x.n), true));
+            foreach (var (mn, n) in perMap.Where(x => x.n > 0))
+                cg.Children.Add(CountLine("  " + mn, n, false));
+        }
         counts.Child = cg;
         sp.Children.Add(counts);
 
         var acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 12, 0, 0) };
         var loc = Btn("locate");
         loc.IsEnabled = perMap.Any(x => x.n > 0);
+        loc.IsVisible = !Joined;
         loc.Click += (_, _) => { CloseManage(); LocatePawn(t); };
         acts.Children.Add(loc);
         var dup = Btn("duplicate");
@@ -894,6 +923,7 @@ public partial class MainWindow
         {
             var c = new PawnTemplate
             {
+                Id = Joined ? PlayerTemplates.NewId() : "",
                 Name = PawnName(t) + " copy",
                 Affiliation = t.Affiliation,
                 ColorOverride = t.ColorOverride,
@@ -902,10 +932,11 @@ public partial class MainWindow
                 Status = t.Status,
                 ImageB64 = t.ImageB64,
                 ImageExt = t.ImageExt,
-                Favorite = t.Favorite,
-                Hero = t.Hero,
+                Favorite = t.Favorite && !Joined,
+                Hero = t.Hero && !Joined,
             };
-            ActiveLibrary.Add(c);
+            PanelLibrary.Add(c);
+            TemplateEdited(c, now: true);
             _manageEditId = c.Id;
             PawnsChanged();
             RefreshManageEditor();
@@ -914,6 +945,7 @@ public partial class MainWindow
         acts.Children.Add(dup);
         var del = Btn("delete", danger: true);
         del.Click += (_, _) => DeleteTemplateWithWarning(t, del);
+        del.IsVisible = !Joined; // players never delete a pawn type
         acts.Children.Add(del);
         sp.Children.Add(acts);
     }

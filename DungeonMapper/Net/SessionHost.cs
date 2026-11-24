@@ -63,6 +63,14 @@ public sealed class ImageRequest
 }
 
 
+/// a player adds or changes a Player pawn template
+public sealed class TemplateRequest
+{
+    public required string Name { get; init; }
+    public required PawnTemplate Template { get; init; }
+    internal object? Peer { get; init; }
+}
+
 public sealed class SessionHost : IDisposable
 {
     private sealed class Peer
@@ -99,6 +107,8 @@ public sealed class SessionHost : IDisposable
     public event Action<FormationRequest>? FormationRequested;
     /// a player added, changed or deleted an image
     public event Action<ImageRequest>? ImageRequested;
+    /// a player added or changed a Player pawn template
+    public event Action<TemplateRequest>? TemplateRequested;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -195,6 +205,7 @@ public sealed class SessionHost : IDisposable
     public void Notice(LabelRequest r, string reason) => Notice(r.Peer, reason);
     public void Notice(FormationRequest r, string reason) => Notice(r.Peer, reason);
     public void Notice(ImageRequest r, string reason) => Notice(r.Peer, reason);
+    public void Notice(TemplateRequest r, string reason) => Notice(r.Peer, reason);
 
     private void Notice(object? peer, string reason)
     {
@@ -210,6 +221,13 @@ public sealed class SessionHost : IDisposable
         }
         if (m.Image is null || MapSerializer.ImageFromDto(m.Image) is not { } im) return;
         ImageRequested?.Invoke(new ImageRequest { Name = from.Name, Image = im, Peer = from });
+    }
+
+    private void OnTemplate(Peer from, NetMessage m)
+    {
+        if (m.Template is null) return;
+        var list = MapSerializer.LibraryFromDtos(new() { m.Template });
+        if (list.Count == 1) TemplateRequested?.Invoke(new TemplateRequest { Name = from.Name, Template = list[0], Peer = from });
     }
 
     private void OnLabel(Peer from, NetMessage m)
@@ -327,6 +345,7 @@ public sealed class SessionHost : IDisposable
                 else if (m.Type is "formation_set" or "formation_delete") OnFormation(peer, m);
                 else if (m.Type is "label_set" or "label_delete") OnLabel(peer, m);
                 else if (m.Type is "image_set" or "image_delete") OnImage(peer, m);
+                else if (m.Type == "template_set") OnTemplate(peer, m);
             }
         }
         catch (Exception) { }

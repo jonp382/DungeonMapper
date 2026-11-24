@@ -1093,10 +1093,10 @@ public partial class MainWindow : Window
     private bool IsInvalid(PawnTemplate t)
     {
         var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
-        if (!ActivePresets.AffiliationColors.Any(a => a.Name == aff)) return true;
+        if (!PanelPresets.AffiliationColors.Any(a => a.Name == aff)) return true;
         var nm = (t.Name ?? "").Trim().ToLowerInvariant();
         int same = 0;
-        foreach (var o in ActiveLibrary.Pawns)
+        foreach (var o in PanelLibrary.Pawns)
             if ((o.Name ?? "").Trim().ToLowerInvariant() == nm
                 && PawnTemplate.NormalizeAffiliation(o.Affiliation) == aff) same++;
         return same > 1;

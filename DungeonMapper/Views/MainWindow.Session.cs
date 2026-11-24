@@ -177,6 +177,7 @@ public partial class MainWindow
         host.LabelRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnLabelRequest(host, r); });
         host.FormationRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnFormationRequest(host, r); });
         host.PawnRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnPawnRequest(host, r); });
+        host.TemplateRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnTemplateRequest(host, r); });
         host.ImageRequested += r => Dispatcher.UIThread.Post(() => { if (_host == host) OnImageRequest(host, r); });
         host.PlayersChanged += () => Dispatcher.UIThread.Post(() =>
         {
@@ -499,6 +500,8 @@ public partial class MainWindow
     private void ApplyRemote(SessionClient from, string map, PlayerPackage pkg)
     {
         if (_client != from) return;
+        var editedBefore = _manageEditId is null ? null : Canvas.Library.Find(_manageEditId);
+        KeepPlayerTemplates(pkg.Library);
         Canvas.Library = pkg.Library;
         Canvas.Presets = pkg.Presets;
         Canvas.ObjectTypes = pkg.Objects;
@@ -519,6 +522,7 @@ public partial class MainWindow
             else if (_formationRenaming is null) RefreshPawnPanel();
         }
         if (Canvas.Mode == ToolMode.Image) RefreshImagePanel();
+        RefreshPlayerManage(editedBefore);
         if (map != _joinedMap) _fitOnNextState = true;
         _joinedMap = map;
         if (_fitOnNextState && pkg.Map.Cells.Count + pkg.Map.FloodRegions.Count > 0) { Canvas.AutoFit(); _fitOnNextState = false; }
@@ -614,6 +618,8 @@ public partial class MainWindow
     {
         _pendingLabels.Clear();
         _pendingImages.Clear();
+        ClearPlayerTemplates();
+        if (ModalOverlay.IsVisible && _modalKind == "manage") CloseManage();
         var c = _client;
         _client = null;
         c?.Dispose();

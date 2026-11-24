@@ -47,3 +47,52 @@ public static class PlayerImages
         return null;
     }
 }
+
+/// multiplayer: players add and edit Player pawn templates in the DM's
+/// library (the pawn management window). they never delete one, never
+/// change an affiliation or the hero mark, and only touch Player pawns.
+public static class PlayerTemplates
+{
+    public const int MaxName = 60;
+
+    /// a fresh id for a template a player makes (never clashes with the DM's p1, p2...)
+    public static string NewId() => "pp" + Guid.NewGuid().ToString("N")[..10];
+
+    /// adds or changes a template from what a player sent. returns why not,
+    /// null when done. new templates are Player, not heroes
+    public static string? Set(PawnLibrary lib, CampaignPresets presets, PawnTemplate sent)
+    {
+        if (string.IsNullOrEmpty(sent.Id) || sent.Id.Length > 40) return "that pawn has no id";
+        var t = lib.Find(sent.Id);
+        if (t is not null && !PlayerPawns.Controlled(t)) return "only the DM edits that pawn";
+        string image = "";
+        if (!string.IsNullOrEmpty(sent.ImageB64))
+        {
+            // a modified player app could send anything: a 50x50 png is kept
+            // as sent (so it comes back the same), anything else is remade
+            if (sent.ImageB64.Length > 4 * 1024 * 1024) return "that image is too big";
+            try
+            {
+                var bytes = Convert.FromBase64String(sent.ImageB64);
+                image = PawnImage.IsNormalized(bytes) ? sent.ImageB64 : Convert.ToBase64String(PawnImage.Compress(bytes));
+            }
+            catch { return "that image could not be read"; }
+        }
+        var name = (sent.Name ?? "").Trim();
+        if (name.Length > MaxName) name = name[..MaxName];
+        string status = presets.PawnStatuses.Any(s => s.Name == sent.Status) ? sent.Status : t?.Status ?? "none";
+        int C(int v) => Math.Clamp(v, 0, 255);
+        if (t is null)
+        {
+            t = new PawnTemplate { Id = sent.Id, Affiliation = "Player", Hero = false };
+            lib.Pawns.Add(t);
+        }
+        if (t.ImageB64 != image) { t.ImageB64 = image; t.ImageExt = image.Length > 0 ? ".png" : ""; }
+        t.Name = name;
+        t.Status = status;
+        t.ColorOverride = sent.ColorOverride;
+        t.OuterR = C(sent.OuterR); t.OuterG = C(sent.OuterG); t.OuterB = C(sent.OuterB);
+        t.InnerR = C(sent.InnerR); t.InnerG = C(sent.InnerG); t.InnerB = C(sent.InnerB);
+        return null;
+    }
+}

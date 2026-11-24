@@ -33,6 +33,7 @@ namespace DungeonMapper.Net;
 //                           label_delete (id): labels players may edit
 //   player -> host  image_set (an image with its id: new or changed) and
 //                           image_delete (id): images that are not DM only
+//   player -> host  template_set (a Player pawn template, new or changed)
 //   host -> player  notice  (reason) when it refuses one
 // discovery: the host broadcasts a beacon over udp every couple of seconds.
 public static class NetProtocol
@@ -149,8 +150,9 @@ public sealed class NetMessage
     [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Status { get; set; }
     [JsonPropertyName("placements")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<PawnPlacement>? Placements { get; set; }
     [JsonPropertyName("formation")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Formation? Formation { get; set; }
-    // an image a player adds or changes
+    // an image a player adds or changes, a pawn template a player adds or changes
     [JsonPropertyName("image")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ImageDto? Image { get; set; }
+    [JsonPropertyName("template")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PawnTemplateDto? Template { get; set; }
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
 }
 

@@ -14,6 +14,14 @@ public static class PawnImage
 {
     public const int Side = 50;
 
+    /// true when the bytes are already a 50x50 png that decodes
+    public static bool IsNormalized(byte[] bytes)
+    {
+        if (bytes.Length < 8 || bytes[0] != 0x89 || bytes[1] != (byte)'P' || bytes[2] != (byte)'N' || bytes[3] != (byte)'G') return false;
+        using var sk = SKBitmap.Decode(bytes);
+        return sk is not null && sk.Width == Side && sk.Height == Side;
+    }
+
     /// Compresses any decodable image (png/jpg) to 50x50 PNG bytes.
     public static byte[] Compress(byte[] source)
     {

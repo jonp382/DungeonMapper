@@ -69,6 +69,14 @@ public sealed class SessionClient : IDisposable
     /// asks the DM to delete an image
     public Task SendImageDelete(string id) => Send(new NetMessage { Type = "image_delete", Id = id });
 
+    /// asks the DM to add or change a Player pawn template
+    public Task SendTemplate(PawnTemplate t)
+    {
+        var lib = new PawnLibrary();
+        lib.Pawns.Add(t);
+        return Send(new NetMessage { Type = "template_set", Template = MapSerializer.LibraryToDtos(lib)[0] });
+    }
+
     /// asks the DM to delete a label
     public Task SendLabelDelete(string id) => Send(new NetMessage { Type = "label_delete", Id = id });
 
