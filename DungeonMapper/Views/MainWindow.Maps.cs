@@ -314,6 +314,7 @@ public partial class MainWindow
         }
         if (added > 0)
         {
+            ActiveLibrary.FoldHeroStatuses(_project.Maps.ConvertAll(m => m.Doc));
             SyncCampaign();
             Canvas.InvalidateImageCache();
             SwitchMap(firstNew);

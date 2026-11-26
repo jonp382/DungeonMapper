@@ -819,6 +819,8 @@ public partial class MainWindow
             }
             heroMsg.IsVisible = false;
             t.Hero = on;
+            // its placed copy's own status becomes the hero's status
+            if (on) PanelLibrary.FoldHeroStatuses(_project.Maps.Select(m => m.Doc));
             PawnsChanged();
         };
         sp.Children.Add(hero);

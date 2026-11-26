@@ -744,6 +744,7 @@ public partial class MainWindow : Window
                 ActiveLibrary.Formations.Add(f);
             }
             MergeObjects(imported, _project.Maps);
+            ActiveLibrary.FoldHeroStatuses(_project.Maps.Select(m => m.Doc));
             SyncCampaign();
             Canvas.InvalidateImageCache();
             // Ctrl+S saves over the opened campaign. a map file is not a

@@ -67,7 +67,7 @@ Any of these can be exported, and they can be imported from another campaign or 
 
 ## Pawns
 
-Pawns are tokens for characters and monsters. Each one can have a name, a picture, an affiliation color and a status. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
+Pawns are tokens for characters and monsters. Each one can have a name, a picture, an affiliation color and a status. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. A hero has a single status: setting it on the map or in the pawn library changes the same one (there is no "inherit"), and Ctrl+Z does not undo it, like other pawn library edits. The library can be exported and imported too.
 
 ![pawns](./images/pawns.png)
 

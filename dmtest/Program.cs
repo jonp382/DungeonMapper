@@ -4794,9 +4794,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         step = "status";
         string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
         Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), st)).Wait();
-        Check(WaitFor(() => dmDoc.Pawns[new CellKey(1, 1)].Status == st), "pawns window: a player sets their pawn's status");
+        Check(WaitFor(() => lib.Find("pc")!.Status == st) && dmDoc.Pawns[new CellKey(1, 1)].Status is null, "pawns window: a player sets their hero's status (the hero's one status)");
         CallOn(dm, "PublishNow");
-        Check(WaitFor(() => plCanvas.Document.Pawns.TryGetValue(new CellKey(1, 1), out var pp) && pp.Status == st), "pawns window: the status comes back");
+        Check(WaitFor(() => plCanvas.Library.Find("pc")?.Status == st), "pawns window: the status comes back");
         CallOn(pl, "ShowPawnInfo", plCanvas.Document.Pawns[new CellKey(1, 1)]);
 
         step = "formations";
@@ -4816,7 +4816,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         var pgBefore = dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg");
         Task.Run(() => client.SendDeploy(new[] { ("pc", new CellKey(2, 4)), ("pg", new CellKey(3, 4)) })).Wait();
         Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(2, 4))) && !dmDoc.Pawns.ContainsKey(new CellKey(1, 1))
-            && dmDoc.Pawns[new CellKey(2, 4)].Status == st && dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == pgBefore + 1,
+            && lib.Find("pc")!.Status == st && dmDoc.Pawns[new CellKey(2, 4)].Status is null && dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == pgBefore + 1,
             "pawns window: a deploy moves the hero with its status and adds the rest");
         CallOn(dm, "DoUndo");
         Check(dmCanvas.Document.Pawns.ContainsKey(new CellKey(1, 1)) && !dmCanvas.Document.Pawns.ContainsKey(new CellKey(2, 4)), "pawns window: a deploy is one undo step");
@@ -5965,6 +5965,59 @@ try { Directory.Delete(imgDir, true); } catch { }
     CallOn(w, "DoUndo");
     Check(text.Text == "nothing to undo" && w.StatusShown == StatusKind.Warning, "status colors: nothing to undo is orange");
     w.Close();
+}
+
+// --- heroes have one status, no inherit ---
+{
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "h", Name = "Ana", Hero = true, Status = "none" });
+    lib.Pawns.Add(new PawnTemplate { Id = "g", Name = "Gob" });
+    var m1 = new MapDocument(); var m2 = new MapDocument();
+    m1.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "h", Status = "stunned" };
+    m2.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "g", Status = "stunned" };
+    Check(lib.FoldHeroStatuses(new[] { m1, m2 }) == 1 && lib.Find("h")!.Status == "stunned" && m1.Pawns[new CellKey(1, 1)].Status is null,
+        "hero status: a placed hero's own status moves to the hero");
+    Check(m2.Pawns[new CellKey(2, 2)].Status == "stunned" && lib.Find("g")!.Status != "stunned", "hero status: other pawns keep their own status");
+
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var w = new DungeonMapper.Views.MainWindow(); w.Show();
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        var pre = (CampaignPresets)t.GetProperty("ActivePresets", flags)!.GetValue(w)!;
+        string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
+        wlib.Pawns.Add(new PawnTemplate { Id = "hero", Name = "Ana", Hero = true });
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var hdoc = canvas.Document;
+        var hp = new Pawn { Cell = new CellKey(1, 1), TemplateId = "hero" };
+        var gp = new Pawn { Cell = new CellKey(2, 1), TemplateId = "gob", Status = st };
+        hdoc.Pawns[hp.Cell] = hp; hdoc.Pawns[gp.Cell] = gp;
+        var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
+        List<string> Words() => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel)
+            .Select(v => v switch { Avalonia.Controls.TextBlock tb => tb.Text, Avalonia.Controls.ContentControl cc => cc.Content as string, _ => null })
+            .Where(x => x is not null).Select(x => x!).ToList();
+
+        step = "views";
+        CallOn(w, "ShowPawnInfo", hp);
+        panel.UpdateLayout();
+        Check(!Words().Contains("inherit"), "hero status: a hero's pawn view has no inherit");
+        CallOn(w, "ShowPawnInfo", gp);
+        panel.UpdateLayout();
+        Check(Words().Contains("inherit"), "hero status: other pawns still have inherit");
+
+        w.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"hero status: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

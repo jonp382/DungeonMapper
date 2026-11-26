@@ -441,12 +441,24 @@ public partial class MainWindow
             head.Children.Add(star);
             ToolPanel.AddButtonRaw(head);
 
-            // the placed pawn's own status overrides its template's. inherit clears it
-            var statuses = new List<string> { "inherit" };
+            // the placed pawn's own status overrides its template's. inherit clears it.
+            // a hero has no inherit: its one status lives on its template (a
+            // library edit, like pawn management, so not an undo step)
+            var statuses = new List<string>();
+            if (!t.Hero) statuses.Add("inherit");
             statuses.AddRange(ActivePresets.PawnStatuses.Select(s => s.Name));
             var dots = ActivePresets.PawnStatuses.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First());
-            ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? "inherit", s =>
+            ToolPanel.AddChips(statuses.ToArray(), t.Hero ? HeroStatus(t) : pawn.Status ?? "inherit", s =>
                 {
+                    if (t.Hero)
+                    {
+                        if (s == HeroStatus(t) && pawn.Status is null) return;
+                        t.Status = s;
+                        pawn.Status = null;
+                        PawnsChanged();
+                        FocusCanvas();
+                        return;
+                    }
                     var v = s == "inherit" ? null : s;
                     if (v == pawn.Status) return;
                     pawn.Status = v;
@@ -486,6 +498,9 @@ public partial class MainWindow
 
     // swaps the template a placed pawn points at. it keeps its cell and status.
     // rows are grouped like the pawn tool panel, the current pawn is highlighted
+    /// a hero's one status (its template's), "none" when it has none
+    private static string HeroStatus(PawnTemplate t) => string.IsNullOrEmpty(t.Status) ? CampaignPresets.NoStatus : t.Status;
+
     private void ShowChangePawn(Pawn pawn)
     {
         var cell = pawn.Cell;
@@ -500,6 +515,8 @@ public partial class MainWindow
             ToolPanel.ButtonHook?.Invoke();
             if (t.Id == pawn.TemplateId) { ShowPawnInfo(pawn); return; }
             pawn.TemplateId = t.Id;
+            // a hero keeps its own status, not the old pawn's
+            if (t.Hero) pawn.Status = null;
             // a hero stays one of a kind, the copies elsewhere go
             bool moved = t.Hero && Canvas.TakeHeroCopies(cell, t.Id) is not null;
             ActiveHistory.Commit(_doc);

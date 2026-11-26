@@ -451,6 +451,24 @@ public sealed class PawnLibrary
 
     public PawnTemplate? Find(string id) => Pawns.Find(p => p.Id == id);
 
+    /// A hero is one of a kind, so its status lives on its template only (no
+    /// "inherit"): a placed hero carrying its own status (older files, a pawn
+    /// just made a hero) hands it to the template and goes back to none.
+    /// Returns how many placed heroes changed.
+    public int FoldHeroStatuses(IEnumerable<MapDocument> maps)
+    {
+        int n = 0;
+        foreach (var doc in maps)
+            foreach (var p in doc.Pawns.Values)
+                if (p.Status is { } own && Find(p.TemplateId) is { Hero: true } t)
+                {
+                    t.Status = own;
+                    p.Status = null;
+                    n++;
+                }
+        return n;
+    }
+
     /// Adds a template, assigning a fresh Id if it has none, and replacing any
     /// existing entry with the same Id.
     public void Add(PawnTemplate t)

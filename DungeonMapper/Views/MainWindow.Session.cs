@@ -256,7 +256,14 @@ public partial class MainWindow
                 break;
             case PawnAction.Status:
                 var pawn = doc.Pawns[r.To];
-                pawn.Status = r.Status;
+                if (lib.Find(pawn.TemplateId) is { Hero: true } hero)
+                {
+                    // a hero's one status is its template's (sent back in the package)
+                    hero.Status = r.Status ?? CampaignPresets.NoStatus;
+                    pawn.Status = null;
+                    PawnsChanged();
+                }
+                else pawn.Status = r.Status;
                 SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}", StatusKind.Player);
                 break;
             case PawnAction.MoveMany:
@@ -726,14 +733,26 @@ public partial class MainWindow
         head.Children.Add(titles);
         ToolPanel.AddButtonRaw(head);
 
-        var statuses = new List<string> { "inherit" };
+        // a hero has no inherit: its one status is its template's
+        var statuses = new List<string>();
+        if (!t.Hero) statuses.Add("inherit");
         statuses.AddRange(PanelPresets.PawnStatuses.Select(x => x.Name));
         var dots = PanelPresets.PawnStatuses.GroupBy(x => x.Name).ToDictionary(g => g.Key, g => g.First());
-        ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? "inherit", v =>
+        ToolPanel.AddChips(statuses.ToArray(), t.Hero ? HeroStatus(t) : pawn.Status ?? "inherit", v =>
             {
                 var status = v == "inherit" ? null : v;
-                if (status == pawn.Status || _client is not { } cl) return;
-                pawn.Status = status; // shown at once, the DM's map confirms it
+                if (_client is not { } cl) return;
+                if (t.Hero)
+                {
+                    if (status == HeroStatus(t) && pawn.Status is null) return;
+                    t.Status = status!; // shown at once, the DM's app confirms it
+                    pawn.Status = null;
+                }
+                else
+                {
+                    if (status == pawn.Status) return;
+                    pawn.Status = status; // shown at once, the DM's map confirms it
+                }
                 Canvas.Refresh();
                 _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, status));
                 SetStatus($"{PawnName(t)}: {v}");
