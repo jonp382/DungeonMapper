@@ -70,6 +70,8 @@ public partial class MainWindow
                 s => s.FloorGridOpacity, (s, v) => s.FloorGridOpacity = v),
             new(SetDoorWallGap, SetDoorWallGapError, ResetDoorWallGap, 0, AppSettings.MaxDoorWallGap,
                 s => s.DoorWallGap, (s, v) => s.DoorWallGap = v),
+            new(SetPawnStatusGap, SetPawnStatusGapError, ResetPawnStatusGap, 0, AppSettings.MaxPawnStatusGap,
+                s => s.PawnStatusGap, (s, v) => s.PawnStatusGap = v),
             new(SetMeasureShade, SetMeasureShadeError, ResetMeasureShade, 0, AppSettings.MaxMeasureShadeOpacity,
                 s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
             new(SetFogOpacity, SetFogOpacityError, ResetFogOpacity, 0, AppSettings.MaxFogOpacity,

@@ -238,7 +238,7 @@ public partial class MainWindow
         {
             PawnAction.Move => PlayerPawns.CheckMove(doc, lib, r.From, r.To),
             PawnAction.Place => PlayerPawns.CheckPlace(doc, lib, r.TemplateId, r.To, OnOtherMap(r.TemplateId)),
-            PawnAction.Status => PlayerPawns.CheckStatus(doc, lib, ActivePresets, r.To, r.Status),
+            PawnAction.Status => PlayerPawns.CheckStatus(doc, lib, ActivePresets, r.To, r.Statuses),
             PawnAction.MoveMany => PlayerPawns.CheckMoveMany(doc, lib, r.Moves),
             _ => PlayerPawns.CheckDeploy(doc, lib, r.Placements, OnOtherMap),
         };
@@ -256,8 +256,8 @@ public partial class MainWindow
                 break;
             case PawnAction.Status:
                 var pawn = doc.Pawns[r.To];
-                pawn.Status = r.Status;
-                SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? CampaignPresets.NoStatus}", StatusKind.Player);
+                pawn.Statuses = r.Statuses.Select(s => s.Clone()).ToList();
+                SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {StatusNames(pawn)}", StatusKind.Player);
                 break;
             case PawnAction.MoveMany:
                 PlayerPawns.ApplyMoveMany(doc, r.Moves);
@@ -678,6 +678,10 @@ public partial class MainWindow
     // keys while joined: esc, zoom to fit, measure, move, label, pawn, deploy
     // formation (r rotates it or an armed pawn box) and ping. everything
     // else is swallowed. true when handled here
+    /// "poisoned, asleep" or "none", for status bar lines
+    private static string StatusNames(Pawn p) =>
+        p.Statuses.Count == 0 ? CampaignPresets.NoStatus : string.Join(", ", p.Statuses.Select(s => s.Name));
+
     private bool PlayerKey(KeyEventArgs e)
     {
         if (e.Key == Key.Escape) return false;
@@ -713,7 +717,7 @@ public partial class MainWindow
         _playerPawnInfoCell = cell;
         if (t is null) { ToolPanel.AddHint("this pawn's template is missing"); return; }
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*"), ColumnSpacing = 8, Margin = new Avalonia.Thickness(0, 0, 0, 4) };
-        head.Children.Add(PawnIcon(t, 40));
+        head.Children.Add(PawnIcon(t, 40, statuses: pawn.Statuses));
         var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
         titles.Children.Add(new TextBlock { Text = PawnName(t), FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis });
         var aff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
@@ -726,22 +730,14 @@ public partial class MainWindow
         head.Children.Add(titles);
         ToolPanel.AddButtonRaw(head);
 
-        var statuses = PanelPresets.PawnStatuses.Select(x => x.Name).ToList();
-        var dots = PanelPresets.PawnStatuses.GroupBy(x => x.Name).ToDictionary(g => g.Key, g => g.First());
-        ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? CampaignPresets.NoStatus, v =>
-            {
-                var status = v == CampaignPresets.NoStatus ? null : v;
-                if (status == pawn.Status || _client is not { } cl) return;
-                pawn.Status = status; // shown at once, the DM's map confirms it
-                Canvas.Refresh();
-                _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, status));
-                SetStatus($"{PawnName(t)}: {v}");
-                FocusCanvas();
-            },
-            "status",
-            n => dots.TryGetValue(n, out var st)
-                ? new Avalonia.Controls.Shapes.Ellipse { Width = 9, Height = 9, Fill = Rgb((st.R, st.G, st.B)) }
-                : null);
+        AddStatusChecks(pawn, PanelPresets, list =>
+        {
+            if (_client is not { } cl) return;
+            pawn.Statuses = list; // shown at once, the DM's map confirms it
+            Canvas.Refresh();
+            _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, list));
+            SetStatus($"{PawnName(t)}: {StatusNames(pawn)}");
+        });
         ToolPanel.AddInfo($"{PanelDoc.Pawns.Values.Count(p => p.TemplateId == pawn.TemplateId)} on this map");
         ToolPanel.AddButton("back to pawns", BackToToolView);
     }

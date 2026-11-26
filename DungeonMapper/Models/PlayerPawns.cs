@@ -53,13 +53,13 @@ public static class PlayerPawns
         return CheckTarget(doc, to);
     }
 
-    /// why a player can not set the status of the pawn at the cell (null =
-    /// back to the template's), null when they can
-    public static string? CheckStatus(MapDocument doc, PawnLibrary lib, CampaignPresets presets, CellKey at, string? status)
+    /// why a player can not set the statuses of the pawn at the cell (empty =
+    /// none), null when they can
+    public static string? CheckStatus(MapDocument doc, PawnLibrary lib, CampaignPresets presets, CellKey at, IReadOnlyList<PawnStatusEntry> statuses)
     {
         if (!doc.Pawns.TryGetValue(at, out var p) || !Visible(doc, p)) return "there is no pawn there";
         if (!Controlled(lib.Find(p.TemplateId))) return "only the DM changes that pawn";
-        if (status is not null && !presets.PawnStatuses.Any(s => s.Name == status)) return "that status does not exist";
+        if (statuses.Any(s => !presets.PawnStatuses.Any(x => x.Name == s.Name))) return "that status does not exist";
         return null;
     }
 
@@ -119,7 +119,7 @@ public static class PlayerPawns
         var pawns = moves.Select(m => doc.Pawns[m.from]).ToList();
         foreach (var (from, _) in moves) doc.Pawns.Remove(from);
         for (int i = 0; i < moves.Count; i++)
-            doc.Pawns[moves[i].to] = new Pawn { Cell = moves[i].to, TemplateId = pawns[i].TemplateId, Status = pawns[i].Status, DmOnly = false };
+            doc.Pawns[moves[i].to] = new Pawn { Cell = moves[i].to, TemplateId = pawns[i].TemplateId, Statuses = pawns[i].CloneStatuses(), DmOnly = false };
     }
 
     /// moves the pawn (status kept, visible). call CheckMove first
@@ -127,7 +127,7 @@ public static class PlayerPawns
     {
         var p = doc.Pawns[from];
         doc.Pawns.Remove(from);
-        doc.Pawns[to] = new Pawn { Cell = to, TemplateId = p.TemplateId, Status = p.Status, DmOnly = false };
+        doc.Pawns[to] = new Pawn { Cell = to, TemplateId = p.TemplateId, Statuses = p.CloneStatuses(), DmOnly = false };
     }
 
     /// places the pawn, visible. a hero moves from where it stands on this
@@ -141,15 +141,15 @@ public static class PlayerPawns
     public static int ApplyDeploy(MapDocument doc, IEnumerable<PawnTemplate> templates, IReadOnlyList<(string id, CellKey cell)> pawns)
     {
         var heroes = templates.Where(t => t.Hero).Select(t => t.Id).ToHashSet();
-        var statuses = new Dictionary<string, string?>();
+        var statuses = new Dictionary<string, List<PawnStatusEntry>>();
         foreach (var (c, p) in doc.Pawns.Where(kv => heroes.Contains(kv.Value.TemplateId)).ToList())
         {
             if (!pawns.Any(x => x.id == p.TemplateId)) continue;
-            statuses.TryAdd(p.TemplateId, p.Status);
+            statuses.TryAdd(p.TemplateId, p.CloneStatuses());
             doc.Pawns.Remove(c);
         }
         foreach (var (id, cell) in pawns)
-            doc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = id, Status = statuses.GetValueOrDefault(id), DmOnly = false };
+            doc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = id, Statuses = statuses.GetValueOrDefault(id) ?? new(), DmOnly = false };
         return statuses.Count;
     }
 

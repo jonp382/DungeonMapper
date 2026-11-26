@@ -228,11 +228,24 @@ public sealed class Pawn
 {
     public CellKey Cell { get; set; }
     public string TemplateId { get; set; } = "";
-    // per-instance status override; null inherits the template's status.
-    public string? Status { get; set; }
+    // the pawn's own statuses (pawn types have none). empty = none. kept in
+    // the order they were ticked; drawn in the status presets' order
+    public List<PawnStatusEntry> Statuses { get; set; } = new();
+    /// a deep copy of the statuses, for a pawn copied, moved or swapped
+    public List<PawnStatusEntry> CloneStatuses() => Statuses.Select(s => s.Clone()).ToList();
+    public bool HasStatus(string name) => Statuses.Any(s => s.Name == name);
     /// hidden from players even on revealed cells (multiplayer). new items
     /// start hidden, files from before the flag load as visible
     public bool DmOnly { get; set; } = true;
+}
+
+/// one status on a pawn: the status preset's name and the turns it has left
+/// (turn tracking). -1 = permanent
+public sealed class PawnStatusEntry
+{
+    public string Name { get; set; } = "";
+    public int Turns { get; set; } = -1;
+    public PawnStatusEntry Clone() => new() { Name = Name, Turns = Turns };
 }
 
 /// The whole map. Rooms are not a data structure - a room is just a set of cells.
@@ -1691,7 +1704,7 @@ public sealed partial class MapDocument
         foreach (var (e, d) in Doors) if (SegmentIn(e)) snap.Doors[e] = d;
         foreach (var (c, s) in Stairs) if (region.Contains(c)) snap.Stairs[c] = s;
         foreach (var l in Labels) if (region.Contains(l.Cell)) snap.Labels.Add(l);
-        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly });
+        foreach (var (c, p) in Pawns) if (region.Contains(c)) snap.Pawns.Add(new Pawn { Cell = p.Cell, TemplateId = p.TemplateId, Statuses = p.CloneStatuses(), DmOnly = p.DmOnly });
         // an object travels when all of it is inside the region
         foreach (var o in Objects) if (o.Inside(x0, y0, x1, y1)) snap.Objects.Add(o.Copy());
         foreach (var im in Images) if (im.Inside(x0, y0, x1, y1)) snap.Images.Add(im.Copy());
@@ -1740,7 +1753,7 @@ public sealed partial class MapDocument
             {
                 Cell = new CellKey(p.Cell.X + dx, p.Cell.Y + dy),
                 TemplateId = p.TemplateId,
-                Status = p.Status,
+                Statuses = p.CloneStatuses(),
                 DmOnly = p.DmOnly,
             };
         foreach (var o in snap.Objects)
@@ -1949,7 +1962,7 @@ public sealed partial class MapDocument
         foreach (var p in snap.Pawns)
         {
             var (rx, ry) = RotCell(p.Cell.X, p.Cell.Y);
-            s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly });
+            s.Pawns.Add(new Pawn { Cell = new CellKey(rx, ry), TemplateId = p.TemplateId, Statuses = p.CloneStatuses(), DmOnly = p.DmOnly });
         }
         foreach (var o in snap.Objects)
         {

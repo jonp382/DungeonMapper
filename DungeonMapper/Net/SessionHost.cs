@@ -29,7 +29,7 @@ public sealed class PawnRequest
     public CellKey From { get; init; }
     public CellKey To { get; init; }
     public string TemplateId { get; init; } = "";
-    public string? Status { get; init; }
+    public List<PawnStatusEntry> Statuses { get; init; } = new();
     public List<(string id, CellKey cell)> Placements { get; init; } = new();
     public List<(CellKey from, CellKey to)> Moves { get; init; } = new();
     internal object? Peer { get; init; }
@@ -264,7 +264,7 @@ public sealed class SessionHost : IDisposable
             if (m.Type == "pawn_place" && !string.IsNullOrEmpty(m.TemplateId))
                 r = new PawnRequest { Name = from.Name, Action = PawnAction.Place, TemplateId = m.TemplateId, To = new CellKey(x, y), Peer = from };
             else if (m.Type == "pawn_status")
-                r = new PawnRequest { Name = from.Name, Action = PawnAction.Status, To = new CellKey(x, y), Status = m.Status, Peer = from };
+                r = new PawnRequest { Name = from.Name, Action = PawnAction.Status, To = new CellKey(x, y), Statuses = MapSerializer.StatusesFromDto(m.Statuses), Peer = from };
             else if (m.Type == "pawn_move" && m.ToX is int tx && m.ToY is int ty)
                 r = new PawnRequest { Name = from.Name, Action = PawnAction.Move, From = new CellKey(x, y), To = new CellKey(tx, ty), Peer = from };
         }

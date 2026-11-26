@@ -5,6 +5,10 @@ using Avalonia;
 if (args.Length > 0 && args[0] == "bench") { Bench.Run(); return 0; }
 
 int pass = 0, fail = 0;
+// statuses by name for test pawns, and a pawn's statuses as "a,b" (null = none)
+List<PawnStatusEntry> S(params string[] names) => names.Select(n => new PawnStatusEntry { Name = n }).ToList();
+string? St(Pawn p) => p.Statuses.Count == 0 ? null : string.Join(",", p.Statuses.Select(x => x.Name));
+
 void Check(bool cond, string name)
 {
     if (cond) { pass++; Console.WriteLine($"PASS: {name}"); }
@@ -311,7 +315,7 @@ Check(!doc.TryPlaceDoor(new EdgeKey(new CellKey(1, 1), Side.North), out _), "doo
     lib.Add(tp);
     var pdoc = new MapDocument();
     pdoc.Doors[EdgeKey.Normalize(new CellKey(0, 0), Side.East)] = new Door { Type = "gate", State = DoorState.Closed };
-    pdoc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = tp.Id, Status = "paralyzed" });
+    pdoc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = tp.Id, Statuses = S("paralyzed") });
     m.AddMissing(new[] { new AffiliationColor("Cult", (5, 5, 5), (6, 6, 6)), new AffiliationColor("Spare", (1, 1, 1), (1, 1, 1)) });
     var used = m.UsedBy(new[] { pdoc }, lib);
     Check(used.DoorTypes.Select(x => x.Name).SequenceEqual(new[] { "gate" }), "presets: used by holds only the door types on the map");
@@ -629,21 +633,21 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     Check(m2.Pawns[new CellKey(7, 7)].TemplateId == t.Id, "paste preserves template reference");
 
     // per-instance status override: null inherits, set overrides, paste + round-trip carry it
-    var ps = new Pawn { Cell = new CellKey(2, 2), TemplateId = t.Id, Status = "alert" };
+    var ps = new Pawn { Cell = new CellKey(2, 2), TemplateId = t.Id, Statuses = S("alert") };
     m.PlacePawn(ps);
-    Check(m.Pawns[new CellKey(2, 2)].Status == "alert", "pawn stores per-instance status");
+    Check(St(m.Pawns[new CellKey(2, 2)]) == "alert", "pawn stores per-instance status");
     var snapS = m.CaptureRegion(0, 0, 3, 3);
     var m3St = new MapDocument();
     m3St.PasteRegion(snapS, 5, 5);
-    Check(m3St.Pawns[new CellKey(7, 7)].Status == "alert", "paste carries per-instance status");
+    Check(St(m3St.Pawns[new CellKey(7, 7)]) == "alert", "paste carries per-instance status");
     var jsonSt = MapSerializer.ToJson(m);
     var m4St = MapSerializer.FromJson(jsonSt);
-    Check(m4St.Pawns[new CellKey(2, 2)].Status == "alert", "status round-trips through json");
+    Check(St(m4St.Pawns[new CellKey(2, 2)]) == "alert", "status round-trips through json");
     // null status round-trips as inherit (fresh doc so the shared map stays clean)
     var m6St = new MapDocument();
     m6St.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = t.Id });
     var m7St = MapSerializer.FromJson(MapSerializer.ToJson(m6St));
-    Check(m7St.Pawns[new CellKey(1, 1)].Status is null, "null status round-trips as inherit");
+    Check(St(m7St.Pawns[new CellKey(1, 1)]) is null, "no status round-trips as none");
 
     // no stacking: placing on an occupied cell replaces
     var p2 = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p9" };
@@ -1158,7 +1162,7 @@ Check(doc.HasWall(new EdgeKey(new CellKey(0, 4), Side.South)), "redo restores wa
     d.SetWall(new EdgeKey(new CellKey(0, 0), Side.East), true); // interior wall
     d.Stairs[new CellKey(1, 1)] = new Stair { Direction = StairDirection.Up };
     d.Labels.Add(new MapLabel { Cell = new CellKey(0, 0), Text = "x" });
-    d.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "t", Status = "none" };
+    d.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "t", Statuses = S() };
     d.Doors[EdgeKey.Normalize(new CellKey(1, 0), Side.North)] = new Door { Type = "standard", State = DoorState.Locked };
     var snap = d.CaptureRegion(0, 0, 1, 1);
 
@@ -2223,12 +2227,12 @@ Check(lrt.Walls.Count == 7 && lrt.AngledWalls.Count == 1
     lib.Add(t2);
     proj.Maps[0].Doc.AddRoom(0, 0, 3, 3);
     proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = t.Id });
-    proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = t2.Id, Status = "none" });
+    proj.Maps[0].Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = t2.Id, Statuses = S() });
     string pj = MapSerializer.ProjectToJson(proj);
     var proj2 = MapSerializer.ProjectFromJson(pj);
     Check(proj2.Maps[0].Doc.Pawns.Count == 2, "probe: project save/load keeps pawn instances");
     Check(proj2.Maps[0].Doc.Pawns[new CellKey(1, 1)].TemplateId == "p1", "probe: template id survives project round-trip");
-    Check(proj2.Maps[0].Doc.Pawns[new CellKey(2, 2)].Status == "none", "probe: per-instance status survives project round-trip");
+    Check(St(proj2.Maps[0].Doc.Pawns[new CellKey(2, 2)]) is null, "probe: a pawn with no status survives project round-trip");
 
     // per-project library: ids embedded in a project file keep their ids when
     // merged into a fresh project library (there is no global library file).
@@ -3475,7 +3479,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     var h = new CanvasHarness();
     h.Canvas.Library = lib;
     h.Doc.AddRoom(0, 0, 9, 9);
-    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "h1", Status = "fear" });
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "h1", Statuses = S("fear") });
     h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 1), TemplateId = "h2" });
     var asked = new List<string>();
     h.Canvas.TakeHeroFromOtherMaps = id => { asked.Add(id); return null; };
@@ -3486,7 +3490,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     h.MoveTo(5, 5);
     h.Click(5, 5);
     Check(!h.Canvas.FormationArmed && h.CommitCount == commits + 1, "deploy: one click places and disarms, one undo step");
-    Check(h.Doc.Pawns.TryGetValue(new CellKey(4, 5), out var f1) && f1.TemplateId == "h1" && f1.Status == "fear", "deploy: a hero moves and keeps its status");
+    Check(h.Doc.Pawns.TryGetValue(new CellKey(4, 5), out var f1) && f1.TemplateId == "h1" && St(f1) == "fear", "deploy: a hero moves and keeps its status");
     Check(!h.Doc.Pawns.ContainsKey(new CellKey(1, 1)) && !h.Doc.Pawns.ContainsKey(new CellKey(2, 1)), "deploy: heroes leave their old cells");
     Check(h.Doc.Pawns.TryGetValue(new CellKey(6, 5), out var gob) && gob.TemplateId == "g", "deploy: a non-hero member is a new copy");
     Check(asked.Contains("h1") && asked.Contains("h2") && !asked.Contains("g"), "deploy: heroes are pulled from other maps");
@@ -4571,7 +4575,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     d.SetRevealed(d.RevealRoomCells(new CellKey(1, 1)), true);
     void Put(int x, int y, string id, bool dm = false) => d.Pawns[new CellKey(x, y)] = new Pawn { Cell = new CellKey(x, y), TemplateId = id, DmOnly = dm };
     Put(1, 1, "pc"); Put(2, 2, "orc"); Put(3, 3, "pg"); Put(4, 4, "pc2", dm: true);
-    d.Pawns[new CellKey(1, 1)].Status = "hasted";
+    d.Pawns[new CellKey(1, 1)].Statuses = S("hasted");
     CellKey K(int x, int y) => new(x, y);
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(1, 4)) is null, "player pawns: a hero moves onto empty revealed floor");
     Check(PlayerPawns.CheckMove(d, lib, K(3, 3), K(0, 4)) is null, "player pawns: a Player pawn that is not a hero moves too");
@@ -4581,7 +4585,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(8, 1)) == "pawns can only go onto revealed floor", "player pawns: hidden floor is refused");
     Check(PlayerPawns.CheckMove(d, lib, K(1, 1), K(6, 1)) == "pawns can only go onto revealed floor", "player pawns: off the floor is refused");
     PlayerPawns.ApplyMove(d, K(1, 1), K(1, 4));
-    Check(!d.Pawns.ContainsKey(K(1, 1)) && d.Pawns[K(1, 4)].TemplateId == "pc" && d.Pawns[K(1, 4)].Status == "hasted" && !d.Pawns[K(1, 4)].DmOnly, "player pawns: a move keeps the status and stays visible");
+    Check(!d.Pawns.ContainsKey(K(1, 1)) && d.Pawns[K(1, 4)].TemplateId == "pc" && St(d.Pawns[K(1, 4)]) == "hasted" && !d.Pawns[K(1, 4)].DmOnly, "player pawns: a move keeps the status and stays visible");
 
     Check(PlayerPawns.CheckPlace(d, lib, "orc", K(0, 0)) == "only the DM places that pawn", "player pawns: placing an enemy is refused");
     Check(PlayerPawns.CheckPlace(d, lib, "ah", K(0, 0)) == "only the DM places that pawn", "player pawns: placing an ally hero is refused");
@@ -4592,18 +4596,18 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(PlayerPawns.CheckPlace(d, lib, "pc2", K(0, 0)) == PlayerPawns.HiddenHero, "player pawns: a hero on unrevealed floor is refused");
     d.Revealed.Add(K(4, 4));
     Check(PlayerPawns.CheckPlace(d, lib, "pc", K(8, 1)) is not null && PlayerPawns.CheckPlace(d, lib, "pc", K(0, 0)) is null, "player pawns: a hero goes onto revealed floor only");
-    d.Pawns[K(4, 4)].Status = "prone";
+    d.Pawns[K(4, 4)].Statuses = S("prone");
     bool moved = PlayerPawns.ApplyPlace(d, lib.Find("pc2")!, K(0, 0));
-    Check(moved && !d.Pawns.ContainsKey(K(4, 4)) && d.Pawns[K(0, 0)].Status == "prone", "player pawns: placing a visible hero moves it, status kept");
+    Check(moved && !d.Pawns.ContainsKey(K(4, 4)) && St(d.Pawns[K(0, 0)]) == "prone", "player pawns: placing a visible hero moves it, status kept");
     Check(!PlayerPawns.ApplyPlace(d, grunt, K(0, 1)) && !PlayerPawns.ApplyPlace(d, grunt, K(0, 2)) && d.Pawns.Values.Count(p => p.TemplateId == "pg") == 3,
         "player pawns: a non-hero Player pawn adds a copy each time");
 
     // status
     var pre = CampaignPresets.Default();
     string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
-    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), st) is null && PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), null) is null, "player pawns: a status on a Player pawn is allowed");
-    Check(PlayerPawns.CheckStatus(d, lib, pre, K(2, 2), st) == "only the DM changes that pawn", "player pawns: an enemy's status is refused");
-    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), "made up") == "that status does not exist", "player pawns: an unknown status is refused");
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), S(st)) is null && PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), S()) is null, "player pawns: a status on a Player pawn is allowed");
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(2, 2), S(st)) == "only the DM changes that pawn", "player pawns: an enemy's status is refused");
+    Check(PlayerPawns.CheckStatus(d, lib, pre, K(0, 1), S("made up")) == "that status does not exist", "player pawns: an unknown status is refused");
 
     // deploy
     var dep = new List<(string, CellKey)> { ("pc", K(2, 4)), ("pg", K(3, 4)) };
@@ -4613,9 +4617,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("orc", K(4, 1)) }) is not null, "player pawns: a deploy with an enemy is refused");
     Check(PlayerPawns.CheckDeploy(d, lib, new List<(string, CellKey)> { ("pg", K(8, 1)) }) is not null, "player pawns: a deploy onto hidden floor is refused");
     Check(PlayerPawns.CheckDeploy(d, lib, dep, id => id == "pc") == PlayerPawns.HiddenHero, "player pawns: a deploy with a hero on another map is refused");
-    d.Pawns[K(1, 4)].Status = "hasted";
+    d.Pawns[K(1, 4)].Statuses = S("hasted");
     PlayerPawns.ApplyDeploy(d, new[] { pc, grunt }, dep);
-    Check(!d.Pawns.ContainsKey(K(1, 4)) && d.Pawns[K(2, 4)].Status == "hasted" && d.Pawns[K(3, 4)].TemplateId == "pg" && d.Pawns.Values.Count(p => p.TemplateId == "pc") == 1,
+    Check(!d.Pawns.ContainsKey(K(1, 4)) && St(d.Pawns[K(2, 4)]) == "hasted" && d.Pawns[K(3, 4)].TemplateId == "pg" && d.Pawns.Values.Count(p => p.TemplateId == "pc") == 1,
         "player pawns: a deploy moves the hero (status kept) and adds the rest");
 
     // formations
@@ -4793,10 +4797,15 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
 
         step = "status";
         string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
-        Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), st)).Wait();
-        Check(WaitFor(() => dmDoc.Pawns[new CellKey(1, 1)].Status == st), "pawns window: a player sets their pawn's status");
+        Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), S(st))).Wait();
+        Check(WaitFor(() => St(dmDoc.Pawns[new CellKey(1, 1)]) == st), "pawns window: a player sets their pawn's status");
+        string st2 = pre.PawnStatuses.Last(x => x.Name != CampaignPresets.NoStatus && x.Name != st).Name;
+        Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), S(st, st2))).Wait();
+        Check(WaitFor(() => dmDoc.Pawns[new CellKey(1, 1)].Statuses.Count == 2), "pawns window: a player sets two statuses at once");
+        Task.Run(() => client.SendPawnStatus(new CellKey(1, 1), S(st))).Wait();
+        Check(WaitFor(() => St(dmDoc.Pawns[new CellKey(1, 1)]) == st), "pawns window: and back to one");
         CallOn(dm, "PublishNow");
-        Check(WaitFor(() => plCanvas.Document.Pawns.TryGetValue(new CellKey(1, 1), out var pp) && pp.Status == st), "pawns window: the status comes back");
+        Check(WaitFor(() => plCanvas.Document.Pawns.TryGetValue(new CellKey(1, 1), out var pp) && St(pp) == st), "pawns window: the status comes back");
         CallOn(pl, "ShowPawnInfo", plCanvas.Document.Pawns[new CellKey(1, 1)]);
 
         step = "formations";
@@ -4816,7 +4825,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         var pgBefore = dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg");
         Task.Run(() => client.SendDeploy(new[] { ("pc", new CellKey(2, 4)), ("pg", new CellKey(3, 4)) })).Wait();
         Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(2, 4))) && !dmDoc.Pawns.ContainsKey(new CellKey(1, 1))
-            && dmDoc.Pawns[new CellKey(2, 4)].Status == st && dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == pgBefore + 1,
+            && St(dmDoc.Pawns[new CellKey(2, 4)]) == st && dmDoc.Pawns.Values.Count(p => p.TemplateId == "pg") == pgBefore + 1,
             "pawns window: a deploy moves the hero with its status and adds the rest");
         CallOn(dm, "DoUndo");
         Check(dmCanvas.Document.Pawns.ContainsKey(new CellKey(1, 1)) && !dmCanvas.Document.Pawns.ContainsKey(new CellKey(2, 4)), "pawns window: a deploy is one undo step");
@@ -5701,7 +5710,7 @@ try { Directory.Delete(imgDir, true); } catch { }
         AddRoom(r, 0, 0, 6, 6);
         AddRoom(r, 9, 0, 10, 2);
         r.SetRevealed(r.RevealRoomCells(new CellKey(1, 1)), true);
-        r.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false, Status = "x" };
+        r.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false, Statuses = S("x") };
         r.Pawns[new CellKey(2, 1)] = new Pawn { Cell = new CellKey(2, 1), TemplateId = "pg", DmOnly = false };
         r.Pawns[new CellKey(1, 2)] = new Pawn { Cell = new CellKey(1, 2), TemplateId = "orc", DmOnly = false };
         return r;
@@ -5720,7 +5729,7 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k2, new CellKey(3, 3)) }) == "there is no pawn there", "pawn box rules: a DM only pawn is not there for players");
     d = Map();
     PlayerPawns.ApplyMoveMany(d, new[] { (k1, k2), (k2, new CellKey(3, 1)) });
-    Check(d.Pawns[k2].TemplateId == "pc" && d.Pawns[k2].Status == "x" && d.Pawns[new CellKey(3, 1)].TemplateId == "pg" && !d.Pawns.ContainsKey(k1),
+    Check(d.Pawns[k2].TemplateId == "pc" && St(d.Pawns[k2]) == "x" && d.Pawns[new CellKey(3, 1)].TemplateId == "pg" && !d.Pawns.ContainsKey(k1),
         "pawn box rules: apply moves them all, status kept");
 
     // wire
@@ -5974,10 +5983,10 @@ try { Directory.Delete(imgDir, true); } catch { }
     lib.Pawns.Add(new PawnTemplate { Id = "hero", Name = "Ana", Hero = true, LegacyStatus = "blessed" });
     var m1 = new MapDocument();
     m1.Pawns[new CellKey(0, 0)] = new Pawn { Cell = new CellKey(0, 0), TemplateId = "sk" };
-    m1.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "sk", Status = "stunned" };
+    m1.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "sk", Statuses = S("stunned") };
     m1.Pawns[new CellKey(2, 0)] = new Pawn { Cell = new CellKey(2, 0), TemplateId = "hero" };
     Check(lib.AdoptLegacyStatuses(new[] { m1 }) == 2, "no type status: an old file's inheriting pawns take the type's status");
-    Check(m1.Pawns[new CellKey(0, 0)].Status == "feared" && m1.Pawns[new CellKey(1, 0)].Status == "stunned" && m1.Pawns[new CellKey(2, 0)].Status == "blessed",
+    Check(St(m1.Pawns[new CellKey(0, 0)]) == "feared" && St(m1.Pawns[new CellKey(1, 0)]) == "stunned" && St(m1.Pawns[new CellKey(2, 0)]) == "blessed",
         "no type status: a pawn's own status stays, heroes too");
     Check(lib.Pawns.All(t => t.LegacyStatus is null), "no type status: the types' old statuses are dropped");
 
@@ -6001,20 +6010,68 @@ try { Directory.Delete(imgDir, true); } catch { }
     wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
     var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
     var hdoc = canvas.Document;
-    var gp = new Pawn { Cell = new CellKey(2, 1), TemplateId = "gob", Status = st };
+    var gp = new Pawn { Cell = new CellKey(2, 1), TemplateId = "gob", Statuses = S(st) };
     hdoc.Pawns[gp.Cell] = gp;
     ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(hdoc);
     var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
     CallOn(w, "ShowPawnInfo", gp);
     panel.UpdateLayout();
-    var chips = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>().Where(b => b.Classes.Contains("chip")).ToList();
-    string Label(Avalonia.Controls.Button b) => string.Join("", Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<Avalonia.Controls.TextBlock>().Select(x => x.Text));
-    Check(!chips.Any(b => Label(b) == "inherit") && chips.Any(b => Label(b) == CampaignPresets.NoStatus), "no type status: the pawn view has none but no inherit");
-    chips.First(b => Label(b) == CampaignPresets.NoStatus).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
-    Check(gp.Status is null, "no type status: none clears the pawn's status");
+    var boxes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Where(c => c.Tag is string).ToList();
+    Check(boxes.Count == pre.PawnStatuses.Count - 1 && !boxes.Any(c => (string)c.Tag! == "inherit" || (string)c.Tag! == CampaignPresets.NoStatus),
+        "no type status: the pawn view lists every status as a checkbox, no inherit and no none");
+    Check(boxes.Single(c => (string)c.Tag! == st).IsChecked == true, "no type status: the pawn's status is ticked");
+    boxes.Single(c => (string)c.Tag! == st).IsChecked = false;
+    Check(gp.Statuses.Count == 0, "no type status: unticking it leaves none");
     CallOn(w, "DoUndo");
-    Check(hdoc.Pawns[gp.Cell].Status == st, "no type status: and undo brings it back");
+    Check(St(hdoc.Pawns[gp.Cell]) == st, "no type status: and undo brings it back");
     w.Close();
+}
+
+// --- multiple statuses per pawn ---
+{
+    // save format: a list with turns, old single status still loads, none dropped
+    var d = new MapDocument();
+    d.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "a", Statuses = new() { new PawnStatusEntry { Name = "paralyzed", Turns = 3 }, new PawnStatusEntry { Name = "fear" } } };
+    var mjson = MapSerializer.ToJson(d);
+    var mback = MapSerializer.FromJson(mjson);
+    var bp = mback.Pawns[new CellKey(1, 1)];
+    Check(bp.Statuses.Count == 2 && bp.Statuses[0] is { Name: "paralyzed", Turns: 3 } && bp.Statuses[1] is { Name: "fear", Turns: -1 }, "multi status: statuses and turns round trip");
+    Check(mjson.Contains("\"statuses\"") && !mjson.Contains("\"status\""), "multi status: saved as a list, the old single field is not written");
+    var oldJson = System.Text.RegularExpressions.Regex.Replace(mjson, "\"statuses\":\\s*\\[[^\\]]*\\]", "\"status\":\"fear\"");
+    Check(oldJson != mjson && St(MapSerializer.FromJson(oldJson).Pawns[new CellKey(1, 1)]) == "fear", "multi status: an old file's single status loads as one");
+    Check(MapSerializer.StatusesFromDto(new[] { new PawnStatusDto { Name = "none" }, new PawnStatusDto { Name = "fear" }, new PawnStatusDto { Name = "fear" }, new PawnStatusDto { Name = " " } }).Count == 1,
+        "multi status: none, blanks and repeats are dropped");
+    var mcopy = new Pawn { Statuses = bp.CloneStatuses() };
+    mcopy.Statuses[0].Turns = 9;
+    Check(bp.Statuses[0].Turns == 3, "multi status: a copied pawn's statuses are its own");
+
+    // ring layout
+    var mpre = CampaignPresets.Default();
+    mpre.PawnStatuses.Add(new PawnStatus("hasted", 40, 220, 60, 3));
+    var morder = MapCanvas.RingStatuses(mpre, S("hasted", "paralyzed", "made up"));
+    Check(morder.Select(x => x.Name).SequenceEqual(new[] { "paralyzed", "hasted" }), "multi status: the ring follows the presets' order and skips unknown names");
+    Check(MapCanvas.StatusArcs(new Point(0, 0), 10, morder.Take(1).ToList(), 8)[0].geo is Avalonia.Media.EllipseGeometry, "multi status: one status is the whole circle");
+    Check(MapCanvas.StatusArcs(new Point(0, 0), 10, morder, 8).Count == 2 && MapCanvas.StatusArcs(new Point(0, 0), 10, new List<PawnStatus>(), 8).Count == 0,
+        "multi status: one arc per status");
+    var mparsed = AppSettings.ParseImport("{\"kind\":\"settings\",\"pawn_status_gap\":500}");
+    Check(mparsed is null || mparsed.PawnStatusGap <= AppSettings.MaxPawnStatusGap, "multi status: the gap setting is clamped on import");
+
+    // pixels: two statuses split the ring, mright half first, mleft half second
+    var h = new CanvasHarness();
+    h.Canvas.Presets = mpre;
+    h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "a", Name = "A" });
+    h.Doc.AddRoom(0, 0, 6, 6);
+    h.Doc.Pawns[new CellKey(3, 3)] = new Pawn { Cell = new CellKey(3, 3), TemplateId = "a", Statuses = S("hasted", "paralyzed") };
+    var c = h.ScreenOf(3, 3);
+    double r = 0.42 * 40;
+    var mbmp = h.Render();
+    var mright = h.PixelAt(mbmp, (int)Math.Round(c.X + r), (int)c.Y);
+    var mleft = h.PixelAt(mbmp, (int)Math.Round(c.X - r), (int)c.Y);
+    Check(mright.r > 180 && mright.b > 150 && mleft.g > 150 && mleft.r < 120, "multi status: the first status (preset order) is on the right, the second on the left");
+    h.Canvas.Settings.PawnStatusGap = 30;
+    mbmp = h.Render();
+    var mtop = h.PixelAt(mbmp, (int)c.X, (int)Math.Round(c.Y - r));
+    Check(!(mtop.g > 150 && mtop.r < 120) && !(mtop.r > 180 && mtop.b > 150), "multi status: the gap at the top shows the base ring, not a status");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

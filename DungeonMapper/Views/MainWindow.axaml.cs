@@ -998,13 +998,13 @@ public partial class MainWindow : Window
     {
         if (st.Name == "none") return; // hard default, un-deletable
 
-        int affected = _project.Maps.Sum(m => m.Doc.Pawns.Values.Count(p => p.Status == st.Name));
+        int affected = _project.Maps.Sum(m => m.Doc.Pawns.Values.Count(p => p.HasStatus(st.Name)));
 
         void doDelete()
         {
             foreach (var m in _project.Maps)
                 foreach (var p in m.Doc.Pawns.Values)
-                    if (p.Status == st.Name) p.Status = null;
+                    p.Statuses.RemoveAll(s => s.Name == st.Name);
             ActivePresets.PawnStatuses.Remove(st);
             PawnsChanged();
             ShowPawnManagement();

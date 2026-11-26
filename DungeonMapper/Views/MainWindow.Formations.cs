@@ -153,10 +153,11 @@ public partial class MainWindow
         }));
         sp.Children.Add(chips);
 
-        // skip by status: unticks every member currently showing it
+        // skip by status: unticks every member that has it (a member with
+        // several statuses is skipped by any of them). only statuses members
+        // have are listed
         var statuses = Enumerable.Range(0, f.Members.Count)
-            .Select(i => (i, st: MemberStatus(f.Members[i].TemplateId)))
-            .Where(x => x.st != CampaignPresets.NoStatus).ToList();
+            .SelectMany(i => MemberStatuses(f.Members[i].TemplateId).Select(st => (i, st))).ToList();
         if (statuses.Count > 0)
         {
             var skip = new WrapPanel();
@@ -258,16 +259,16 @@ public partial class MainWindow
         }
     }
 
-    // what a member shows now: a placed hero's own status (it moves with the
+    // what a member has now: a placed hero's statuses (they move with the
     // hero); other members deploy as new pawns with none
-    private string MemberStatus(string templateId)
+    private IEnumerable<string> MemberStatuses(string templateId)
     {
         var t = PanelLibrary.Find(templateId);
-        if (t is null || !t.Hero) return CampaignPresets.NoStatus;
+        if (t is null || !t.Hero) return Enumerable.Empty<string>();
         foreach (var d in Joined ? new[] { PanelDoc } : _project.Maps.Select(m => m.Doc))
             foreach (var p in d.Pawns.Values)
-                if (p.TemplateId == templateId && p.Status is { } own) return own;
-        return CampaignPresets.NoStatus;
+                if (p.TemplateId == templateId) return p.Statuses.Select(s => s.Name).ToList();
+        return Enumerable.Empty<string>();
     }
 
     // new (target null) or update: the next drag on the map picks the pawns

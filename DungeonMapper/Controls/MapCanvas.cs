@@ -382,12 +382,12 @@ public sealed partial class MapCanvas : Control
         foreach (var p in snap.Pawns)
         {
             var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
-            Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly };
+            Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Statuses = p.CloneStatuses(), DmOnly = p.DmOnly };
         }
         foreach (var (dest, occ) in swaps)
         {
             var moverSrc = new CellKey(dest.X - dx, dest.Y - dy);
-            Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Status = occ.Status, DmOnly = occ.DmOnly };
+            Document.Pawns[moverSrc] = new Pawn { Cell = moverSrc, TemplateId = occ.TemplateId, Statuses = occ.CloneStatuses(), DmOnly = occ.DmOnly };
         }
         return snap.Pawns.Count;
     }
@@ -1116,13 +1116,13 @@ public sealed partial class MapCanvas : Control
         foreach (var (c, p) in Document.Pawns)
         {
             if (c.X + 1 < topLeft.X || c.X > bottomRight.X || c.Y + 1 < topLeft.Y || c.Y > bottomRight.Y) continue;
-            DrawPawnGlyph(ctx, c, p.TemplateId, p.Status);
+            DrawPawnGlyph(ctx, c, p.TemplateId, p.Statuses);
         }
 
         // per-pawn drag ghost: the dragged pawn follows the cursor as a
         // semi-transparent glyph at the cell it will land on.
         if (_pawnDragging && _pawnDragPawn is not null && _pawnDragEnd != _pawnDragStart)
-            DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Status, 0.45);
+            DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Statuses, 0.45);
 
         // names on map: a dark pill under each pawn. skipped when zoomed far
         // out, where the text would only be noise.
@@ -1487,7 +1487,7 @@ public sealed partial class MapCanvas : Control
                     var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
                     var p0 = WorldToScreen(nc.X, nc.Y);
                     ctx.FillRectangle(ghost, new Rect(p0.X, p0.Y, _scale, _scale));
-                    DrawPawnGlyph(ctx, nc, p.TemplateId, p.Status, 0.45);
+                    DrawPawnGlyph(ctx, nc, p.TemplateId, p.Statuses, 0.45);
                 }
         }
     }
@@ -1511,7 +1511,41 @@ public sealed partial class MapCanvas : Control
         ctx.DrawText(ft, new Point(x + 4, y + 1));
     }
 
-    private void DrawPawnGlyph(DrawingContext ctx, CellKey c, string templateId, string? instanceStatus, double alpha = 1.0)
+    /// the status presets for a pawn's statuses, in the presets' order (names
+    /// no preset has are left out)
+    public static List<PawnStatus> RingStatuses(CampaignPresets presets, IReadOnlyList<PawnStatusEntry>? statuses)
+    {
+        if (statuses is null || statuses.Count == 0) return new();
+        return presets.PawnStatuses.Where(s => s.Name != CampaignPresets.NoStatus && statuses.Any(e => e.Name == s.Name)).ToList();
+    }
+
+    /// the arcs of a pawn's status ring: one equal slice per status from the
+    /// top, clockwise, with gapDeg between them (shrunk to at most half a
+    /// slice). one status is the whole circle
+    public static List<(Geometry geo, PawnStatus st)> StatusArcs(Point center, double r, IReadOnlyList<PawnStatus> statuses, double gapDeg)
+    {
+        var res = new List<(Geometry, PawnStatus)>();
+        int n = statuses.Count;
+        if (n == 0) return res;
+        if (n == 1) { res.Add((new EllipseGeometry(new Rect(center.X - r, center.Y - r, r * 2, r * 2)), statuses[0])); return res; }
+        double slice = 360.0 / n, gap = Math.Min(Math.Max(0, gapDeg), slice * 0.5);
+        Point At(double deg) => new(center.X + r * Math.Cos(deg * Math.PI / 180), center.Y + r * Math.Sin(deg * Math.PI / 180));
+        for (int i = 0; i < n; i++)
+        {
+            double a0 = -90 + i * slice + gap / 2, sweep = slice - gap;
+            var geo = new StreamGeometry();
+            using (var g = geo.Open())
+            {
+                g.BeginFigure(At(a0), false);
+                g.ArcTo(At(a0 + sweep), new Size(r, r), 0, sweep > 180, SweepDirection.Clockwise);
+                g.EndFigure(false);
+            }
+            res.Add((geo, statuses[i]));
+        }
+        return res;
+    }
+
+    private void DrawPawnGlyph(DrawingContext ctx, CellKey c, string templateId, IReadOnlyList<PawnStatusEntry>? statuses, double alpha = 1.0)
     {
         var p0 = WorldToScreen(c.X, c.Y);
         var center = new Point(p0.X + _scale / 2, p0.Y + _scale / 2);
@@ -1553,14 +1587,14 @@ public sealed partial class MapCanvas : Control
                 ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
                 ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
             }
-            // status border ring on the outer edge: the placed pawn's own status
-            // (pawn types have none), null = none
-            var st = Presets.FindPawnStatus(instanceStatus ?? CampaignPresets.NoStatus);
-            if (st.Thickness > 0)
-            {
-                var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);
-                ctx.DrawEllipse(null, ringPen, center, outerR, outerR);
-            }
+            // status ring on the outer edge: the "none" ring always, then each of
+            // the placed pawn's own statuses as an arc over it
+            var none = Presets.FindPawnStatus(CampaignPresets.NoStatus);
+            if (none.Thickness > 0)
+                ctx.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromRgb((byte)none.R, (byte)none.G, (byte)none.B)), none.Thickness), center, outerR, outerR);
+            foreach (var (geo, st) in StatusArcs(center, outerR, RingStatuses(Presets, statuses), Settings.PawnStatusGap))
+                if (st.Thickness > 0)
+                    ctx.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness), geo);
         }
     }
 
@@ -1744,7 +1778,7 @@ public sealed partial class MapCanvas : Control
             Document.PlacePawn(placed);
             if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
             {
-                placed.Status = old.Status;
+                placed.Statuses = old.CloneStatuses();
                 placed.DmOnly = old.DmOnly;
                 Status($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
             }
@@ -2136,10 +2170,10 @@ public sealed partial class MapCanvas : Control
                 // SWAPS the two pawns' positions. nothing but pawns changes.
                 var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
                 Document.Pawns.Remove(_pawnDragStart);
-                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status, DmOnly = pawn.DmOnly };
+                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Statuses = pawn.CloneStatuses(), DmOnly = pawn.DmOnly };
                 if (occupant is not null)
                 {
-                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status, DmOnly = occupant.DmOnly };
+                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Statuses = occupant.CloneStatuses(), DmOnly = occupant.DmOnly };
                     Status("swapped pawns");
                 }
                 else

@@ -292,6 +292,16 @@
                                             <Button x:Name="ResetDoorWallGap" Grid.Column="2" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="pawn status gap" />
+                                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                                           Text="space between the status colors on a pawn's ring, degrees, 0 to 30." />
+                                                <TextBlock x:Name="SetPawnStatusGapError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <TextBox x:Name="SetPawnStatusGap" Grid.Column="1" Classes="field number" />
+                                            <Button x:Name="ResetPawnStatusGap" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <TextBlock Classes="body" Text="stairs" />
                                             <ContentControl x:Name="SetStairColor" Grid.Column="1" />
                                             <Button x:Name="ResetStairColor" Grid.Column="2" Classes="btn quiet" Content="reset" />

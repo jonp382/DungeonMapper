@@ -182,7 +182,7 @@ public sealed class CampaignPresets
             foreach (var d in doc.AllDoors()) doors.Add(d.Type);
             foreach (var p in doc.Pawns.Values)
             {
-                if (!string.IsNullOrEmpty(p.Status)) statuses.Add(p.Status);
+                foreach (var s in p.Statuses) statuses.Add(s.Name);
                 if (library?.Find(p.TemplateId) is { } t)
                 {
                     affs.Add(PawnTemplate.NormalizeAffiliation(t.Affiliation));

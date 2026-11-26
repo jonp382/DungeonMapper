@@ -424,7 +424,7 @@ public partial class MainWindow
         else
         {
             var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*,Auto"), ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 4) };
-            head.Children.Add(PawnIcon(t, 40));
+            head.Children.Add(PawnIcon(t, 40, statuses: pawn.Statuses));
             var titles = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Spacing = 1 };
             titles.Children.Add(new TextBlock { Text = PawnName(t), FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Hx("#e6e6ee"), TextTrimming = TextTrimming.CharacterEllipsis });
             var aff = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5 };
@@ -441,22 +441,14 @@ public partial class MainWindow
             head.Children.Add(star);
             ToolPanel.AddButtonRaw(head);
 
-            // the placed pawn's own status (pawn types have none); "none" clears it
-            var statuses = ActivePresets.PawnStatuses.Select(s => s.Name).ToList();
-            var dots = ActivePresets.PawnStatuses.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First());
-            ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? CampaignPresets.NoStatus, s =>
-                {
-                    var v = s == CampaignPresets.NoStatus ? null : s;
-                    if (v == pawn.Status) return;
-                    pawn.Status = v;
-                    ActiveHistory.Commit(_doc);
-                    Canvas.Refresh();
-                    FocusCanvas();
-                },
-                "status",
-                n => dots.TryGetValue(n, out var st)
-                    ? new Ellipse { Width = 9, Height = 9, Fill = Rgb((st.R, st.G, st.B)) }
-                    : null);
+            // the placed pawn's own statuses (pawn types have none), each change
+            // one undo step
+            AddStatusChecks(pawn, ActivePresets, list =>
+            {
+                pawn.Statuses = list;
+                ActiveHistory.Commit(_doc);
+                Canvas.Refresh();
+            });
 
             int count = _doc.Pawns.Values.Count(p => p.TemplateId == pawn.TemplateId);
             ToolPanel.AddInfo($"{count} on this map");
@@ -485,6 +477,24 @@ public partial class MainWindow
 
     // swaps the template a placed pawn points at. it keeps its cell and status.
     // rows are grouped like the pawn tool panel, the current pawn is highlighted
+    /// the statuses checklist of a pawn view ("none" is nothing ticked).
+    /// apply gets the pawn's new list; the view is rebuilt after it so the
+    /// header icon follows
+    private void AddStatusChecks(Pawn pawn, CampaignPresets presets, Action<List<PawnStatusEntry>> apply)
+    {
+        var items = presets.PawnStatuses.Where(s => s.Name != CampaignPresets.NoStatus)
+            .Select(s => (s.Name, pawn.HasStatus(s.Name), (Control?)new Ellipse { Width = 9, Height = 9, Fill = Rgb((s.R, s.G, s.B)) }));
+        ToolPanel.AddChecklist("statuses", items, (name, on) =>
+        {
+            if (on == pawn.HasStatus(name)) return;
+            var list = pawn.CloneStatuses();
+            if (on) list.Add(new PawnStatusEntry { Name = name });
+            else list.RemoveAll(s => s.Name == name);
+            apply(list);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowPawnInfo(pawn));
+        });
+    }
+
     private void ShowChangePawn(Pawn pawn)
     {
         var cell = pawn.Cell;

@@ -50,9 +50,9 @@ public sealed class SessionClient : IDisposable
     public Task SendPawnPlace(string templateId, CellKey at) =>
         Send(new NetMessage { Type = "pawn_place", TemplateId = templateId, X = at.X, Y = at.Y });
 
-    /// asks the DM to set the status of the player's pawn (null = the template's)
-    public Task SendPawnStatus(CellKey at, string? status) =>
-        Send(new NetMessage { Type = "pawn_status", X = at.X, Y = at.Y, Status = status });
+    /// asks the DM to set the statuses of the player's pawn (the whole list)
+    public Task SendPawnStatus(CellKey at, IEnumerable<PawnStatusEntry> statuses) =>
+        Send(new NetMessage { Type = "pawn_status", X = at.X, Y = at.Y, Statuses = MapSerializer.StatusesToDto(statuses) });
 
     /// asks the DM to place several pawns at once (a formation)
     public Task SendDeploy(IEnumerable<(string id, CellKey cell)> pawns) =>

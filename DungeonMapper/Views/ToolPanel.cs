@@ -78,6 +78,26 @@ public sealed class ToolPanel : Border
         return cb;
     }
 
+    // a list of checkboxes under a label, each with an optional dot before its
+    // name (the pawn view's statuses). onChange gets the name and its new state
+    public StackPanel AddChecklist(string label, IEnumerable<(string name, bool on, Control? dot)> items, Action<string, bool> onChange)
+    {
+        Target.Children.Add(FieldLabel(label));
+        var list = new StackPanel { Spacing = 0 };
+        foreach (var (name, on, dot) in items)
+        {
+            var n = name;
+            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            if (dot is not null) { dot.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(dot); }
+            content.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
+            var cb = new CheckBox { Content = content, IsChecked = on, Tag = name };
+            cb.IsCheckedChanged += (_, _) => { ButtonHook?.Invoke(); onChange(n, cb.IsChecked == true); };
+            list.Children.Add(cb);
+        }
+        Target.Children.Add(list);
+        return list;
+    }
+
     // a read only facts box (counts). returns the text so the caller can update it in place
     public TextBlock AddInfo(string text)
     {

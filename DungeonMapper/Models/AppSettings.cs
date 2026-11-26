@@ -179,6 +179,10 @@ public sealed class AppSettings
     // as connected. 0 = the gap is just the glyph.
     [JsonPropertyName("door_wall_gap")] public int DoorWallGap { get; set; } = 0;
     public const int MaxDoorWallGap = 50;
+    // gap between the status arcs on a pawn's ring, degrees (0 to 30). shrunk
+    // when there are too many statuses for it to fit
+    [JsonPropertyName("pawn_status_gap")] public int PawnStatusGap { get; set; } = 8;
+    public const int MaxPawnStatusGap = 30;
     public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999, MaxFloorGridOpacity = 100;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
@@ -410,6 +414,7 @@ public sealed class AppSettings
         s.AutosaveMinutes = Math.Clamp(s.AutosaveMinutes, 0, MaxAutosaveMinutes);
         s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
         s.DoorWallGap = Math.Clamp(s.DoorWallGap, 0, MaxDoorWallGap);
+        s.PawnStatusGap = Math.Clamp(s.PawnStatusGap, 0, MaxPawnStatusGap);
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
         s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
@@ -464,9 +469,9 @@ public sealed class PawnLibrary
         int n = 0;
         foreach (var doc in maps)
             foreach (var p in doc.Pawns.Values)
-                if (p.Status is null && Find(p.TemplateId)?.LegacyStatus is { Length: > 0 } st && st != CampaignPresets.NoStatus)
+                if (p.Statuses.Count == 0 && Find(p.TemplateId)?.LegacyStatus is { Length: > 0 } st && st != CampaignPresets.NoStatus)
                 {
-                    p.Status = st;
+                    p.Statuses.Add(new PawnStatusEntry { Name = st });
                     n++;
                 }
         foreach (var t in Pawns) t.LegacyStatus = null;

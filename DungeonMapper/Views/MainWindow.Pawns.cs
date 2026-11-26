@@ -35,10 +35,12 @@ public partial class MainWindow
     // the pawn as drawn on the map: outer circle (or its image), inner circle,
     // status ring. ownColors draws the template's stored colors instead of the
     // effective ones (the import picker shows a file's pawns before they exist).
-    private Control PawnIcon(PawnTemplate t, double size, bool ownColors = false)
+    // statuses: a placed pawn's statuses, drawn as arcs over the ring like on
+    // the map (pawn types have none)
+    private Control PawnIcon(PawnTemplate t, double size, bool ownColors = false, IReadOnlyList<PawnStatusEntry>? statuses = null)
     {
         var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(PanelPresets);
-        var st = PanelPresets.FindPawnStatus(CampaignPresets.NoStatus); // types have no status
+        var st = PanelPresets.FindPawnStatus(CampaignPresets.NoStatus);
         var bmp = ownColors || string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
         IBrush outerFill = Rgb(eo);
         if (bmp is not null)
@@ -61,6 +63,16 @@ public partial class MainWindow
             g.Children.Add(new Ellipse { Width = size / 2, Height = size / 2, Fill = Rgb(ei), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center });
         if (st.Thickness > 0)
             g.Children.Add(new Ellipse { Width = size, Height = size, Stroke = Rgb((st.R, st.G, st.B)), StrokeThickness = Math.Min(st.Thickness, size / 6) });
+        var ring = MapCanvas.RingStatuses(PanelPresets, statuses);
+        if (ring.Count > 0)
+        {
+            double w = Math.Min(ring.Max(x => x.Thickness), size / 6);
+            var arcs = new Canvas { Width = size, Height = size, IsHitTestVisible = false };
+            foreach (var (geo, ps) in MapCanvas.StatusArcs(new Point(size / 2, size / 2), size / 2 - w / 2, ring, _settings.PawnStatusGap))
+                if (ps.Thickness > 0)
+                    arcs.Children.Add(new Avalonia.Controls.Shapes.Path { Data = geo, Stroke = Rgb((ps.R, ps.G, ps.B)), StrokeThickness = Math.Min(ps.Thickness, size / 6) });
+            g.Children.Add(arcs);
+        }
         return g;
     }
 
@@ -1086,7 +1098,7 @@ public partial class MainWindow
                 if (nn == old) return;
                 // placed pawns reference statuses by name, so they follow the rename
                 foreach (var m in _project.Maps)
-                    foreach (var p in m.Doc.Pawns.Values) if (p.Status == old) p.Status = nn;
+                    foreach (var p in m.Doc.Pawns.Values) foreach (var e in p.Statuses) if (e.Name == old) e.Name = nn;
                 st.Name = nn;
                 PawnsChanged();
                 UpdateDuplicates();

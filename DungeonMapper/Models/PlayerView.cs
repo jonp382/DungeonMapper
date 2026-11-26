@@ -61,7 +61,7 @@ public static class PlayerView
             if (shown.Contains(c)) v.Stairs[c] = new Stair { Direction = s.Direction, TargetMap = s.TargetMap };
         foreach (var (c, p) in doc.Pawns)
             if (!p.DmOnly && shown.Contains(c))
-                v.Pawns[c] = new Pawn { Cell = c, TemplateId = p.TemplateId, Status = p.Status, DmOnly = false };
+                v.Pawns[c] = new Pawn { Cell = c, TemplateId = p.TemplateId, Statuses = p.CloneStatuses(), DmOnly = false };
         foreach (var l in doc.Labels)
             if (!l.DmOnly && (l.CreatedBy is not null || AnyShown(shown, l.Cell.X, l.Cell.Y, l.W, l.H)))
             {

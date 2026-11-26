@@ -211,6 +211,14 @@ public sealed class PawnTemplateDto
     [JsonPropertyName("hero")] public bool Hero { get; set; }
 }
 
+/// one status on a placed pawn (also sent by players: pawn_status)
+public sealed class PawnStatusDto
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    // turns left, -1 = permanent
+    [JsonPropertyName("turns")] public int Turns { get; set; } = -1;
+}
+
 public sealed class PawnDto
 {
     [JsonPropertyName("cell")] public string Cell { get; set; } = "";
@@ -220,7 +228,9 @@ public sealed class PawnDto
     [JsonPropertyName("class")] public string Class { get; set; } = "";
     [JsonPropertyName("inner")] public string Inner { get; set; } = "";
     [JsonPropertyName("outer")] public string Outer { get; set; } = "";
-    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    // one status, older files (read only); "statuses" replaces it
+    [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Status { get; set; }
+    [JsonPropertyName("statuses")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<PawnStatusDto>? Statuses { get; set; }
     // multiplayer: hidden from players. absent (older files) = visible
     [JsonPropertyName("dm_only")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -463,16 +473,31 @@ public static class MapSerializer
     {
         Cell = Key(c),
         TemplateId = p.TemplateId,
-        Status = p.Status ?? "",
+        Statuses = p.Statuses.Count == 0 ? null : StatusesToDto(p.Statuses),
         DmOnly = p.DmOnly,
     };
+
+    public static List<PawnStatusDto> StatusesToDto(IEnumerable<PawnStatusEntry> list) =>
+        list.Select(s => new PawnStatusDto { Name = s.Name, Turns = s.Turns }).ToList();
+
+    /// statuses from the wire or a file: blank names, none and repeats dropped
+    public static List<PawnStatusEntry> StatusesFromDto(IEnumerable<PawnStatusDto>? list)
+    {
+        var res = new List<PawnStatusEntry>();
+        foreach (var d in list ?? Enumerable.Empty<PawnStatusDto>())
+            if (!string.IsNullOrWhiteSpace(d.Name) && d.Name != CampaignPresets.NoStatus && !res.Any(r => r.Name == d.Name))
+                res.Add(new PawnStatusEntry { Name = d.Name, Turns = d.Turns < -1 ? -1 : d.Turns });
+        return res;
+    }
 
     private static void AddPawns(MapFileDto dto, MapDocument doc)
     {
         foreach (var d in dto.Pawns)
         {
             if (!TryParseCell(d.Cell, out var c)) continue;
-            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Status = string.IsNullOrEmpty(d.Status) ? null : d.Status, DmOnly = d.DmOnly };
+            var statuses = d.Statuses is not null ? StatusesFromDto(d.Statuses)
+                : StatusesFromDto(string.IsNullOrEmpty(d.Status) ? null : new[] { new PawnStatusDto { Name = d.Status } });
+            doc.Pawns[c] = new Pawn { Cell = c, TemplateId = d.TemplateId, Statuses = statuses, DmOnly = d.DmOnly };
         }
     }
 

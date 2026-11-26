@@ -149,6 +149,8 @@ public sealed class NetMessage
     [JsonPropertyName("id")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Id { get; set; }
     // a pawn's status (pawn_status; null = the template's), a deploy, a formation
     [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Status { get; set; }
+    // a pawn's statuses (pawn_status, the whole list; empty = none)
+    [JsonPropertyName("statuses")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<PawnStatusDto>? Statuses { get; set; }
     [JsonPropertyName("placements")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public List<PawnPlacement>? Placements { get; set; }
     [JsonPropertyName("formation")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Formation? Formation { get; set; }
     // an image a player adds or changes, a pawn template a player adds or changes
