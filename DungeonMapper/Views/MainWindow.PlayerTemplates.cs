@@ -129,8 +129,13 @@ public partial class MainWindow
     private void OnTemplateRequest(SessionHost host, TemplateRequest r)
     {
         bool isNew = ActiveLibrary.Find(r.Template.Id) is null;
+        var heroBefore = ActiveLibrary.Find(r.Template.Id) is { Hero: true } h0 ? HeroStatus(h0) : null;
         if (PlayerTemplates.Set(ActiveLibrary, ActivePresets, r.Template) is { } why) { host.Notice(r, why); return; }
         var t = ActiveLibrary.Find(r.Template.Id)!;
+        // a player changed a hero's status in their pawn management: an undo
+        // step on the map shown to players, like their other changes
+        if (heroBefore is not null && t.Hero && HeroStatus(t) != heroBefore && (ShownMap() ?? _project.Maps[_project.ActiveIndex]) is { } map)
+            HistoryFor(map).Commit(map.Doc, new() { new HeroStatusChange(t.Id, heroBefore, HeroStatus(t)) });
         SetStatus(isNew ? $"{r.Name} added the pawn {PawnName(t)}" : $"{r.Name} changed the pawn {PawnName(t)}", StatusKind.Player);
         Canvas.InvalidateImageCache(); // template pictures are cached by id
         Canvas.Refresh();

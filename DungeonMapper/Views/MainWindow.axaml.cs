@@ -627,6 +627,7 @@ public partial class MainWindow : Window
         var snap = ActiveHistory.Undo();
         if (snap is null) { SetStatus("nothing to undo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
+        ApplyHeroRestore(ActiveHistory);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
@@ -642,6 +643,7 @@ public partial class MainWindow : Window
         var snap = ActiveHistory.Redo();
         if (snap is null) { SetStatus("nothing to redo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
+        ApplyHeroRestore(ActiveHistory);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();

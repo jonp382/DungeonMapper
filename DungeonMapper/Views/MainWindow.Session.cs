@@ -243,6 +243,7 @@ public partial class MainWindow
             _ => PlayerPawns.CheckDeploy(doc, lib, r.Placements, OnOtherMap),
         };
         if (why is not null) { host.Notice(r, why); return; }
+        List<HeroStatusChange>? heroChange = null;
         switch (r.Action)
         {
             case PawnAction.Move:
@@ -259,7 +260,7 @@ public partial class MainWindow
                 if (lib.Find(pawn.TemplateId) is { Hero: true } hero)
                 {
                     // a hero's one status is its template's (sent back in the package)
-                    hero.Status = r.Status ?? CampaignPresets.NoStatus;
+                    heroChange = SetHeroStatus(hero, r.Status ?? CampaignPresets.NoStatus);
                     pawn.Status = null;
                     PawnsChanged();
                 }
@@ -276,7 +277,7 @@ public partial class MainWindow
                 SetStatus($"{r.Name} deployed {Plural(r.Placements.Count, "pawn")}", StatusKind.Player);
                 break;
         }
-        HistoryFor(shown).Commit(doc);
+        HistoryFor(shown).Commit(doc, heroChange);
         if (doc == _doc)
         {
             Canvas.Refresh();

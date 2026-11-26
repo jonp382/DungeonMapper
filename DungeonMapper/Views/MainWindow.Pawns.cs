@@ -788,7 +788,10 @@ public partial class MainWindow
         status.SelectionChanged += (_, _) =>
         {
             if (status.SelectedItem is not string s || s == t.Status) return;
-            t.Status = s;
+            // a hero's status change is an undo step on the open map (a
+            // joined player's goes to the DM, whose app records it)
+            var change = SetHeroStatus(t, s);
+            if (t.Hero && !Joined && change.Count > 0) ActiveHistory.Commit(_doc, change);
             Redraw();
         };
         _statusCombo = status;

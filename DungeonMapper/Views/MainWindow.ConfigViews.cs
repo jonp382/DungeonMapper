@@ -453,8 +453,9 @@ public partial class MainWindow
                     if (t.Hero)
                     {
                         if (s == HeroStatus(t) && pawn.Status is null) return;
-                        t.Status = s;
+                        var change = SetHeroStatus(t, s);
                         pawn.Status = null;
+                        ActiveHistory.Commit(_doc, change);
                         PawnsChanged();
                         FocusCanvas();
                         return;
@@ -500,6 +501,25 @@ public partial class MainWindow
     // rows are grouped like the pawn tool panel, the current pawn is highlighted
     /// a hero's one status (its template's), "none" when it has none
     private static string HeroStatus(PawnTemplate t) => string.IsNullOrEmpty(t.Status) ? CampaignPresets.NoStatus : t.Status;
+
+    /// sets a hero's status and returns the change for the undo step (empty
+    /// when nothing changed). commit it on a map's history to make it undoable
+    private static List<HeroStatusChange> SetHeroStatus(PawnTemplate t, string status)
+    {
+        var before = HeroStatus(t);
+        t.Status = status;
+        return before == status ? new() : new() { new HeroStatusChange(t.Id, before, status) };
+    }
+
+    /// after an undo or redo: puts back the hero statuses that step changed,
+    /// by id wherever the hero is now. a deleted pawn type is skipped
+    private void ApplyHeroRestore(History h)
+    {
+        bool any = false;
+        foreach (var (id, status) in h.HeroRestore)
+            if (ActiveLibrary.Find(id) is { Hero: true } t) { t.Status = status; any = true; }
+        if (any) PawnsChanged();
+    }
 
     private void ShowChangePawn(Pawn pawn)
     {

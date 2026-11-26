@@ -6020,5 +6020,85 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- hero status is undoable ---
+{
+    var hist = new History();
+    var d = new MapDocument();
+    hist.Initialize(d);
+    hist.Commit(d, new() { new HeroStatusChange("h", "none", "stunned") });
+    d.SetWall(new EdgeKey(new CellKey(0, 0), Side.North), true);
+    hist.Commit(d);
+    hist.Undo();
+    Check(hist.HeroRestore.Count == 0, "hero undo: undoing an unrelated step puts back no hero status");
+    hist.Undo();
+    Check(hist.HeroRestore.SequenceEqual(new[] { ("h", "none") }), "hero undo: undoing the status step puts back the old status");
+    hist.Redo();
+    Check(hist.HeroRestore.SequenceEqual(new[] { ("h", "stunned") }), "hero undo: redo puts back the new status");
+    hist.Commit(d);
+    Check(!hist.CanRedo, "hero undo: a new step drops the redo branch");
+
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var w = new DungeonMapper.Views.MainWindow(); w.Show();
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        var pre = (CampaignPresets)t.GetProperty("ActivePresets", flags)!.GetValue(w)!;
+        string st = pre.PawnStatuses.First(x => x.Name != CampaignPresets.NoStatus).Name;
+        var hero = new PawnTemplate { Id = "hero", Name = "Ana", Hero = true };
+        wlib.Pawns.Add(hero);
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var hdoc = canvas.Document;
+        var hp = new Pawn { Cell = new CellKey(1, 1), TemplateId = "hero" };
+        hdoc.Pawns[hp.Cell] = hp;
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(hdoc);
+        var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
+        void ClickChip(string label)
+        {
+            panel.UpdateLayout();
+            var chip = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>()
+                .First(b => b.Classes.Contains("chip") && Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<Avalonia.Controls.TextBlock>().Any(x => x.Text == label));
+            chip.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        }
+
+        step = "click";
+        CallOn(w, "ShowPawnInfo", hp);
+        ClickChip(st);
+        Check(hero.Status == st, "hero undo: clicking a status on the placed hero sets the hero's status");
+        CallOn(w, "DoUndo");
+        Check(hero.Status == CampaignPresets.NoStatus, "hero undo: ctrl+z puts the hero's status back");
+        CallOn(w, "DoRedo");
+        Check(hero.Status == st, "hero undo: ctrl+y sets it again");
+
+        step = "unrelated";
+        hdoc.SetWall(new EdgeKey(new CellKey(5, 5), Side.North), true);
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(hdoc);
+        CallOn(w, "DoUndo");
+        Check(hero.Status == st, "hero undo: undoing a later wall leaves the hero's status alone");
+
+        step = "moved away";
+        // the hero leaves this map without an undo step here (placed on another map)
+        hdoc.Pawns.Remove(hp.Cell);
+        CallOn(w, "DoUndo");
+        Check(hero.Status == CampaignPresets.NoStatus, "hero undo: the status step still undoes after the hero left the map");
+
+        step = "deleted";
+        CallOn(w, "DoRedo");
+        wlib.Remove("hero");
+        CallOn(w, "DoUndo");
+        Check(wlib.Find("hero") is null, "hero undo: a deleted pawn type is skipped, nothing comes back");
+        w.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"hero undo: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
