@@ -1046,7 +1046,7 @@ public partial class MainWindow
 
     // ---------- status styles tab ----------
 
-    private const string StatusCols = "40,*,140,90,90,70";
+    private const string StatusCols = "40,*,140,104,104,70";
 
     private Control BuildStatusesTab()
     {
@@ -1105,7 +1105,7 @@ public partial class MainWindow
             };
             AddCell(g, name, 1);
             AddCell(g, ColorButton((st.R, st.G, st.B), c => { st.R = c.r; st.G = c.g; st.B = c.b; Look(); PawnsChanged(); }), 2);
-            var thick = new NumericUpDown { Value = st.Thickness, Minimum = 0, Maximum = 20, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            var thick = new NumericUpDown { Value = st.Thickness, Minimum = 0, Maximum = 20, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Classes = { "compact" } };
             thick.ValueChanged += (_, _) =>
             {
                 st.Thickness = (int)Math.Max(0, thick.Value ?? 0);
@@ -1116,7 +1116,7 @@ public partial class MainWindow
             if (!isNone)
             {
                 // how long it lasts when ticked on a pawn: -1 permanent, else turns
-                var turns = new NumericUpDown { Value = st.DefaultTurns, Minimum = -1, Maximum = TurnTracker.MaxTurns, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+                var turns = new NumericUpDown { Value = st.DefaultTurns, Minimum = -1, Maximum = TurnTracker.MaxTurns, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Classes = { "compact" } };
                 ToolTip.SetTip(turns, "turns it lasts when ticked on a pawn. -1 is permanent");
                 turns.ValueChanged += (_, _) =>
                 {

@@ -544,4 +544,29 @@
     <Style Selector="TextBox.field.clash /template/ Border#PART_BorderElement">
         <Setter Property="BorderBrush" Value="{StaticResource Ui.Danger.Field}" />
     </Style>
+
+    <!-- a number box in a narrow table column (status styles: thickness,
+         turns): small arrow buttons so the number has room to be typed -->
+    <Style Selector="NumericUpDown.compact /template/ ButtonSpinner /template/ RepeatButton">
+        <Setter Property="Width" Value="20" />
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="NumericUpDown.compact /template/ ButtonSpinner /template/ RepeatButton PathIcon">
+        <Setter Property="Width" Value="8" />
+        <Setter Property="Height" Value="8" />
+    </Style>
+    <Style Selector="NumericUpDown.compact">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="NumericUpDown.compact /template/ ButtonSpinner">
+        <Setter Property="MinHeight" Value="0" />
+    </Style>
+    <Style Selector="NumericUpDown.compact /template/ TextBox">
+        <Setter Property="MinWidth" Value="0" />
+        <Setter Property="MinHeight" Value="0" />
+        <Setter Property="Padding" Value="6,0,2,0" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
 </Styles>
