@@ -3622,13 +3622,16 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.Canvas.MeasurePoints[0] == new Point(1, 1) && h.Canvas.MeasurePoints[1] == new Point(4, 1), "measure: corners chip snaps ends to grid corners");
     h.Canvas.MeasureCorners = false;
 
-    // radius from a pawn
+    // radius from a pawn: shift+drag only
     h.Doc.Pawns[new CellKey(5, 5)] = new Pawn { Cell = new CellKey(5, 5), TemplateId = "a" };
     h.Doc.Pawns[new CellKey(7, 5)] = new Pawn { Cell = new CellKey(7, 5), TemplateId = "b" };
     h.Doc.Pawns[new CellKey(8, 8)] = new Pawn { Cell = new CellKey(8, 8), TemplateId = "c" };
     h.Drag(5, 5, 5, 8);
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Line && h.Canvas.MeasureLeg().v == 3 && h.Canvas.MeasurePoints[0] == new Point(5.5, 5.5),
+        "measure: a plain drag from a pawn is a line, not a radius");
+    h.DragMods(5, 5, 5, 8, Avalonia.Input.RawInputModifiers.Shift);
     Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 3 && h.Canvas.MeasureCenter == new Point(5.5, 5.5),
-        "measure: dragging out from a pawn gives a whole cell radius of 3");
+        "measure: shift+dragging out from a pawn gives a whole cell radius of 3");
     var caught = h.Canvas.MeasureCaughtPawns().Select(p => p.TemplateId).OrderBy(x => x).ToList();
     Check(caught.SequenceEqual(new[] { "a", "b" }), "measure: pawns inside the radius are caught, the one outside is not");
     Check(h.Canvas.MeasureReadout()[1] == "2 pawns inside", "measure: readout counts the pawns inside");
@@ -3638,7 +3641,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Line && h.Canvas.MeasureLeg().h == 3 && h.Canvas.MeasureLeg().v == 3,
         "measure: dragging from a pawn onto another pawn measures the line between them");
     h.Press(5, 5); h.MoveTo(8, 8); h.MoveTo(5, 9); h.Release(5, 9);
-    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 4, "measure: moving off the other pawn goes back to a radius");
+    Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Line && h.Canvas.MeasureLeg().v == 4, "measure: moving off the other pawn stays a line");
 
     // shift+drag radius from empty floor
     h.DragMods(2, 10, 2, 12, Avalonia.Input.RawInputModifiers.Shift);
@@ -3648,7 +3651,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.Canvas.MeasureMode == MapCanvas.MeasureKind.Radius && h.Canvas.MeasureRadius == 2, "measure: shift+drag on a pawn is a radius too");
 
     // pixels: shaded caught cell, ring
-    h.Drag(5, 5, 5, 7);
+    h.DragMods(5, 5, 5, 7, Avalonia.Input.RawInputModifiers.Shift);
     var bmp = h.Render();
     var msp = h.ScreenOf(5, 6);
     var px = h.PixelAt(bmp, (int)msp.X, (int)msp.Y + 8);

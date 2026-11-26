@@ -22,7 +22,7 @@ public partial class MainWindow
     private void BuildMeasurePanel()
     {
         ToolPanel.Clear("measure");
-        ToolPanel.AddHint("drag for a distance, ctrl+click or ctrl+drag adds a leg from the end. drag out from a pawn for a radius, or shift+drag from anywhere. dragging from a pawn onto another pawn measures between them. esc clears.");
+        ToolPanel.AddHint("drag for a distance, ctrl+click or ctrl+drag adds a leg from the end. shift+drag for a radius. esc clears.");
         ToolPanel.AddChips(["cell centers", "cell corners"], Canvas.MeasureCorners ? "cell corners" : "cell centers",
             v => { Canvas.MeasureCorners = v == "cell corners"; FocusCanvas(); }, "ends snap to");
         _measureInfo = ToolPanel.AddInfo("");

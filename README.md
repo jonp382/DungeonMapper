@@ -29,7 +29,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Pawn | P | Place pawns from your library onto the map. Click a placed pawn to open it, or drag it to move it. |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
 | Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, and drag its handles to resize it. See [Images](#images). |
-| Measure | G | Drag to measure a distance, or drag out from a pawn for a spell radius. See [Measuring](#measuring). |
+| Measure | G | Drag to measure a distance, or Shift+drag for a spell radius. See [Measuring](#measuring). |
 | Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
 | Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |
 
@@ -114,11 +114,11 @@ The measure tool only reads the map. It never changes anything, adds an undo ste
 ![waypoint](./images/measure_waypoint.png)
 
 
-- **Spell radius:** drag out from a pawn, or Shift+drag from any spot. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, and the pawns in them get a ring. The side panel lists those pawns by affiliation.
+- **Spell radius:** Shift+drag from any spot, a pawn included. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, and the pawns in them get a ring. The side panel lists those pawns by affiliation.
 
 ![radial](./images/measure_radial.png)
 
-- **Pawn to pawn:** drag from one pawn onto another to get the distance between them.
+- **Pawn to pawn:** drag from one pawn onto another to get the distance between them (with the centers chip on).
 ![pawn2pawn](./images/measure_pawn2pawn.png)
 
 

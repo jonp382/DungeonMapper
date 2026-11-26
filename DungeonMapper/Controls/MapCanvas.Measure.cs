@@ -14,9 +14,9 @@ namespace DungeonMapper.Controls;
 // "Range Finder Design".
 //  - line: drag between two points; ctrl+click / ctrl+drag adds a leg from the
 //    last end point (waypoints)
-//  - radius: drag out from a pawn, or shift+drag from any point. whole cells,
-//    walls ignored. cells whose center is inside or on the circle are caught.
-//    dragging from a pawn onto another pawn measures the line between them.
+//  - radius: only shift+drag, from any point (a pawn is no different). whole
+//    cells, walls ignored. cells whose center is inside or on the circle are
+//    caught. a plain drag from a pawn is a line like any other.
 // a measurement stays until esc, a tool switch, a new one, or ClearMeasure.
 public sealed partial class MapCanvas
 {
@@ -34,7 +34,6 @@ public sealed partial class MapCanvas
     // radius: center (world) and radius in whole cells
     private Point _measureCenter;
     private int _measureRadius;
-    private CellKey? _measureFromPawn; // the radius started on this pawn's cell
     private bool _measuring;           // a left drag is in progress
 
     public MeasureKind MeasureMode => _measureKind;
@@ -49,7 +48,6 @@ public sealed partial class MapCanvas
         _measureKind = MeasureKind.None;
         _measurePts.Clear();
         _measureRadius = 0;
-        _measureFromPawn = null;
         _measuring = false;
         if (had) { MeasureChanged?.Invoke(); InvalidateVisual(); }
     }
@@ -150,20 +148,11 @@ public sealed partial class MapCanvas
             // waypoint: a new leg from the last end point
             _measurePts.Add(MeasureSnap(world));
         }
-        else if (!mods.HasFlag(KeyModifiers.Shift) && Document.Pawns.ContainsKey(cell))
-        {
-            _measureKind = MeasureKind.Radius;
-            _measurePts.Clear();
-            _measureCenter = CellCenter(cell);
-            _measureFromPawn = cell;
-            _measureRadius = 0;
-        }
         else if (mods.HasFlag(KeyModifiers.Shift))
         {
             _measureKind = MeasureKind.Radius;
             _measurePts.Clear();
             _measureCenter = MeasureSnap(world);
-            _measureFromPawn = null;
             _measureRadius = 0;
         }
         else
@@ -173,7 +162,6 @@ public sealed partial class MapCanvas
             var p = MeasureSnap(world);
             _measurePts.Add(p);
             _measurePts.Add(p);
-            _measureFromPawn = null;
         }
         _measuring = true;
         e.Pointer.Capture(this);
@@ -182,43 +170,13 @@ public sealed partial class MapCanvas
         return true;
     }
 
-    // dragging from a pawn onto another pawn: the pawn to pawn line
-    private CellKey? MeasurePawnTarget(Point world)
-    {
-        if (_measureFromPawn is not CellKey src) return null;
-        var c = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
-        return c != src && Document.Pawns.ContainsKey(c) ? c : null;
-    }
-
     private bool MeasureMoved(Point world)
     {
         if (Mode != ToolMode.Measure || !_measuring) return false;
-        if (_measureFromPawn is null && _measureKind == MeasureKind.Line)
-        {
+        if (_measureKind == MeasureKind.Line)
             _measurePts[^1] = MeasureSnap(world);
-        }
-        else if (_measureFromPawn is null)
-        {
-            _measureRadius = (int)Math.Round(Dist(_measureCenter, world));
-        }
         else
-        {
-            // from a pawn: radius, or a line while over another pawn
-            if (MeasurePawnTarget(world) is CellKey t)
-            {
-                // shown as a line while over the other pawn
-                _measureKind = MeasureKind.Line;
-                _measurePts.Clear();
-                _measurePts.Add(_measureCenter);
-                _measurePts.Add(CellCenter(t));
-            }
-            else
-            {
-                _measureKind = MeasureKind.Radius;
-                _measurePts.Clear();
-                _measureRadius = (int)Math.Round(Dist(_measureCenter, world));
-            }
-        }
+            _measureRadius = (int)Math.Round(Dist(_measureCenter, world));
         MeasureChanged?.Invoke();
         InvalidateVisual();
         return true;
@@ -229,8 +187,6 @@ public sealed partial class MapCanvas
         if (Mode != ToolMode.Measure || !_measuring) return false;
         MeasureMoved(ScreenToWorld(e.GetPosition(this)));
         _measuring = false;
-        // the pawn to pawn line is a plain line from here on
-        if (_measureKind == MeasureKind.Line) _measureFromPawn = null;
         e.Pointer.Capture(null);
         MeasureChanged?.Invoke();
         InvalidateVisual();
