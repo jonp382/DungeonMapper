@@ -449,6 +449,19 @@
                                     </Grid>
                                 </Border>
 
+                                <TextBlock Classes="section" Text="drawing" />
+                                <Border Classes="group">
+                                    <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock Classes="body" Text="force CPU rendering" />
+                                            <TextBlock Classes="hint" TextWrapping="Wrap"
+                                                       Text="for systems where a GPU isn't available, or its resources are tied down. takes effect after a restart." />
+                                            <TextBlock x:Name="SetCpuRendererNow" Classes="hint" />
+                                        </StackPanel>
+                                        <CheckBox x:Name="SetCpuRenderer" Grid.Column="1" Classes="toggle" Content="CPU" Margin="0,0,10,0" />
+                                    </Grid>
+                                </Border>
+
                                 <TextBlock Classes="section" Text="saving" />
                                 <Border Classes="group">
                                     <Grid Classes="setting" ColumnDefinitions="*,Auto,58">

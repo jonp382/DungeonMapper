@@ -6495,5 +6495,42 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- renderer setting ---
+{
+    Check(!AppSettings.Default().CpuRenderer, "renderer: the graphics card by default");
+    var mine = AppSettings.Default();
+    mine.CpuRenderer = true;
+    Check(!mine.ExportJson().Contains("cpu_renderer"), "renderer: never exported, it belongs to this computer");
+    Check(AppSettings.Parse(mine.ToJson())!.CpuRenderer, "renderer: saved in settings.json");
+    var other = AppSettings.ParseImport("{\"kind\":\"settings\",\"cpu_renderer\":false,\"fog_opacity\":20}")!;
+    mine.CopyAppWideFrom(other);
+    Check(mine.CpuRenderer && mine.FogOpacity == 20, "renderer: an import keeps this computer's choice");
+
+    _ = new CanvasHarness();
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var settings = (AppSettings)t.GetField("_settings", flags)!.GetValue(w)!;
+        bool before = settings.CpuRenderer;
+        Call("ShowSettings");
+        var box = (Avalonia.Controls.CheckBox)t.GetField("SetCpuRenderer", flags)!.GetValue(w)!;
+        var now = (Avalonia.Controls.TextBlock)t.GetField("SetCpuRendererNow", flags)!.GetValue(w)!;
+        box.IsChecked = !before;
+        Check(settings.CpuRenderer == !before && now.Text!.Contains("after a restart"), "renderer: the settings toggle sets it and says it needs a restart");
+        box.IsChecked = before;
+        Check(settings.CpuRenderer == before && !now.Text!.Contains("after a restart"), "renderer: switching back needs no restart");
+        Call("CloseSettings");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"renderer: settings view failed: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

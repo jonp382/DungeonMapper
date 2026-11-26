@@ -243,6 +243,11 @@ public sealed class AppSettings
 
     // the last session this machine joined, prefilled in the join window.
     // per machine like the images folder: a settings import keeps these
+    // draw with the CPU instead of the graphics card, for a machine where the
+    // GPU renderer fails (the map going blank when other programs fill its
+    // memory). read once at startup (Program.Main), so a change needs a
+    // restart. belongs to this machine: not exported, kept on import
+    [JsonPropertyName("cpu_renderer")] public bool CpuRenderer { get; set; } = false;
     [JsonPropertyName("join_name")] public string JoinName { get; set; } = "";
     [JsonPropertyName("join_address")] public string JoinAddress { get; set; } = "";
     [JsonPropertyName("join_port")] public int JoinPort { get; set; } = 0;
@@ -415,7 +420,7 @@ public sealed class AppSettings
         {
             node.Remove(k);
             // the last joined session (with its code) stays on this machine
-            if (k.StartsWith("join_")) continue;
+            if (k.StartsWith("join_") || k == "cpu_renderer") continue;
             outNode[k] = v;
         }
         return outNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -472,11 +477,13 @@ public sealed class AppSettings
     {
         var folder = ImagesFolder;
         var (jn, ja, jp, jc) = (JoinName, JoinAddress, JoinPort, JoinCode);
+        var cpu = CpuRenderer;
         foreach (var p in DmJson.Default.AppSettings.Properties)
             if (p.Get is not null && p.Set is not null)
                 p.Set(this, p.Get(other));
         ImagesFolder = folder;
         (JoinName, JoinAddress, JoinPort, JoinCode) = (jn, ja, jp, jc);
+        CpuRenderer = cpu;
         ToolHotkeys = new Dictionary<string, string>(other.ToolHotkeys);
     }
 }
