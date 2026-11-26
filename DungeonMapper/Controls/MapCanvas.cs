@@ -196,6 +196,11 @@ public sealed partial class MapCanvas : Control
     // armed so the destination ghost persists (and can be re-placed). _rotTurns
     // is the counterclockwise quarter-turns applied to the armed snapshot.
     private bool _moveArmed;
+    // the armed move carries only pawns: the move tool with "move pawns only"
+    // on, or a shift+drag box in the move or pawn tool
+    private bool _armedPawnsOnly;
+    // the box being dragged is a shift+drag (pawns only in the move and pawn tools)
+    private bool _shiftBox;
     private int _rotTurns;
     private (int x0, int y0, int x1, int y1)? _moveSourceRect; // source region to clear on first placement
     private bool _moveSourceCleared; // source cleared on the first placement; a placement disarms, so it never re-clears
@@ -205,7 +210,7 @@ public sealed partial class MapCanvas : Control
     // exists in Select mode (copy/cut paste). In Move mode a stale clipboard from
     // an earlier copy must NOT be rotatable - only the armed snapshot is.
     public bool CanRotate => _clipboard is not null && !_clipboard.Empty
-        && (Mode == ToolMode.Select || (Mode == ToolMode.Move && _moveArmed));
+        && (Mode == ToolMode.Select || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed));
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool EraseAdjustWalls { get; set; } = false; // Erase tool: after erasing, rebuild room boundary walls so the new outer edge gets walls
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
@@ -295,7 +300,7 @@ public sealed partial class MapCanvas : Control
             var (sx0, sy0, sx1, sy1) = _moveSourceRect!.Value;
             // braces matter here: without them the else binds to the inner if inside
             // the foreach, so the normal (non pawns-only) path never clears the source.
-            if (MovePawnsOnly)
+            if (_armedPawnsOnly)
             {
                 foreach (var c in src.Pawns.Keys.ToList())
                     if (c.X >= sx0 && c.X <= sx1 && c.Y >= sy0 && c.Y <= sy1) src.Pawns.Remove(c);
@@ -308,7 +313,7 @@ public sealed partial class MapCanvas : Control
         }
 
         int count; string what;
-        if (MovePawnsOnly)
+        if (_armedPawnsOnly)
         {
             count = PlacePawns(_clipboard, target);
             what = $"{count} pawns";
@@ -385,6 +390,7 @@ public sealed partial class MapCanvas : Control
     {
         if (!_moveArmed) return;
         _moveArmed = false;
+        _armedPawnsOnly = false;
         _movePlaced = false;
         _rotTurns = 0;
         _moveSourceRect = null;
@@ -447,6 +453,7 @@ public sealed partial class MapCanvas : Control
         _cutSource = null;
         _pasteCursor = null;
         _moveArmed = false;
+        _armedPawnsOnly = false;
         _rotTurns = 0;
         _moveSourceRect = null;
         _moveSourceCleared = false;
@@ -1344,7 +1351,7 @@ public sealed partial class MapCanvas : Control
 
         // selection rectangle (cyan)
         if (_selectDragging || (_selectStart != _selectEnd && (Mode == ToolMode.Select || Mode == ToolMode.Move))
-            || (Mode == ToolMode.Move && _moveArmed))
+            || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed))
         {
             var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
             var tl = WorldToScreen(x0, y0);
@@ -1441,7 +1448,7 @@ public sealed partial class MapCanvas : Control
         // destination ghost keeps showing for rotation and repeat placement -
         // the old HasSelection check killed the ghost after the first move).
         bool ghostMode = Mode == ToolMode.Select
-            || (Mode == ToolMode.Move && _moveArmed && !_dragging);
+            || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed && !_dragging);
         if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && GhostEnabled)
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
@@ -1465,7 +1472,7 @@ public sealed partial class MapCanvas : Control
                 DrawImageIn(ctx, im, new Rect(p0.X, p0.Y, im.W * _scale, im.H * _scale), 0.5);
             }
             // a pawns only move has no cells, the ghost is the pawns themselves
-            if (Mode == ToolMode.Move && MovePawnsOnly)
+            if (_moveArmed && _armedPawnsOnly)
                 foreach (var p in _clipboard.Pawns)
                 {
                     var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
@@ -1703,6 +1710,44 @@ public sealed partial class MapCanvas : Control
         return true;
     }
 
+    private static bool Shifted(PointerPressedEventArgs e) => e.KeyModifiers.HasFlag(KeyModifiers.Shift);
+
+    /// Starts a selection box (select, move and pawn tools). A shift box in the
+    /// move or pawn tool carries only pawns.
+    private void BeginBox(PointerPressedEventArgs e, CellKey cell)
+    {
+        _selectDragging = true;
+        _shiftBox = Shifted(e);
+        _selectStart = cell;
+        _selectEnd = cell;
+        e.Pointer.Capture(this);
+    }
+
+    /// The pawn tool's plain click on a cell with no pawn: places the armed pawn.
+    private void PawnToolClick(CellKey cell)
+    {
+        if (Document.Pawns.TryGetValue(cell, out var existing)) { PawnConfigRequested?.Invoke(existing); return; }
+        if (ArmedPawn is not null)
+        {
+            // place a pawn that hard-references the armed library template.
+            // a hero moves instead: the old copy goes and keeps its status.
+            var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id };
+            Document.PlacePawn(placed);
+            if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
+            {
+                placed.Status = old.Status;
+                placed.DmOnly = old.DmOnly;
+                StatusMessage?.Invoke($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
+            }
+            Commit();
+            PawnPlaced?.Invoke(ArmedPawn.Id);
+        }
+        else
+        {
+            StatusMessage?.Invoke("select a pawn in the pawn menu first");
+        }
+    }
+
     // ---- input ----
     private bool _panning;
     private Point _panStartScreen, _panStartOffset;
@@ -1750,12 +1795,10 @@ public sealed partial class MapCanvas : Control
                     break;
                 }
                 // pressing directly on a pawn: per-pawn drag (select and move
-                // tools). a click without a drag shows the pawn's info.
-                if (BeginPawnDrag(e, cell)) break;
-                _selectDragging = true;
-                _selectStart = cell;
-                _selectEnd = cell;
-                e.Pointer.Capture(this);
+                // tools). a click without a drag shows the pawn's info. shift
+                // starts the box even on a pawn.
+                if (!Shifted(e) && BeginPawnDrag(e, cell)) break;
+                BeginBox(e, cell);
                 break;
 
             case ToolMode.Room:
@@ -1901,27 +1944,14 @@ public sealed partial class MapCanvas : Control
                 break;
 
             case ToolMode.Pawn:
+                // an armed pawns only move (from a shift+drag box): this click
+                // is its target
+                if (_moveArmed) { MoveAt(cell); break; }
+                // shift+drag: a pawns only move box, like the move tool
+                if (Shifted(e)) { BeginBox(e, cell); break; }
                 // a placed pawn drags like in the move tool; a click opens it
                 if (BeginPawnDrag(e, cell)) break;
-                if (ArmedPawn is not null)
-                {
-                    // place a pawn that hard-references the armed library template.
-                    // a hero moves instead: the old copy goes and keeps its status.
-                    var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id };
-                    Document.PlacePawn(placed);
-                    if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
-                    {
-                        placed.Status = old.Status;
-                        placed.DmOnly = old.DmOnly;
-                        StatusMessage?.Invoke($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
-                    }
-                    Commit();
-                    PawnPlaced?.Invoke(ArmedPawn.Id);
-                }
-                else
-                {
-                    StatusMessage?.Invoke("select a pawn in the pawn menu first");
-                }
+                PawnToolClick(cell);
                 break;
 
             case ToolMode.Polygon:
@@ -1984,7 +2014,7 @@ public sealed partial class MapCanvas : Control
         if (!_selectDragging && !_dragging && !_panning)
         {
             // redraw so the paste ghost tracks the cursor on hover
-            if (_clipboard is not null && !_clipboard.Empty && (Mode == ToolMode.Select || Mode == ToolMode.Move))
+            if (_clipboard is not null && !_clipboard.Empty && (Mode is ToolMode.Select or ToolMode.Move || (Mode == ToolMode.Pawn && _moveArmed)))
                 InvalidateVisual();
         }
 
@@ -2122,14 +2152,26 @@ public sealed partial class MapCanvas : Control
             _selectEnd = cell;
             // decided before a pawns only shrink can turn the box into one cell
             bool singleCell = _selectStart == _selectEnd;
-            if (Mode == ToolMode.Move && !singleCell)
+            // pawns only: the move tool's checkbox, or a shift box in the move or
+            // pawn tool (the pawn tool only ever moves pawns)
+            bool pawnsOnly = Mode == ToolMode.Pawn || (Mode == ToolMode.Move && (MovePawnsOnly || _shiftBox));
+            _shiftBox = false;
+            if (Mode == ToolMode.Pawn && singleCell)
+            {
+                // a shift+click without a drag is a plain pawn tool click
+                ClearSelection();
+                PawnToolClick(cell);
+                InvalidateVisual();
+                return;
+            }
+            if (Mode is ToolMode.Move or ToolMode.Pawn && !singleCell)
             {
                 // arm the move: capture the region so the paste ghost previews
                 // it at the cursor until the destination click. remember the map
                 // it was selected on so the move works after a map switch.
                 var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
                 var snap = Document.CaptureRegion(x0, y0, x1, y1);
-                if (MovePawnsOnly)
+                if (pawnsOnly)
                 {
                     // shrink the selection to the pawns
                     snap = PawnsOnlySnapshot(snap, out var box);
@@ -2146,6 +2188,7 @@ public sealed partial class MapCanvas : Control
                     _moveSourceDoc = Document;
                     _cutSource = null;
                     _moveArmed = true;
+                    _armedPawnsOnly = pawnsOnly;
                     _moveSourceRect = (x0, y0, x1, y1);
                     _moveSourceCleared = false;
                     _movePlaced = false;
@@ -2156,14 +2199,22 @@ public sealed partial class MapCanvas : Control
                     // nothing in the region: drop the selection so the next
                     // drag starts fresh
                     ClearSelection();
-                    StatusMessage?.Invoke(MovePawnsOnly ? "no pawns in that region" : "nothing to move in that region");
+                    StatusMessage?.Invoke(pawnsOnly ? "no pawns in that region" : "nothing to move in that region");
                     InvalidateVisual();
                     return;
                 }
             }
             if (singleCell)
             {
-                // single cell: manage the element under the cursor
+                // single cell: manage the element under the cursor. a pawn here
+                // means a shift+click (a plain press on a pawn drags it), which
+                // opens it like a plain click
+                if (Document.Pawns.TryGetValue(cell, out var clicked))
+                {
+                    PawnConfigRequested?.Invoke(clicked);
+                    InvalidateVisual();
+                    return;
+                }
                 var edge = HitEdge(world);
                 var vt = HitVertex(world);
                 VertexDoor? vd = null;

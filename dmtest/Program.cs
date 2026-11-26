@@ -5626,5 +5626,68 @@ try { Directory.Delete(imgDir, true); } catch { }
     hp.Canvas.RemoteDocument = null;
 }
 
+// --- shift+drag box in the select, move and pawn tools ---
+{
+    var sh = Avalonia.Input.RawInputModifiers.Shift;
+    CanvasHarness Setup(ToolMode mode)
+    {
+        var h = new CanvasHarness();
+        h.Doc.AddRoom(0, 0, 5, 5);
+        h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "p1" });
+        h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p2" });
+        h.Doc.Stairs[new CellKey(1, 2)] = new Stair();
+        h.Canvas.Mode = mode;
+        return h;
+    }
+
+    // select: shift+drag from a pawn selects, nothing moves
+    var s1 = Setup(ToolMode.Select);
+    s1.DragMods(1, 1, 3, 3, sh);
+    Check(s1.Canvas.HasSelection && s1.Doc.Pawns.ContainsKey(new CellKey(1, 1)) && s1.Doc.Pawns.Count == 2,
+        "shift box (Select): shift+drag from a pawn starts a selection, the pawn stays");
+    var opened = 0; s1.Canvas.PawnConfigRequested += _ => opened++;
+    s1.DragMods(1, 1, 1, 1, sh);
+    Check(opened == 1, "shift box (Select): a shift+click on a pawn still opens it");
+
+    foreach (var mode in new[] { ToolMode.Move, ToolMode.Pawn })
+    {
+        var h = Setup(mode);
+        if (mode == ToolMode.Pawn) h.Canvas.ArmedPawn = new PawnTemplate { Id = "p3", Name = "armed" };
+        Check(!h.Canvas.MovePawnsOnly, $"shift box ({mode}): move pawns only is off");
+        h.DragMods(1, 1, 2, 2, sh);
+        Check(h.Canvas.MoveArmed && h.Doc.Pawns.Count == 2, $"shift box ({mode}): shift+drag from a pawn arms a move, nothing moved yet");
+        int commits = h.CommitCount;
+        h.Click(3, 3);
+        Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && h.Doc.Pawns.ContainsKey(new CellKey(4, 4)) && h.Doc.Pawns.Count == 2
+            && h.CommitCount == commits + 1 && !h.Canvas.MoveArmed,
+            $"shift box ({mode}): the click moves the pawns in one step and disarms");
+        Check(h.Doc.Stairs.ContainsKey(new CellKey(1, 2)) && h.Doc.Cells.Contains(new CellKey(1, 1)) && !h.Doc.Stairs.ContainsKey(new CellKey(3, 4)),
+            $"shift box ({mode}): only pawns move, the stair and floor stay");
+        // rotate is available while armed
+        h.DragMods(3, 3, 4, 4, sh);
+        Check(h.Canvas.CanRotate, $"shift box ({mode}): an armed pawn box can be rotated");
+        h.Canvas.CancelMove();
+        Check(!h.Canvas.MoveArmed, $"shift box ({mode}): cancel disarms");
+        // a plain drag still drags one pawn
+        h.Drag(3, 3, 0, 4);
+        Check(h.Doc.Pawns.ContainsKey(new CellKey(0, 4)) && !h.Doc.Pawns.ContainsKey(new CellKey(3, 3)), $"shift box ({mode}): a plain drag still moves one pawn");
+    }
+
+    // move tool: a plain box with pawns only off still moves everything
+    var m = Setup(ToolMode.Move);
+    m.Drag(0, 0, 2, 2);
+    m.Click(10, 10);
+    Check(m.Doc.Stairs.ContainsKey(new CellKey(11, 12)), "shift box: a plain move box (pawns only off) still moves the stair");
+
+    // pawn tool: a shift+click with no drag places the armed pawn as usual
+    var p = Setup(ToolMode.Pawn);
+    p.Canvas.ArmedPawn = new PawnTemplate { Id = "p3", Name = "armed" };
+    p.DragMods(4, 4, 4, 4, sh);
+    Check(p.Doc.Pawns.TryGetValue(new CellKey(4, 4), out var pl) && pl.TemplateId == "p3" && !p.Canvas.MoveArmed,
+        "shift box (Pawn): a shift+click without a drag places the armed pawn");
+    p.DragMods(0, 3, 0, 5, sh);
+    Check(!p.Canvas.MoveArmed && p.Statuses.Contains("no pawns in that region"), "shift box (Pawn): a box with no pawns arms nothing");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

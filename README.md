@@ -16,8 +16,8 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 
 | Tool | Key | What it does |
 | --- | --- | --- |
-| Select | S | Click something to edit it. Drag a pawn to move it (landing on another pawn swaps them). Drag elsewhere to select an area, then copy, cut or paste it. The clear clipboard button drops the clipboard and the paste ghost. |
-| Move | M | Drag around an area, then click where it should go. Drag a single pawn to move just that pawn. |
+| Select | S | Click something to edit it. Drag a pawn to move it (landing on another pawn swaps them). Drag elsewhere, or Shift+drag from anywhere, to select an area, then copy, cut or paste it. The clear clipboard button drops the clipboard and the paste ghost. |
+| Move | M | Drag around an area, then click where it should go. Drag a single pawn to move just that pawn. Shift+drag a box to move only the pawns in it (from anywhere, even with "move pawns only" off). |
 | Room | R | Drag a rectangle to make a walled room. Drawing over an existing room merges the two. |
 | Polygon | N | Click grid points to outline an odd-shaped room. Click the first point again, or press Enter, to finish. |
 | Floor | F | Paint floor by dragging a rectangle, or flood fill the room you click. |
@@ -26,7 +26,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Stair | T | Click or drag to place stairs, then pick which way they go. |
 | Label | L | Click to place a label, or drag to make one that spans an area. Click a label to edit it, and drag its handles to resize it. |
 | Erase | E | Remove things, and choose what the eraser takes. |
-| Pawn | P | Place pawns from your library onto the map. Click a placed pawn to open it, or drag it to move it. |
+| Pawn | P | Place pawns from your library onto the map. Click a placed pawn to open it, or drag it to move it. Shift+drag a box to pick up several pawns, then click where they go (R turns them, Esc cancels). |
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, and drag its handles to resize it. Shift+drag places one over another object. |
 | Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, and drag its handles to resize it. See [Images](#images). |
 | Measure | G | Drag to measure a distance, or Shift+drag for a spell radius. See [Measuring](#measuring). |

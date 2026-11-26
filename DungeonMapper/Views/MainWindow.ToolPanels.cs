@@ -39,7 +39,7 @@ public partial class MainWindow
 
             case ToolMode.Select:
                 ToolPanel.Clear("select");
-                ToolPanel.AddHint("click an element to configure it, drag a region to select. drag a pawn to move it. ctrl+c and ctrl+v copy and paste, the paste ghost follows the cursor. r, shift+r or shift+scroll rotates the clipboard.");
+                ToolPanel.AddHint("click an element to configure it, drag a region to select. drag a pawn to move it, shift+drag to start a selection on a pawn. ctrl+c and ctrl+v copy and paste, the paste ghost follows the cursor. r, shift+r or shift+scroll rotates the clipboard.");
                 ToolPanel.AddButton("clear clipboard", () => { Canvas.ClearClipboard(); FocusCanvas(); });
                 break;
 
@@ -49,7 +49,7 @@ public partial class MainWindow
 
             case ToolMode.Move:
                 ToolPanel.Clear("move");
-                ToolPanel.AddHint("drag on empty space to select a region, then click the destination. drag a pawn to move just that pawn. esc cancels.");
+                ToolPanel.AddHint("drag on empty space to select a region, then click the destination. drag a pawn to move just that pawn. shift+drag moves only the pawns in the box, even on a pawn and with pawns only off. esc cancels.");
                 ToolPanel.AddCheck("move pawns only", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
                 ToolPanel.AddCheck("show destination ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 break;
