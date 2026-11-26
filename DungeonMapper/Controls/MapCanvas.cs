@@ -98,9 +98,8 @@ public sealed partial class MapCanvas : Control
         }
         catch { return null; }
     }
-    // special move mode: selection captures and moves ONLY pawns; other elements
-    // are untouched at the source, and incompatible elements at the destination
-    // are removed so the pawn lands clean.
+    // special move mode: selection captures and moves ONLY pawns; every other
+    // element is untouched, at the source and at the destination.
     // flipping it while a move is armed drops the move, the armed snapshot
     // was shaped for the other mode
     public bool MovePawnsOnly
@@ -369,7 +368,6 @@ public sealed partial class MapCanvas : Control
         foreach (var p in snap.Pawns)
         {
             var nc = new CellKey(p.Cell.X + dx, p.Cell.Y + dy);
-            ClearCellObstacles(Document, nc);
             Document.Pawns[nc] = new Pawn { Cell = nc, TemplateId = p.TemplateId, Status = p.Status, DmOnly = p.DmOnly };
         }
         foreach (var (dest, occ) in swaps)
@@ -399,24 +397,6 @@ public sealed partial class MapCanvas : Control
     /// and not yet placed. A successful placement, a cancel, a tool switch, or a
     /// panel button click restores them.
     public bool HotkeysDisabled => _moveArmed && !_movePlaced;
-
-    /// Removes everything incompatible with a pawn landing on a cell: stairs,
-    /// labels, and straight walls on the cell's edges - straight walls are
-    /// cleared ONLY when the cell is not a room/floor tile (a pawn landing on a
-    /// room edge keeps the room's walls). Angled walls and angled doors are
-    /// NEVER removed by a pawn landing - the intersection rules are too complex,
-    /// so angled geometry is left alone in every case. Room/floor cells
-    /// themselves are never removed - a pawn sits on top of a floor tile.
-    private static void ClearCellObstacles(MapDocument doc, CellKey c)
-    {
-        doc.Stairs.Remove(c);
-        // a pawn only displaces a single cell label, never a range label
-        doc.Labels.RemoveAll(l => l.Cell == c && !l.IsRange);
-        bool onFloor = doc.Cells.Contains(c);
-        if (!onFloor)
-            foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
-                doc.SetWall(new EdgeKey(c, side), false);
-    }
 
     /// Pastes at the current cursor cell, if a paste ghost is showing.
     public void PasteAtCursor()
@@ -2116,12 +2096,10 @@ public sealed partial class MapCanvas : Control
             }
             else
             {
-                // per-pawn move: lift the pawn from its source cell, clear
-                // obstacles at the landing cell, place it there. one undoable commit.
-                // landing on another pawn SWAPS the two pawns' positions (unique
-                // to pawns - other elements are overwritten, not swapped).
+                // per-pawn move: lift the pawn from its source cell and place it
+                // on the landing cell. one undoable commit. landing on another pawn
+                // SWAPS the two pawns' positions. nothing but pawns changes.
                 var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
-                ClearCellObstacles(Document, target);
                 Document.Pawns.Remove(_pawnDragStart);
                 Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Status = pawn.Status, DmOnly = pawn.DmOnly };
                 if (occupant is not null)

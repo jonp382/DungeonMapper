@@ -5537,5 +5537,35 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- pawn landings touch nothing but pawns ---
+{
+    // pawns only: pawns landing off floor beside rooms keep every wall
+    var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 3, 3);
+    h.Doc.AddRoom(6, 0, 9, 3);
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(0, 0), TemplateId = "p1" });
+    h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 0), TemplateId = "p2" });
+    h.Doc.Stairs[new CellKey(5, 1)] = new Stair();
+    h.Doc.Labels.Add(new MapLabel { Cell = new CellKey(4, 1), Text = "x" });
+    int walls = h.Doc.Walls.Count;
+    h.Canvas.Mode = ToolMode.Move; h.Canvas.MovePawnsOnly = true;
+    h.Drag(2, 2, 0, 0);
+    h.Click(4, 1);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(4, 1)) && h.Doc.Pawns.ContainsKey(new CellKey(5, 1)), "pawn landing: pawns only move lands");
+    Check(h.Doc.Walls.Count == walls, "pawn landing: pawns only keeps the walls beside the landing cells");
+    Check(h.Doc.Stairs.ContainsKey(new CellKey(5, 1)) && h.Doc.Labels.Count == 1, "pawn landing: pawns only keeps stairs and labels under the pawns");
+
+    // single pawn drag off a room keeps the room's wall
+    var h2 = new CanvasHarness();
+    h2.Doc.AddRoom(0, 0, 3, 3);
+    h2.Doc.PlacePawn(new Pawn { Cell = new CellKey(3, 1), TemplateId = "p1" });
+    h2.Doc.Stairs[new CellKey(4, 1)] = new Stair();
+    walls = h2.Doc.Walls.Count;
+    h2.Canvas.Mode = ToolMode.Move;
+    h2.Drag(3, 1, 4, 1);
+    Check(h2.Doc.Pawns.ContainsKey(new CellKey(4, 1)) && h2.Doc.Walls.Count == walls && h2.Doc.Stairs.ContainsKey(new CellKey(4, 1)),
+        "pawn landing: a single pawn drag keeps walls and stairs");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
