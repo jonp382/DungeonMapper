@@ -38,6 +38,11 @@ public partial class MainWindow
 
     private void InitSession()
     {
+        // the last session joined on this machine
+        if (!string.IsNullOrWhiteSpace(_settings.JoinName)) _playerName = _settings.JoinName;
+        _joinAddress = _settings.JoinAddress;
+        _joinCode = _settings.JoinCode;
+        if (_settings.JoinPort is > 0 and <= 65535) _joinPort = _settings.JoinPort.ToString();
         MenuHost.Click += (_, _) => { CloseModals(); ShowHostSession(); };
         MenuJoin.Click += (_, _) => { CloseModals(); ShowJoinSession(); };
         MenuLeave.Click += (_, _) => { if (_client is not null) LeavePlayerMode("left the session"); else if (_host is not null) StopHosting(); };
@@ -453,6 +458,18 @@ public partial class MainWindow
         _joinList = null;
     }
 
+    /// a join worked: keep what was used for the next time the join window opens
+    private void RememberJoin(string address, int port)
+    {
+        _joinAddress = address;
+        _joinPort = port.ToString();
+        _settings.JoinName = _playerName.Trim();
+        _settings.JoinAddress = address;
+        _settings.JoinPort = port;
+        _settings.JoinCode = _joinCode.Trim();
+        try { _settings.Save(); } catch { /* not saved: still prefilled until the app closes */ }
+    }
+
     private async void Join(string address, int port)
     {
         if (_joining) return;
@@ -463,6 +480,7 @@ public partial class MainWindow
         {
             var client = await SessionClient.ConnectAsync(address, port, _joinCode.Trim(), string.IsNullOrWhiteSpace(_playerName) ? "player" : _playerName.Trim());
             _joining = false;
+            RememberJoin(address, port);
             EnterPlayerMode(client);
         }
         catch (Exception ex)

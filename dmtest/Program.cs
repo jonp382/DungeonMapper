@@ -5854,5 +5854,78 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- join window remembers the last session joined ---
+{
+    var a = new AppSettings { JoinName = "Dee", JoinAddress = "10.0.0.5", JoinPort = 47999, JoinCode = "abc" };
+    Check(!a.ExportJson().Contains("join_") && !a.ExportJson().Contains("abc"), "join memory: a settings export leaves out the last session and its code");
+    var mine = new AppSettings { JoinName = "Me", JoinAddress = "1.2.3.4", JoinPort = 5000, JoinCode = "x" };
+    mine.CopyAppWideFrom(new AppSettings { JoinName = "Other", JoinAddress = "9.9.9.9", JoinPort = 1, JoinCode = "y" });
+    Check(mine is { JoinName: "Me", JoinAddress: "1.2.3.4", JoinPort: 5000, JoinCode: "x" }, "join memory: a settings import keeps this machine's last session");
+    Check(a.ToJson().Contains("\"join_address\": \"10.0.0.5\"") || a.ToJson().Contains("\"join_address\":\"10.0.0.5\""), "join memory: saved in settings.json");
+
+    _ = new CanvasHarness();
+    var settingsPath = new AppSettings().SettingsPath();
+    string? backup = File.Exists(settingsPath) ? File.ReadAllText(settingsPath) : null;
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        t.GetField("_hostCode", flags)!.SetValue(dm, "secret");
+        Check(CallOn(dm, "StartHosting") is null, "join memory: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+
+        step = "join";
+        t.GetField("_playerName", flags)!.SetValue(pl, "Dee");
+        t.GetField("_joinCode", flags)!.SetValue(pl, "secret");
+        CallOn(pl, "Join", "127.0.0.1", host.Port);
+        Check(WaitFor(() => FieldOf(pl, "_client") is not null), "join memory: the player joins");
+        var saved = AppSettings.Load();
+        Check(saved is { JoinName: "Dee", JoinAddress: "127.0.0.1", JoinCode: "secret" } && saved.JoinPort == host.Port, "join memory: a join that worked is saved");
+
+        step = "prefill";
+        var again = new DungeonMapper.Views.MainWindow();
+        Check((string)FieldOf(again, "_playerName")! == "Dee" && (string)FieldOf(again, "_joinAddress")! == "127.0.0.1"
+            && (string)FieldOf(again, "_joinPort")! == host.Port.ToString() && (string)FieldOf(again, "_joinCode")! == "secret",
+            "join memory: a new start prefills the join window");
+        CallOn(again, "ShowJoinSession", (string?)null);
+        CallOn(again, "CloseModals");
+        again.Close();
+
+        step = "refused";
+        CallOn(pl, "LeavePlayerMode", "test");
+        t.GetField("_joinCode", flags)!.SetValue(pl, "wrong");
+        CallOn(pl, "Join", "127.0.0.1", host.Port);
+        Check(WaitFor(() => !(bool)FieldOf(pl, "_joining")!) && AppSettings.Load().JoinCode == "secret", "join memory: a refused join saves nothing");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"join memory: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+    finally
+    {
+        if (backup is null) File.Delete(settingsPath); else File.WriteAllText(settingsPath, backup);
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

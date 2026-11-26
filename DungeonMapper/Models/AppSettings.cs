@@ -206,6 +206,13 @@ public sealed class AppSettings
     // per machine: a settings import keeps this machine's folder
     [JsonPropertyName("images_folder")] public string ImagesFolder { get; set; } = "";
 
+    // the last session this machine joined, prefilled in the join window.
+    // per machine like the images folder: a settings import keeps these
+    [JsonPropertyName("join_name")] public string JoinName { get; set; } = "";
+    [JsonPropertyName("join_address")] public string JoinAddress { get; set; } = "";
+    [JsonPropertyName("join_port")] public int JoinPort { get; set; } = 0;
+    [JsonPropertyName("join_code")] public string JoinCode { get; set; } = "";
+
     // Tool hotkeys, keyed by ToolMode name, value = Key enum name (e.g. "R").
     // FitHotkey is the one non tool entry (zoom to fit).
     public const string FitHotkey = "Fit";
@@ -368,6 +375,8 @@ public sealed class AppSettings
         foreach (var (k, v) in node.ToList())
         {
             node.Remove(k);
+            // the last joined session (with its code) stays on this machine
+            if (k.StartsWith("join_")) continue;
             outNode[k] = v;
         }
         return outNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -419,10 +428,12 @@ public sealed class AppSettings
     public void CopyAppWideFrom(AppSettings other)
     {
         var folder = ImagesFolder;
+        var (jn, ja, jp, jc) = (JoinName, JoinAddress, JoinPort, JoinCode);
         foreach (var p in DmJson.Default.AppSettings.Properties)
             if (p.Get is not null && p.Set is not null)
                 p.Set(this, p.Get(other));
         ImagesFolder = folder;
+        (JoinName, JoinAddress, JoinPort, JoinCode) = (jn, ja, jp, jc);
         ToolHotkeys = new Dictionary<string, string>(other.ToolHotkeys);
     }
 }
