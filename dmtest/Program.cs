@@ -5567,5 +5567,61 @@ try { Directory.Delete(imgDir, true); } catch { }
         "pawn landing: a single pawn drag keeps walls and stairs");
 }
 
+// --- pawn drag in the select and pawn tools ---
+{
+    foreach (var mode in new[] { ToolMode.Select, ToolMode.Pawn })
+    {
+        var h = new CanvasHarness();
+        h.Doc.AddRoom(0, 0, 5, 5);
+        h.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "p1" });
+        h.Doc.PlacePawn(new Pawn { Cell = new CellKey(3, 3), TemplateId = "p2" });
+        var opened = new List<Pawn>();
+        h.Canvas.PawnConfigRequested += p => opened.Add(p);
+        h.Canvas.Mode = mode;
+        if (mode == ToolMode.Pawn) h.Canvas.ArmedPawn = new PawnTemplate { Id = "p3", Name = "armed" };
+        int commits = h.CommitCount;
+        h.Drag(1, 1, 2, 1);
+        Check(h.Doc.Pawns.TryGetValue(new CellKey(2, 1), out var m) && m.TemplateId == "p1" && !h.Doc.Pawns.ContainsKey(new CellKey(1, 1))
+            && h.Doc.Pawns.Count == 2 && h.CommitCount == commits + 1 && opened.Count == 0,
+            $"pawn drag ({mode}): dragging a pawn moves it in one step, nothing opens or is placed");
+        h.Drag(2, 1, 3, 3);
+        Check(h.Doc.Pawns[new CellKey(3, 3)].TemplateId == "p1" && h.Doc.Pawns[new CellKey(2, 1)].TemplateId == "p2",
+            $"pawn drag ({mode}): landing on another pawn swaps them");
+        h.Click(3, 3);
+        Check(opened.Count == 1 && opened[0].TemplateId == "p1" && h.Doc.Pawns.Count == 2, $"pawn drag ({mode}): a click on a pawn still opens it");
+    }
+
+    // tools left out: a room drag that starts on a pawn draws the room
+    var r = new CanvasHarness();
+    r.Doc.AddRoom(0, 0, 2, 2);
+    r.Doc.PlacePawn(new Pawn { Cell = new CellKey(1, 1), TemplateId = "p1" });
+    r.Canvas.Mode = ToolMode.Room;
+    r.Drag(1, 1, 4, 4);
+    Check(r.Doc.Pawns.ContainsKey(new CellKey(1, 1)) && r.Doc.Cells.Contains(new CellKey(4, 4)), "pawn drag: the room tool still draws from a pawn's cell");
+
+    // joined player: the pawn tool drags a Player pawn (asks the DM), a click opens it
+    var hp = new CanvasHarness();
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "pg", Name = "Hireling", Affiliation = "Player" });
+    hp.Canvas.Library = lib;
+    var rd = new MapDocument();
+    AddRoom(rd, 0, 0, 5, 5);
+    rd.SetRevealed(rd.RevealRoomCells(new CellKey(1, 1)), true);
+    rd.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pg", DmOnly = false };
+    hp.Canvas.RemoteDocument = rd;
+    hp.Canvas.Mode = ToolMode.Pawn;
+    hp.Canvas.ArmedPawn = lib.Find("pg");
+    var moves = new List<(CellKey, CellKey)>(); var places = new List<string>(); var opens = new List<Pawn>();
+    hp.Canvas.PlayerMoveRequested += (f, to) => moves.Add((f, to));
+    hp.Canvas.PlayerPlaceRequested += (id, _) => places.Add(id);
+    hp.Canvas.PawnConfigRequested += p => opens.Add(p);
+    hp.Drag(1, 1, 3, 2);
+    Check(moves.Count == 1 && moves[0] == (new CellKey(1, 1), new CellKey(3, 2)) && places.Count == 0 && opens.Count == 0,
+        "pawn drag (joined): the pawn tool drags a Player pawn to the DM");
+    hp.Click(1, 1);
+    Check(opens.Count == 1 && moves.Count == 1 && places.Count == 0, "pawn drag (joined): a click on a Player pawn still opens it");
+    hp.Canvas.RemoteDocument = null;
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

@@ -8,9 +8,9 @@ using DungeonMapper.Models;
 namespace DungeonMapper.Controls;
 
 // the session view (multiplayer, player side) and the players' pawns (the
-// Player affiliation, see PlayerPawns). the move tool drags them, the pawn
-// tool places the armed one, opens a placed one (status) and deploys
-// formations. nothing changes here: the request goes to the DM, whose app
+// Player affiliation, see PlayerPawns). the move and pawn tools drag them,
+// the pawn tool places the armed one, opens a placed one (status, on a click
+// without a drag) and deploys formations. nothing changes here: the request goes to the DM, whose app
 // checks it, applies it to the real map and sends the map back. every other
 // pawn is the DM's.
 public sealed partial class MapCanvas
@@ -37,7 +37,7 @@ public sealed partial class MapCanvas
     /// the player deployed a formation (template id, cell each); checked, not applied
     public event Action<List<(string id, CellKey cell)>>? PlayerDeployRequested;
 
-    private bool PlayerPawnsActive => _remote is not null && Mode == ToolMode.Move;
+    private bool PlayerPawnsActive => _remote is not null && Mode is ToolMode.Move or ToolMode.Pawn;
     /// the tools a joined player edits with (the measure tool only reads)
     private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
     /// a joined player added or changed a label (shown here, not yet kept)
@@ -50,7 +50,8 @@ public sealed partial class MapCanvas
         {
             if (_remote.Pawns.TryGetValue(cell, out var placed))
             {
-                if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) PawnConfigRequested?.Invoke(placed);
+                // dragged like in the move tool; a click opens it (on release)
+                if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) { _playerFrom = _playerOver = cell; e.Pointer.Capture(this); }
                 else StatusMessage?.Invoke("only the DM changes that pawn");
             }
             else if (ArmedPawn is { } t)
@@ -87,7 +88,11 @@ public sealed partial class MapCanvas
         var to = _playerOver ?? from;
         _playerFrom = _playerOver = null;
         InvalidateVisual();
-        if (to == from) return true;
+        if (to == from)
+        {
+            if (Mode == ToolMode.Pawn && _remote!.Pawns.TryGetValue(from, out var placed)) PawnConfigRequested?.Invoke(placed);
+            return true;
+        }
         if (PlayerPawns.CheckMove(_remote!, Library, from, to) is { } why) StatusMessage?.Invoke(why);
         else PlayerMoveRequested?.Invoke(from, to);
         return true;

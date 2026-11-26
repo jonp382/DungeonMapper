@@ -1688,6 +1688,21 @@ public sealed partial class MapCanvas : Control
         InvalidateVisual();
     }
 
+    /// Starts a per-pawn drag when the press is on a pawn: the pawn follows the
+    /// cursor as a ghost and lands on the release cell (swapping with a pawn
+    /// there). Releasing on the same cell shows the pawn's config instead.
+    /// Used by the move, select and pawn tools.
+    private bool BeginPawnDrag(PointerPressedEventArgs e, CellKey cell)
+    {
+        if (!Document.Pawns.TryGetValue(cell, out var pawn)) return false;
+        _pawnDragging = true;
+        _pawnDragPawn = pawn;
+        _pawnDragStart = cell;
+        _pawnDragEnd = cell;
+        e.Pointer.Capture(this);
+        return true;
+    }
+
     // ---- input ----
     private bool _panning;
     private Point _panStartScreen, _panStartOffset;
@@ -1734,26 +1749,9 @@ public sealed partial class MapCanvas : Control
                     MoveAt(cell);
                     break;
                 }
-                // Select tool: clicking a cell that has a pawn shows its read-only
-                // info (name, affiliation, instances) + Delete + Change Pawn. The
-                // select tool must not modify the pawn, so no editing here.
-                if (Mode == ToolMode.Select && Document.Pawns.TryGetValue(cell, out var selPawn))
-                {
-                    PawnConfigRequested?.Invoke(selPawn);
-                    break;
-                }
-                if (Mode == ToolMode.Move && Document.Pawns.TryGetValue(cell, out var hitPawn))
-                {
-                    // pressing directly on a pawn: per-pawn drag. the pawn follows
-                    // the cursor as a ghost and lands on the release cell. a press
-                    // without drag (release on the same cell) shows its config.
-                    _pawnDragging = true;
-                    _pawnDragPawn = hitPawn;
-                    _pawnDragStart = cell;
-                    _pawnDragEnd = cell;
-                    e.Pointer.Capture(this);
-                    break;
-                }
+                // pressing directly on a pawn: per-pawn drag (select and move
+                // tools). a click without a drag shows the pawn's info.
+                if (BeginPawnDrag(e, cell)) break;
                 _selectDragging = true;
                 _selectStart = cell;
                 _selectEnd = cell;
@@ -1903,11 +1901,9 @@ public sealed partial class MapCanvas : Control
                 break;
 
             case ToolMode.Pawn:
-                if (Document.Pawns.TryGetValue(cell, out var existingPawn))
-                {
-                    PawnConfigRequested?.Invoke(existingPawn);
-                }
-                else if (ArmedPawn is not null)
+                // a placed pawn drags like in the move tool; a click opens it
+                if (BeginPawnDrag(e, cell)) break;
+                if (ArmedPawn is not null)
                 {
                     // place a pawn that hard-references the armed library template.
                     // a hero moves instead: the old copy goes and keeps its status.
