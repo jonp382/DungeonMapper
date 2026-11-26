@@ -85,7 +85,9 @@ Click a formation to open it. Tick or untick members to leave someone out (all, 
 
 Each status ticked on a pawn has a **turns** box: how many turns it has left, or -1 for permanent. Ticking a status fills in its default, set in the **turns** column of the statuses tab in pawn management (-1 unless you change it).
 
-Click **start combat** at the bottom left to start counting turns on the open map. **Pass turn** counts every timed status down by one; one that reaches 0 is removed and "<status> wore off!" floats up over the pawn. Heroes count down wherever they are. **End combat** removes every timed status (permanent ones stay) and hides the counter. Each of these is one undo step. Pass turn can also have a hotkey (unset by default, in the hotkeys menu). In a session, players see the turn number and the "wore off" text, but only the DM runs the turns.
+Click **start combat** at the bottom left to start counting turns on the open map. **Pass turn** counts every timed status down by one; one that reaches 0 is removed and "<status> wore off!" floats up over the pawn. Heroes count down wherever they are. **End combat** removes every timed status (permanent ones stay) and hides the counter. Each of these is one undo step. Pass turn can also have a hotkey (unset by default, in the hotkeys menu).
+
+When you zoom in close, each status on a pawn gets a small circle in its color beside the ring with the turns it has left (99+ past 99). A permanent status shows ∞, or no circle if you turn **timers for permanent statuses** off in settings; **status turn timers** turns them all off. With names on, a pawn's name sits inside its circle, low down, out of the timers' way. In a session, players see the turn number and the "wore off" text, but only the DM runs the turns.
 
 ## Objects
 

@@ -6248,5 +6248,44 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- status turn timers ---
+{
+    Check(MapCanvas.TimerText(4, true) == "4" && MapCanvas.TimerText(150, true) == "99+" && MapCanvas.TimerText(-1, true) == "∞" && MapCanvas.TimerText(-1, false) is null,
+        "timers: turns, 99+, infinity for permanent, or nothing when that is off");
+    Check(MapCanvas.ArcMiddle(0, 1) == -45 && MapCanvas.ArcMiddle(0, 2) == -90 && MapCanvas.ArcMiddle(1, 2) == 90 && MapCanvas.ArcMiddle(0, 4) == -45,
+        "timers: one at the top right, two top and bottom, four at the corners");
+
+    var h = new CanvasHarness();
+    var pre = CampaignPresets.Default();
+    pre.PawnStatuses.Add(new PawnStatus("hasted", 40, 220, 60, 3));
+    h.Canvas.Presets = pre;
+    h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "a", Name = "A" });
+    h.Doc.AddRoom(0, 0, 4, 4);
+    h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "a", Statuses = new() { new PawnStatusEntry { Name = "hasted", Turns = 3 } } };
+    Check(!h.Canvas.TimersShown, "timers: hidden at the normal zoom");
+    h.Canvas.ViewScale = 160;
+    Check(h.Canvas.TimersShown, "timers: shown zoomed in near max");
+    // where the timer sits on screen: a cell's center is (world + 1) * scale from the startup offset
+    Point Center(int cx, int cy) => new((cx + 0.5 + 1) * 160, (cy + 0.5 + 1) * 160);
+    var at = MapCanvas.TimerCenter(Center(1, 1), 160 * 0.42, 160 * 0.12, 0, 1);
+    // probe just inside the circle's edge, clear of the number
+    var probe = new Point(at.X - 160 * 0.12 * 0.7, at.Y);
+    var px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(px.g > 180 && px.r < 100, "timers: a circle in the status's color beside the pawn");
+    h.Canvas.Settings.ShowStatusTimers = false;
+    px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(!(px.g > 180 && px.r < 100), "timers: the setting turns them off");
+    h.Canvas.Settings.ShowStatusTimers = true;
+    h.Doc.Pawns[new CellKey(1, 1)].Statuses[0].Turns = -1;
+    h.Canvas.Settings.ShowPermanentTimers = false;
+    px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(!(px.g > 180 && px.r < 100), "timers: a permanent status has no circle when that setting is off");
+    h.Canvas.Settings.ShowPermanentTimers = true;
+    px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(px.g > 180 && px.r < 100, "timers: and an infinity circle when it is on");
+    var saved = AppSettings.ParseImport("{\"kind\":\"settings\",\"show_status_timers\":false,\"show_permanent_timers\":false}");
+    Check(saved is { ShowStatusTimers: false, ShowPermanentTimers: false } && new AppSettings() is { ShowStatusTimers: true, ShowPermanentTimers: true }, "timers: both settings are saved, on by default");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

@@ -309,6 +309,22 @@
                                             <Button x:Name="ResetPawnStatusGap" Grid.Column="2" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="status turn timers" />
+                                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                                           Text="a circle beside each status on a pawn with the turns it has left. shows when zoomed in close." />
+                                            </StackPanel>
+                                            <CheckBox x:Name="SetShowStatusTimers" Grid.Column="1" Classes="toggle" Content="show" Margin="0,0,10,0" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="timers for permanent statuses" />
+                                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                                           Text="show an infinity sign in the circle, or no circle at all." />
+                                            </StackPanel>
+                                            <CheckBox x:Name="SetShowPermanentTimers" Grid.Column="1" Classes="toggle" Content="show ∞" Margin="0,0,10,0" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <TextBlock Classes="body" Text="stairs" />
                                             <ContentControl x:Name="SetStairColor" Grid.Column="1" />
                                             <Button x:Name="ResetStairColor" Grid.Column="2" Classes="btn quiet" Content="reset" />

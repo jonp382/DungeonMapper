@@ -186,6 +186,10 @@ public sealed class AppSettings
     // when there are too many statuses for it to fit
     [JsonPropertyName("pawn_status_gap")] public int PawnStatusGap { get; set; } = 8;
     public const int MaxPawnStatusGap = 30;
+    // status turn timers: a circle with the turns left beside each status on
+    // a pawn (zoomed in near max only). permanent ones show ∞ or nothing
+    [JsonPropertyName("show_status_timers")] public bool ShowStatusTimers { get; set; } = true;
+    [JsonPropertyName("show_permanent_timers")] public bool ShowPermanentTimers { get; set; } = true;
     public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999, MaxFloorGridOpacity = 100;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.

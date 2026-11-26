@@ -522,6 +522,12 @@ public sealed partial class MapCanvas : Control
 
     private Point _offset = new(-1, -1); // world coord at screen origin
     private double _scale = 40;          // pixels per cell
+    /// the zoom, in pixels per cell (kept within the zoom limits)
+    public double ViewScale
+    {
+        get => _scale;
+        set { _scale = Math.Clamp(value, MinScale, MaxScale); InvalidateVisual(); ViewChanged?.Invoke(); }
+    }
 
     private const double MinScale = 2, MaxScale = 200;
 
@@ -1124,7 +1130,9 @@ public sealed partial class MapCanvas : Control
         if (_pawnDragging && _pawnDragPawn is not null && _pawnDragEnd != _pawnDragStart)
             DrawPawnGlyph(ctx, _pawnDragEnd, _pawnDragPawn.TemplateId, _pawnDragPawn.Statuses, 0.45);
 
-        // names on map: a dark pill under each pawn. skipped when zoomed far
+        DrawStatusTimers(ctx, topLeft, bottomRight);
+
+        // names on map: a dark pill in each pawn, low down. skipped when zoomed far
         // out, where the text would only be noise.
         if (Settings.ShowPawnNames && _scale >= 14)
         {
@@ -1500,14 +1508,16 @@ public sealed partial class MapCanvas : Control
     private static readonly IBrush NamePillText = new SolidColorBrush(Color.FromRgb(240, 240, 245));
 
     // the pawn name centered under its cell, clipped to about three cells wide
+    // inside the pawn circle, low down: the status timers sit around the
+    // ring, so the name keeps out of their way (user)
     private void DrawNamePill(DrawingContext ctx, CellKey c, string name, double fs)
     {
         var ft = new FormattedText(name, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
             new Typeface("Inter"), fs, NamePillText)
-        { MaxTextWidth = Math.Max(_scale * 3, 60), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
-        var p0 = WorldToScreen(c.X, c.Y);
+        { MaxTextWidth = Math.Max(_scale * 0.9, 44), MaxLineCount = 1, Trimming = TextTrimming.CharacterEllipsis };
+        var center = WorldToScreen(c.X + 0.5, c.Y + 0.5);
         double w = ft.Width + 8, h = ft.Height + 2;
-        double x = p0.X + _scale / 2 - w / 2, y = p0.Y + _scale * 0.9;
+        double x = center.X - w / 2, y = center.Y + _scale * 0.26 - h / 2;
         ctx.DrawRectangle(NamePillBg, null, new Rect(x, y, w, h), 3, 3);
         ctx.DrawText(ft, new Point(x + 4, y + 1));
     }
@@ -1524,6 +1534,12 @@ public sealed partial class MapCanvas : Control
     /// top, clockwise, with gapDeg between them (shrunk to at most half a
     /// slice). one status is the whole circle. two are turned a quarter so
     /// they sit top and bottom with the gaps at the sides (user)
+    private static double ArcStart(int n) => n == 2 ? -180 : -90;
+
+    /// the angle (degrees, 0 = right, clockwise) at the middle of arc i of n:
+    /// where that status's turn timer sits. one status: the top right
+    public static double ArcMiddle(int i, int n) => n <= 1 ? -45 : ArcStart(n) + (i + 0.5) * 360.0 / n;
+
     public static List<(Geometry geo, PawnStatus st)> StatusArcs(Point center, double r, IReadOnlyList<PawnStatus> statuses, double gapDeg)
     {
         var res = new List<(Geometry, PawnStatus)>();
@@ -1531,7 +1547,7 @@ public sealed partial class MapCanvas : Control
         if (n == 0) return res;
         if (n == 1) { res.Add((new EllipseGeometry(new Rect(center.X - r, center.Y - r, r * 2, r * 2)), statuses[0])); return res; }
         double slice = 360.0 / n, gap = Math.Min(Math.Max(0, gapDeg), slice * 0.5);
-        double start = n == 2 ? -180 : -90;
+        double start = ArcStart(n);
         Point At(double deg) => new(center.X + r * Math.Cos(deg * Math.PI / 180), center.Y + r * Math.Sin(deg * Math.PI / 180));
         for (int i = 0; i < n; i++)
         {

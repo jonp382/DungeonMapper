@@ -143,6 +143,20 @@ public partial class MainWindow
             SettingChanged();
             RefreshSettings();
         };
+        SetShowStatusTimers.IsCheckedChanged += (_, _) =>
+        {
+            if (_settingsLoading) return;
+            _settings.ShowStatusTimers = SetShowStatusTimers.IsChecked == true;
+            SettingChanged();
+            RefreshSettings();
+        };
+        SetShowPermanentTimers.IsCheckedChanged += (_, _) =>
+        {
+            if (_settingsLoading) return;
+            _settings.ShowPermanentTimers = SetShowPermanentTimers.IsChecked == true;
+            SettingChanged();
+            RefreshSettings();
+        };
 
         SettingsClose.Click += (_, _) => CloseSettings();
         SettingsResetAll.Click += (_, _) => ConfirmFlyout(SettingsResetAll,
@@ -205,6 +219,8 @@ public partial class MainWindow
             c.Host.Content = b;
         }
         SetShowMinor.IsChecked = _settings.ShowMinorGrid;
+        SetShowStatusTimers.IsChecked = _settings.ShowStatusTimers;
+        SetShowPermanentTimers.IsChecked = _settings.ShowPermanentTimers;
         foreach (var (slider, number) in SliderSettings()) slider.Value = number.Get(_settings);
         SetLabelText.Text = _settings.DefaultLabelText;
         SetLabelText.Classes.Remove("invalid");
