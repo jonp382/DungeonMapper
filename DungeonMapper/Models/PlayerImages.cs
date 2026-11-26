@@ -80,7 +80,6 @@ public static class PlayerTemplates
         }
         var name = (sent.Name ?? "").Trim();
         if (name.Length > MaxName) name = name[..MaxName];
-        string status = presets.PawnStatuses.Any(s => s.Name == sent.Status) ? sent.Status : t?.Status ?? "none";
         int C(int v) => Math.Clamp(v, 0, 255);
         if (t is null)
         {
@@ -89,7 +88,6 @@ public static class PlayerTemplates
         }
         if (t.ImageB64 != image) { t.ImageB64 = image; t.ImageExt = image.Length > 0 ? ".png" : ""; }
         t.Name = name;
-        t.Status = status;
         t.ColorOverride = sent.ColorOverride;
         t.OuterR = C(sent.OuterR); t.OuterG = C(sent.OuterG); t.OuterB = C(sent.OuterB);
         t.InnerR = C(sent.InnerR); t.InnerG = C(sent.InnerG); t.InnerB = C(sent.InnerB);

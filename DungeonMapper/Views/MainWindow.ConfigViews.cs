@@ -441,26 +441,12 @@ public partial class MainWindow
             head.Children.Add(star);
             ToolPanel.AddButtonRaw(head);
 
-            // the placed pawn's own status overrides its template's. inherit clears it.
-            // a hero has no inherit: its one status lives on its template (a
-            // library edit, like pawn management, so not an undo step)
-            var statuses = new List<string>();
-            if (!t.Hero) statuses.Add("inherit");
-            statuses.AddRange(ActivePresets.PawnStatuses.Select(s => s.Name));
+            // the placed pawn's own status (pawn types have none); "none" clears it
+            var statuses = ActivePresets.PawnStatuses.Select(s => s.Name).ToList();
             var dots = ActivePresets.PawnStatuses.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First());
-            ToolPanel.AddChips(statuses.ToArray(), t.Hero ? HeroStatus(t) : pawn.Status ?? "inherit", s =>
+            ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? CampaignPresets.NoStatus, s =>
                 {
-                    if (t.Hero)
-                    {
-                        if (s == HeroStatus(t) && pawn.Status is null) return;
-                        var change = SetHeroStatus(t, s);
-                        pawn.Status = null;
-                        ActiveHistory.Commit(_doc, change);
-                        PawnsChanged();
-                        FocusCanvas();
-                        return;
-                    }
-                    var v = s == "inherit" ? null : s;
+                    var v = s == CampaignPresets.NoStatus ? null : s;
                     if (v == pawn.Status) return;
                     pawn.Status = v;
                     ActiveHistory.Commit(_doc);
@@ -499,28 +485,6 @@ public partial class MainWindow
 
     // swaps the template a placed pawn points at. it keeps its cell and status.
     // rows are grouped like the pawn tool panel, the current pawn is highlighted
-    /// a hero's one status (its template's), "none" when it has none
-    private static string HeroStatus(PawnTemplate t) => string.IsNullOrEmpty(t.Status) ? CampaignPresets.NoStatus : t.Status;
-
-    /// sets a hero's status and returns the change for the undo step (empty
-    /// when nothing changed). commit it on a map's history to make it undoable
-    private static List<HeroStatusChange> SetHeroStatus(PawnTemplate t, string status)
-    {
-        var before = HeroStatus(t);
-        t.Status = status;
-        return before == status ? new() : new() { new HeroStatusChange(t.Id, before, status) };
-    }
-
-    /// after an undo or redo: puts back the hero statuses that step changed,
-    /// by id wherever the hero is now. a deleted pawn type is skipped
-    private void ApplyHeroRestore(History h)
-    {
-        bool any = false;
-        foreach (var (id, status) in h.HeroRestore)
-            if (ActiveLibrary.Find(id) is { Hero: true } t) { t.Status = status; any = true; }
-        if (any) PawnsChanged();
-    }
-
     private void ShowChangePawn(Pawn pawn)
     {
         var cell = pawn.Cell;
@@ -535,8 +499,6 @@ public partial class MainWindow
             ToolPanel.ButtonHook?.Invoke();
             if (t.Id == pawn.TemplateId) { ShowPawnInfo(pawn); return; }
             pawn.TemplateId = t.Id;
-            // a hero keeps its own status, not the old pawn's
-            if (t.Hero) pawn.Status = null;
             // a hero stays one of a kind, the copies elsewhere go
             bool moved = t.Hero && Canvas.TakeHeroCopies(cell, t.Id) is not null;
             ActiveHistory.Commit(_doc);

@@ -49,7 +49,11 @@ public sealed class PawnTemplate
     [JsonPropertyName("outer_r")] public int OuterR { get; set; }
     [JsonPropertyName("outer_g")] public int OuterG { get; set; }
     [JsonPropertyName("outer_b")] public int OuterB { get; set; }
-    [JsonPropertyName("status")] public string Status { get; set; } = "none";
+    // pawn types have no status (Nov 26): each placed pawn has its own. older
+    // files carried a default status here that placed pawns inherited; it is
+    // read only to hand it to those pawns (PawnLibrary.AdoptLegacyStatuses),
+    // never written
+    [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? LegacyStatus { get; set; }
     // optional image for unique pawns: base64 bytes carried on the template, so
     // the image travels inside the project file and import/export files. When
     // set, the image replaces the two-tone circles entirely, drawn square
@@ -451,21 +455,21 @@ public sealed class PawnLibrary
 
     public PawnTemplate? Find(string id) => Pawns.Find(p => p.Id == id);
 
-    /// A hero is one of a kind, so its status lives on its template only (no
-    /// "inherit"): a placed hero carrying its own status (older files, a pawn
-    /// just made a hero) hands it to the template and goes back to none.
-    /// Returns how many placed heroes changed.
-    public int FoldHeroStatuses(IEnumerable<MapDocument> maps)
+    /// Older files gave pawn types a default status that placed pawns without
+    /// their own inherited. Each such pawn takes it as its own (the map looks
+    /// the same), then every type's old status is dropped. Returns how many
+    /// pawns took one.
+    public int AdoptLegacyStatuses(IEnumerable<MapDocument> maps)
     {
         int n = 0;
         foreach (var doc in maps)
             foreach (var p in doc.Pawns.Values)
-                if (p.Status is { } own && Find(p.TemplateId) is { Hero: true } t)
+                if (p.Status is null && Find(p.TemplateId)?.LegacyStatus is { Length: > 0 } st && st != CampaignPresets.NoStatus)
                 {
-                    t.Status = own;
-                    p.Status = null;
+                    p.Status = st;
                     n++;
                 }
+        foreach (var t in Pawns) t.LegacyStatus = null;
         return n;
     }
 
@@ -554,7 +558,7 @@ public sealed class PawnLibrary
         a.Name == b.Name && a.Affiliation == b.Affiliation && a.ColorOverride == b.ColorOverride
         && a.InnerR == b.InnerR && a.InnerG == b.InnerG && a.InnerB == b.InnerB
         && a.OuterR == b.OuterR && a.OuterG == b.OuterG && a.OuterB == b.OuterB
-        && a.Status == b.Status && a.ImageB64 == b.ImageB64 && a.ImageExt == b.ImageExt;
+        && a.ImageB64 == b.ImageB64 && a.ImageExt == b.ImageExt;
 
     /// Overwrites: deletes every current template, then appends the imported
     /// ones (fresh ids for collisions, same rule as append). Pawns pointing at

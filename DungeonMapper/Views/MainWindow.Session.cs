@@ -243,7 +243,6 @@ public partial class MainWindow
             _ => PlayerPawns.CheckDeploy(doc, lib, r.Placements, OnOtherMap),
         };
         if (why is not null) { host.Notice(r, why); return; }
-        List<HeroStatusChange>? heroChange = null;
         switch (r.Action)
         {
             case PawnAction.Move:
@@ -257,15 +256,8 @@ public partial class MainWindow
                 break;
             case PawnAction.Status:
                 var pawn = doc.Pawns[r.To];
-                if (lib.Find(pawn.TemplateId) is { Hero: true } hero)
-                {
-                    // a hero's one status is its template's (sent back in the package)
-                    heroChange = SetHeroStatus(hero, r.Status ?? CampaignPresets.NoStatus);
-                    pawn.Status = null;
-                    PawnsChanged();
-                }
-                else pawn.Status = r.Status;
-                SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}", StatusKind.Player);
+                pawn.Status = r.Status;
+                SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? CampaignPresets.NoStatus}", StatusKind.Player);
                 break;
             case PawnAction.MoveMany:
                 PlayerPawns.ApplyMoveMany(doc, r.Moves);
@@ -277,7 +269,7 @@ public partial class MainWindow
                 SetStatus($"{r.Name} deployed {Plural(r.Placements.Count, "pawn")}", StatusKind.Player);
                 break;
         }
-        HistoryFor(shown).Commit(doc, heroChange);
+        HistoryFor(shown).Commit(doc);
         if (doc == _doc)
         {
             Canvas.Refresh();
@@ -734,26 +726,13 @@ public partial class MainWindow
         head.Children.Add(titles);
         ToolPanel.AddButtonRaw(head);
 
-        // a hero has no inherit: its one status is its template's
-        var statuses = new List<string>();
-        if (!t.Hero) statuses.Add("inherit");
-        statuses.AddRange(PanelPresets.PawnStatuses.Select(x => x.Name));
+        var statuses = PanelPresets.PawnStatuses.Select(x => x.Name).ToList();
         var dots = PanelPresets.PawnStatuses.GroupBy(x => x.Name).ToDictionary(g => g.Key, g => g.First());
-        ToolPanel.AddChips(statuses.ToArray(), t.Hero ? HeroStatus(t) : pawn.Status ?? "inherit", v =>
+        ToolPanel.AddChips(statuses.ToArray(), pawn.Status ?? CampaignPresets.NoStatus, v =>
             {
-                var status = v == "inherit" ? null : v;
-                if (_client is not { } cl) return;
-                if (t.Hero)
-                {
-                    if (status == HeroStatus(t) && pawn.Status is null) return;
-                    t.Status = status!; // shown at once, the DM's app confirms it
-                    pawn.Status = null;
-                }
-                else
-                {
-                    if (status == pawn.Status) return;
-                    pawn.Status = status; // shown at once, the DM's map confirms it
-                }
+                var status = v == CampaignPresets.NoStatus ? null : v;
+                if (status == pawn.Status || _client is not { } cl) return;
+                pawn.Status = status; // shown at once, the DM's map confirms it
                 Canvas.Refresh();
                 _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, status));
                 SetStatus($"{PawnName(t)}: {v}");

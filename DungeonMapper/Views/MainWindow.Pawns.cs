@@ -38,7 +38,7 @@ public partial class MainWindow
     private Control PawnIcon(PawnTemplate t, double size, bool ownColors = false)
     {
         var (eo, ei) = ownColors && t.ColorOverride ? ((t.OuterR, t.OuterG, t.OuterB), (t.InnerR, t.InnerG, t.InnerB)) : t.Effective(PanelPresets);
-        var st = PanelPresets.FindPawnStatus(t.Status);
+        var st = PanelPresets.FindPawnStatus(CampaignPresets.NoStatus); // types have no status
         var bmp = ownColors || string.IsNullOrEmpty(t.ImageB64) ? null : Canvas.LoadPawnImage(t.Id);
         IBrush outerFill = Rgb(eo);
         if (bmp is not null)
@@ -343,8 +343,6 @@ public partial class MainWindow
     {
         _modalKind = "manage";
         if (Joined) _manageTab = "pawns";
-        _statusCombo = null;
-        _statusComboTemplate = null;
 
         Control body = _manageTab switch
         {
@@ -403,8 +401,6 @@ public partial class MainWindow
         FlushTemplates();
         ModalOverlay.IsVisible = false;
         _modalKind = null;
-        _statusCombo = null;
-        _statusComboTemplate = null;
         FocusCanvas();
     }
 
@@ -456,8 +452,8 @@ public partial class MainWindow
             // a player's new pawn is a Player pawn with an id that never
             // clashes with the DM's
             var t = Joined
-                ? new PawnTemplate { Id = PlayerTemplates.NewId(), Name = "new pawn", Affiliation = "Player", Status = "none" }
-                : new PawnTemplate { Name = "new pawn", Affiliation = "Neutral", Status = "none" };
+                ? new PawnTemplate { Id = PlayerTemplates.NewId(), Name = "new pawn", Affiliation = "Player" }
+                : new PawnTemplate { Name = "new pawn", Affiliation = "Neutral" };
             t.ApplyAffiliationDefaults();
             PanelLibrary.Add(t);
             TemplateEdited(t, now: true);
@@ -719,8 +715,6 @@ public partial class MainWindow
         if (_manageEditorHost is null) return;
         var t = _manageEditId is null ? null : PanelLibrary.Find(_manageEditId);
         if (t is not null && Joined && !PlayerPawns.Controlled(t)) t = null;
-        _statusCombo = null;
-        _statusComboTemplate = null;
         if (t is null)
         {
             _manageEditId = null;
@@ -781,23 +775,7 @@ public partial class MainWindow
         };
         affCol.Children.Add(aff);
         pair.Children.Add(affCol);
-        var stCol = new StackPanel();
-        stCol.Children.Add(FieldLabel("status"));
-        var stNames = PanelPresets.PawnStatuses.Select(s => s.Name).ToArray();
-        var status = new ComboBox { ItemsSource = stNames, SelectedItem = Array.IndexOf(stNames, t.Status) >= 0 ? t.Status : null, FontSize = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
-        status.SelectionChanged += (_, _) =>
-        {
-            if (status.SelectedItem is not string s || s == t.Status) return;
-            // a hero's status change is an undo step on the open map (a
-            // joined player's goes to the DM, whose app records it)
-            var change = SetHeroStatus(t, s);
-            if (t.Hero && !Joined && change.Count > 0) ActiveHistory.Commit(_doc, change);
-            Redraw();
-        };
-        _statusCombo = status;
-        _statusComboTemplate = t;
-        stCol.Children.Add(status);
-        AddCell(pair, stCol, 1);
+        // no status here: statuses belong to each placed pawn
         sp.Children.Add(pair);
 
         // hero: one copy across the whole campaign. refused while more than one
@@ -822,8 +800,6 @@ public partial class MainWindow
             }
             heroMsg.IsVisible = false;
             t.Hero = on;
-            // its placed copy's own status becomes the hero's status
-            if (on) PanelLibrary.FoldHeroStatuses(_project.Maps.Select(m => m.Doc));
             PawnsChanged();
         };
         sp.Children.Add(hero);
@@ -934,7 +910,6 @@ public partial class MainWindow
                 ColorOverride = t.ColorOverride,
                 InnerR = t.InnerR, InnerG = t.InnerG, InnerB = t.InnerB,
                 OuterR = t.OuterR, OuterG = t.OuterG, OuterB = t.OuterB,
-                Status = t.Status,
                 ImageB64 = t.ImageB64,
                 ImageExt = t.ImageExt,
                 Favorite = t.Favorite && !Joined,
@@ -1109,8 +1084,9 @@ public partial class MainWindow
                 var old = st.Name;
                 var nn = name.Text ?? "";
                 if (nn == old) return;
-                // templates reference statuses by name, so they follow the rename
-                foreach (var t in ActiveLibrary.Pawns) if (t.Status == old) t.Status = nn;
+                // placed pawns reference statuses by name, so they follow the rename
+                foreach (var m in _project.Maps)
+                    foreach (var p in m.Doc.Pawns.Values) if (p.Status == old) p.Status = nn;
                 st.Name = nn;
                 PawnsChanged();
                 UpdateDuplicates();

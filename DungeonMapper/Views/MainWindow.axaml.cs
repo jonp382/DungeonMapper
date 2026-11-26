@@ -115,9 +115,6 @@ public partial class MainWindow : Window
     private string? _currentMapPath;
     private Avalonia.Threading.DispatcherTimer? _autosaveTimer;
     private DateTime _lastAutosave = DateTime.MinValue;
-    // the side panel's Status dropdown, so it can be refreshed when statuses change
-    private ComboBox? _statusCombo;
-    private PawnTemplate? _statusComboTemplate;
 
     public MainWindow()
     {
@@ -627,7 +624,6 @@ public partial class MainWindow : Window
         var snap = ActiveHistory.Undo();
         if (snap is null) { SetStatus("nothing to undo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
-        ApplyHeroRestore(ActiveHistory);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
@@ -643,7 +639,6 @@ public partial class MainWindow : Window
         var snap = ActiveHistory.Redo();
         if (snap is null) { SetStatus("nothing to redo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
-        ApplyHeroRestore(ActiveHistory);
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
@@ -746,7 +741,7 @@ public partial class MainWindow : Window
                 ActiveLibrary.Formations.Add(f);
             }
             MergeObjects(imported, _project.Maps);
-            ActiveLibrary.FoldHeroStatuses(_project.Maps.Select(m => m.Doc));
+            ActiveLibrary.AdoptLegacyStatuses(_project.Maps.Select(m => m.Doc));
             SyncCampaign();
             Canvas.InvalidateImageCache();
             // Ctrl+S saves over the opened campaign. a map file is not a
@@ -996,26 +991,23 @@ public partial class MainWindow : Window
         flyout.ShowAt(anchor);
     }
 
-    // Delete a status style. Templates reference statuses by name (t.Status).
-    // Deleting a style resets every template that uses it to "none". "none" itself
-    // is the hard default and un-deletable. Confirmation flyout counts affected
-    // templates.
+    // Delete a status style. Placed pawns reference statuses by name. Deleting
+    // a style takes it off every placed pawn on every map. "none" itself is the
+    // hard default and un-deletable. Confirmation flyout counts affected pawns.
     private void DeleteStatusWithWarning(PawnStatus st, Control anchor)
     {
         if (st.Name == "none") return; // hard default, un-deletable
 
-        int affected = 0;
-        foreach (var t in ActiveLibrary.Pawns)
-            if (t.Status == st.Name) affected++;
+        int affected = _project.Maps.Sum(m => m.Doc.Pawns.Values.Count(p => p.Status == st.Name));
 
         void doDelete()
         {
-            foreach (var t in ActiveLibrary.Pawns)
-                if (t.Status == st.Name) t.Status = "none";
+            foreach (var m in _project.Maps)
+                foreach (var p in m.Doc.Pawns.Values)
+                    if (p.Status == st.Name) p.Status = null;
             ActivePresets.PawnStatuses.Remove(st);
             PawnsChanged();
             ShowPawnManagement();
-            RefreshStatusCombo();
         }
 
         if (affected == 0)
@@ -1027,7 +1019,7 @@ public partial class MainWindow : Window
         var popup = new StackPanel { Spacing = 6 };
         popup.Children.Add(new TextBlock
         {
-            Text = $"deleting resets {affected} pawn template(s) that use this style to \"none\". delete?",
+            Text = $"deleting takes this status off {affected} placed pawn(s) on your maps. delete?",
             Foreground = Brushes.White,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 240,
@@ -1071,22 +1063,6 @@ public partial class MainWindow : Window
         foreach (var m in project.Maps)
             foreach (var p in m.Doc.Pawns.Values)
                 if (map.TryGetValue(p.TemplateId, out var nid)) p.TemplateId = nid;
-    }
-
-
-    // Rebuild the side panel's Status dropdown options from the current status list
-    // and re-select the template's current status. Called whenever statuses change
-    // (add, delete, rename) so the editor shows the live list, not a stale snapshot.
-    private void RefreshStatusCombo()
-    {
-        if (_statusCombo is null || _statusComboTemplate is null) return;
-        var names = new List<string>();
-        foreach (var st in ActivePresets.PawnStatuses) names.Add(st.Name);
-        var opts = names.ToArray();
-        _statusCombo.ItemsSource = opts;
-        _statusCombo.SelectedItem = Array.IndexOf(opts, _statusComboTemplate.Status) >= 0
-            ? _statusComboTemplate.Status
-            : (opts.Length > 0 ? opts[0] : null);
     }
 
 

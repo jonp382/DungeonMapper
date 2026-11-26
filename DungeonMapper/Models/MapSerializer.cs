@@ -203,7 +203,8 @@ public sealed class PawnTemplateDto
     [JsonPropertyName("outer_r")] public int OuterR { get; set; }
     [JsonPropertyName("outer_g")] public int OuterG { get; set; }
     [JsonPropertyName("outer_b")] public int OuterB { get; set; }
-    [JsonPropertyName("status")] public string Status { get; set; } = "none";
+    // read from older files only (PawnTemplate.LegacyStatus), never written
+    [JsonPropertyName("status")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? Status { get; set; }
     [JsonPropertyName("image_b64")] public string ImageB64 { get; set; } = "";
     [JsonPropertyName("image_ext")] public string ImageExt { get; set; } = "";
     [JsonPropertyName("favorite")] public bool Favorite { get; set; }
@@ -666,7 +667,6 @@ public static class MapSerializer
                 ColorOverride = t.ColorOverride,
                 InnerR = t.InnerR, InnerG = t.InnerG, InnerB = t.InnerB,
                 OuterR = t.OuterR, OuterG = t.OuterG, OuterB = t.OuterB,
-                Status = t.Status,
                 ImageB64 = t.ImageB64, ImageExt = t.ImageExt,
                 Favorite = t.Favorite,
                 Hero = t.Hero,
@@ -686,7 +686,7 @@ public static class MapSerializer
                 ColorOverride = d.ColorOverride,
                 InnerR = d.InnerR, InnerG = d.InnerG, InnerB = d.InnerB,
                 OuterR = d.OuterR, OuterG = d.OuterG, OuterB = d.OuterB,
-                Status = string.IsNullOrEmpty(d.Status) ? "none" : d.Status,
+                LegacyStatus = string.IsNullOrEmpty(d.Status) || d.Status == CampaignPresets.NoStatus ? null : d.Status,
                 ImageB64 = d.ImageB64, ImageExt = d.ImageExt,
                 Favorite = d.Favorite,
                 Hero = d.Hero,

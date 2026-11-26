@@ -1553,9 +1553,9 @@ public sealed partial class MapCanvas : Control
                 ctx.DrawEllipse(outerBrush, null, center, outerR, outerR);
                 ctx.DrawEllipse(innerBrush, null, center, innerR, innerR);
             }
-            // status border ring on the outer edge. per-instance override wins,
-            // null inherits the template's status.
-            var st = Presets.FindPawnStatus(instanceStatus ?? t.Status);
+            // status border ring on the outer edge: the placed pawn's own status
+            // (pawn types have none), null = none
+            var st = Presets.FindPawnStatus(instanceStatus ?? CampaignPresets.NoStatus);
             if (st.Thickness > 0)
             {
                 var ringPen = new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness);

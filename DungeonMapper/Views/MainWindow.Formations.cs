@@ -258,16 +258,16 @@ public partial class MainWindow
         }
     }
 
-    // what a member shows now: a placed hero's own status, else its template's
+    // what a member shows now: a placed hero's own status (it moves with the
+    // hero); other members deploy as new pawns with none
     private string MemberStatus(string templateId)
     {
         var t = PanelLibrary.Find(templateId);
-        if (t is null) return CampaignPresets.NoStatus;
-        if (t.Hero)
-            foreach (var d in Joined ? new[] { PanelDoc } : _project.Maps.Select(m => m.Doc))
-                foreach (var p in d.Pawns.Values)
-                    if (p.TemplateId == templateId && p.Status is { } own) return own;
-        return string.IsNullOrEmpty(t.Status) ? CampaignPresets.NoStatus : t.Status;
+        if (t is null || !t.Hero) return CampaignPresets.NoStatus;
+        foreach (var d in Joined ? new[] { PanelDoc } : _project.Maps.Select(m => m.Doc))
+            foreach (var p in d.Pawns.Values)
+                if (p.TemplateId == templateId && p.Status is { } own) return own;
+        return CampaignPresets.NoStatus;
     }
 
     // new (target null) or update: the next drag on the map picks the pawns

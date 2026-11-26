@@ -185,7 +185,6 @@ public sealed class CampaignPresets
                 if (!string.IsNullOrEmpty(p.Status)) statuses.Add(p.Status);
                 if (library?.Find(p.TemplateId) is { } t)
                 {
-                    statuses.Add(t.Status);
                     affs.Add(PawnTemplate.NormalizeAffiliation(t.Affiliation));
                 }
             }
