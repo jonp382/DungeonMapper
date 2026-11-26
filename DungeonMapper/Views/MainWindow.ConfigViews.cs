@@ -91,7 +91,7 @@ public partial class MainWindow
         RefreshDoorPresets();
         RefreshMaps();
         BackToToolView();
-        StatusText.Text = $"{what} deleted";
+        SetStatus($"{what} deleted");
         FocusCanvas();
     }
 
@@ -384,7 +384,7 @@ public partial class MainWindow
                     _ = System.Threading.Tasks.Task.Run(() => cl.SendLabelDelete(id));
                     Canvas.Refresh();
                     BackToToolView();
-                    StatusText.Text = "label deleted";
+                    SetStatus("label deleted");
                     FocusCanvas();
                 }
                 else if (LabelDoc.Labels.Remove(label)) AfterDelete("label");
@@ -506,7 +506,7 @@ public partial class MainWindow
             Canvas.Refresh();
             PawnViewsChanged();
             RefreshMaps();
-            StatusText.Text = moved ? $"pawn changed to hero {PawnName(t)}, its other copy was removed" : $"pawn changed to {PawnName(t)}";
+            SetStatus(moved ? $"pawn changed to hero {PawnName(t)}, its other copy was removed" : $"pawn changed to {PawnName(t)}");
             ShowPawnInfo(pawn);
             FocusCanvas();
         }

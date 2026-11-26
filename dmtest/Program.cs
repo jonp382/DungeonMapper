@@ -5927,5 +5927,45 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- status bar colors ---
+{
+    var h = new CanvasHarness();
+    h.Canvas.CopySelection();
+    Check(h.Canvas.LastStatusKind == StatusKind.Warning, "status colors: nothing to copy is a warning");
+    h.Canvas.Mode = ToolMode.Floor; h.Canvas.FloorFloodFill = true;
+    h.Click(3, 3);
+    Check(h.LastStatus.StartsWith("floor fill: region not enclosed") && h.Canvas.LastStatusKind == StatusKind.Error, "status colors: a flood fill that is not enclosed is an error");
+    h.Doc.AddRoom(0, 0, 4, 4);
+    h.Click(2, 2);
+    Check(h.Canvas.LastStatusKind == StatusKind.Info, "status colors: a fill that worked is plain");
+
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    var text = (Avalonia.Controls.TextBlock)FieldOf(w, "StatusText")!;
+    var flash = (Avalonia.Controls.Border)FieldOf(w, "StatusFlash")!;
+    Avalonia.Media.Color Fg() => ((Avalonia.Media.ISolidColorBrush)text.Foreground!).Color;
+    foreach (var k in new[] { StatusKind.Error, StatusKind.Warning, StatusKind.Success, StatusKind.Player })
+    {
+        CallOn(w, "SetStatus", "x", k);
+        Check(Fg() == DungeonMapper.Views.MainWindow.StatusColor(k) && flash.Opacity >= 0.4
+            && ((Avalonia.Media.ISolidColorBrush)flash.Background!).Color == DungeonMapper.Views.MainWindow.StatusColor(k),
+            $"status colors: {k} colors the text and flashes the bar strongly");
+    }
+    CallOn(w, "SetStatus", "plain", StatusKind.Info);
+    Check(Fg() == Avalonia.Media.Colors.White && flash.Opacity > 0 && flash.Opacity < 0.3, "status colors: plain info is white with a faint flash");
+    Check(DungeonMapper.Views.MainWindow.StatusColor(StatusKind.Error) != DungeonMapper.Views.MainWindow.StatusColor(StatusKind.Warning), "status colors: red and orange differ");
+    var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+    canvas.CopySelection();
+    Check(w.StatusShown == StatusKind.Warning && Fg() == DungeonMapper.Views.MainWindow.StatusColor(StatusKind.Warning), "status colors: a canvas warning reaches the bar in orange");
+    CallOn(w, "DoUndo");
+    Check(text.Text == "nothing to undo" && w.StatusShown == StatusKind.Warning, "status colors: nothing to undo is orange");
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

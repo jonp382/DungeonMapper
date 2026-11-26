@@ -53,19 +53,19 @@ public partial class MainWindow
         {
             if (_client is not { } cl) return;
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnMove(from, to));
-            StatusText.Text = $"moving {PlayerPawnName(Canvas.RemoteDocument?.Pawns.GetValueOrDefault(from)?.TemplateId)}";
+            SetStatus($"moving {PlayerPawnName(Canvas.RemoteDocument?.Pawns.GetValueOrDefault(from)?.TemplateId)}");
         };
         Canvas.PlayerMoveManyRequested += moves =>
         {
             if (_client is not { } cl) return;
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnMoveMany(moves));
-            StatusText.Text = $"moving {Plural(moves.Count, "pawn")}";
+            SetStatus($"moving {Plural(moves.Count, "pawn")}");
         };
         Canvas.PlayerPlaceRequested += (id, at) =>
         {
             if (_client is not { } cl) return;
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnPlace(id, at));
-            StatusText.Text = $"placing {PlayerPawnName(id)}";
+            SetStatus($"placing {PlayerPawnName(id)}");
         };
         Canvas.PlayerDeployRequested += pawns =>
         {
@@ -199,7 +199,7 @@ public partial class MainWindow
         _publishTimer.Start();
         PublishNow();
         RefreshSessionUi();
-        StatusText.Text = $"hosting {_hostName} on port {host.Port}";
+        SetStatus($"hosting {_hostName} on port {host.Port}", StatusKind.Success);
         return null;
     }
 
@@ -209,7 +209,7 @@ public partial class MainWindow
         _host?.Dispose();
         _host = null;
         RefreshSessionUi();
-        StatusText.Text = "stopped hosting";
+        SetStatus("stopped hosting");
     }
 
     // sends the shown map's player package. the host skips it when nothing changed
@@ -248,25 +248,25 @@ public partial class MainWindow
             case PawnAction.Move:
                 string moving = Name(doc.Pawns[r.From].TemplateId);
                 PlayerPawns.ApplyMove(doc, r.From, r.To);
-                StatusText.Text = $"{r.Name} moved {moving} to {r.To.X},{r.To.Y}";
+                SetStatus($"{r.Name} moved {moving} to {r.To.X},{r.To.Y}", StatusKind.Player);
                 break;
             case PawnAction.Place:
                 bool moved = PlayerPawns.ApplyPlace(doc, lib.Find(r.TemplateId)!, r.To);
-                StatusText.Text = $"{r.Name} {(moved ? "moved" : "placed")} {Name(r.TemplateId)} to {r.To.X},{r.To.Y}";
+                SetStatus($"{r.Name} {(moved ? "moved" : "placed")} {Name(r.TemplateId)} to {r.To.X},{r.To.Y}", StatusKind.Player);
                 break;
             case PawnAction.Status:
                 var pawn = doc.Pawns[r.To];
                 pawn.Status = r.Status;
-                StatusText.Text = $"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}";
+                SetStatus($"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}", StatusKind.Player);
                 break;
             case PawnAction.MoveMany:
                 PlayerPawns.ApplyMoveMany(doc, r.Moves);
-                StatusText.Text = $"{r.Name} moved {Plural(r.Moves.Count, "pawn")}";
+                SetStatus($"{r.Name} moved {Plural(r.Moves.Count, "pawn")}", StatusKind.Player);
                 break;
             default:
                 var templates = r.Placements.Select(p => lib.Find(p.id)!).Distinct().ToList();
                 PlayerPawns.ApplyDeploy(doc, templates, r.Placements);
-                StatusText.Text = $"{r.Name} deployed {Plural(r.Placements.Count, "pawn")}";
+                SetStatus($"{r.Name} deployed {Plural(r.Placements.Count, "pawn")}", StatusKind.Player);
                 break;
         }
         HistoryFor(shown).Commit(doc);
@@ -298,20 +298,20 @@ public partial class MainWindow
             if (existing is null)
             {
                 lib.Formations.Add(new Formation { Id = sent.Id, Name = name, Members = sent.Members });
-                StatusText.Text = $"{r.Name} saved the formation {name}";
+                SetStatus($"{r.Name} saved the formation {name}", StatusKind.Player);
             }
             else
             {
                 existing.Name = name;
                 existing.Members = sent.Members;
-                StatusText.Text = $"{r.Name} changed the formation {name}";
+                SetStatus($"{r.Name} changed the formation {name}", StatusKind.Player);
             }
         }
         else
         {
             if (existing is null) { host.Notice(r, "that formation is gone"); return; }
             lib.Formations.Remove(existing);
-            StatusText.Text = $"{r.Name} deleted the formation {existing.Name}";
+            SetStatus($"{r.Name} deleted the formation {existing.Name}", StatusKind.Player);
         }
         if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();
         PublishNow();
@@ -328,7 +328,7 @@ public partial class MainWindow
         string? why = r.Label is null ? PlayerLabels.Delete(doc, r.DeleteId) : PlayerLabels.Set(doc, r.Label, r.Name);
         if (why is not null) { host.Notice(r, why); return; }
         HistoryFor(shown).Commit(doc);
-        StatusText.Text = r.Label is null ? $"{r.Name} deleted a label" : before is null ? $"{r.Name} added a label" : $"{r.Name} changed a label";
+        SetStatus(r.Label is null ? $"{r.Name} deleted a label" : before is null ? $"{r.Name} added a label" : $"{r.Name} changed a label", StatusKind.Player);
         if (doc == _doc)
         {
             Canvas.Refresh();
@@ -353,7 +353,7 @@ public partial class MainWindow
         string? why = r.Image is null ? PlayerImages.Delete(doc, r.DeleteId) : PlayerImages.Set(doc, r.Image, r.Name);
         if (why is not null) { host.Notice(r, why); return; }
         HistoryFor(shown).Commit(doc);
-        StatusText.Text = r.Image is null ? $"{r.Name} deleted an image" : before is null ? $"{r.Name} placed an image" : $"{r.Name} changed an image";
+        SetStatus(r.Image is null ? $"{r.Name} deleted an image" : before is null ? $"{r.Name} placed an image" : $"{r.Name} changed an image", StatusKind.Player);
         if (doc == _doc)
         {
             Canvas.Refresh();
@@ -475,7 +475,7 @@ public partial class MainWindow
         if (_joining) return;
         _joining = true;
         if (_joinRefusal is not null) SetRefusal(_joinRefusal, null);
-        StatusText.Text = $"joining {address}:{port}...";
+        SetStatus($"joining {address}:{port}...");
         try
         {
             var client = await SessionClient.ConnectAsync(address, port, _joinCode.Trim(), string.IsNullOrWhiteSpace(_playerName) ? "player" : _playerName.Trim());
@@ -493,7 +493,7 @@ public partial class MainWindow
                 SocketException s => $"could not connect: {s.Message}",
                 _ => $"could not join: {ex.Message}",
             };
-            StatusText.Text = why;
+            SetStatus(why, StatusKind.Error);
             if (_joinRefusal is not null && _modalKind == "join") SetRefusal(_joinRefusal, why);
         }
     }
@@ -518,12 +518,12 @@ public partial class MainWindow
             if (_client != client) return;
             _pendingLabels.Clear(); // a refused label is not coming back
             _pendingImages.Clear();
-            StatusText.Text = $"the DM's map refused: {why}";
+            SetStatus($"the DM's map refused: {why}", StatusKind.Error);
         });
         client.Disconnected += reason => Dispatcher.UIThread.Post(() => { if (_client == client) LeavePlayerMode(reason); });
         client.Start();
         RefreshSessionUi();
-        StatusText.Text = $"joined {client.SessionName}. you see what the DM reveals. Session > Leave session to go back to your own maps";
+        SetStatus($"joined {client.SessionName}. you see what the DM reveals. Session > Leave session to go back to your own maps", StatusKind.Success);
     }
 
     private void ApplyRemote(SessionClient from, string map, PlayerPackage pkg)
@@ -594,7 +594,7 @@ public partial class MainWindow
         if (_editingLabel == open) EndLabelEdit(false);
         Canvas.SelectedLabel = null;
         if (Canvas.Mode == ToolMode.Label) BackToToolView();
-        StatusText.Text = "the DM took that label back";
+        SetStatus("the DM took that label back", StatusKind.Warning);
     }
 
     // images a player sent (null = deleted) that the DM's map has not shown
@@ -659,7 +659,7 @@ public partial class MainWindow
         SetTool(ToolMode.Select);
         Canvas.AutoFit();
         RefreshSessionUi();
-        StatusText.Text = $"{reason}. back to your own maps";
+        SetStatus($"{reason}. back to your own maps", reason == "left the session" ? StatusKind.Info : StatusKind.Warning);
     }
 
     // player mode turns off everything that edits or saves
@@ -736,7 +736,7 @@ public partial class MainWindow
                 pawn.Status = status; // shown at once, the DM's map confirms it
                 Canvas.Refresh();
                 _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, status));
-                StatusText.Text = $"{PawnName(t)}: {v}";
+                SetStatus($"{PawnName(t)}: {v}");
                 FocusCanvas();
             },
             "status",

@@ -259,7 +259,7 @@ public sealed partial class MapCanvas
         {
             if (_remote is not null && !PlayerImages.Editable(hit))
             {
-                StatusMessage?.Invoke("only the DM edits that image");
+                Status("only the DM edits that image", StatusKind.Error);
                 return;
             }
             SelectedImageId = hit.Id;
@@ -269,7 +269,7 @@ public sealed partial class MapCanvas
         }
         if (ArmedImage is null)
         {
-            StatusMessage?.Invoke("choose a picture in the image panel first");
+            Status("choose a picture in the image panel first", StatusKind.Warning);
             return;
         }
         _imgPlacing = true;
@@ -339,7 +339,7 @@ public sealed partial class MapCanvas
             im.CreatedBy = null;
             Document.Images.Add(im);
             SelectedImageId = im.Id;
-            StatusMessage?.Invoke($"placed {im.FileName} ({w * 5}x{h * 5}ft)");
+            Status($"placed {im.FileName} ({w * 5}x{h * 5}ft)");
             if (_remote is not null) { RemoteImageChanged?.Invoke(im); InvalidateVisual(); }
             else Commit();
             ImagesChanged?.Invoke();
@@ -353,7 +353,7 @@ public sealed partial class MapCanvas
             if (SelectedImage is { } sel && _imgRect != (sel.X, sel.Y, sel.W, sel.H))
             {
                 (sel.X, sel.Y, sel.W, sel.H) = _imgRect;
-                StatusMessage?.Invoke($"image resized to {sel.W * 5}x{sel.H * 5}ft");
+                Status($"image resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ImagesChanged?.Invoke();
                 ImageConfigRequested?.Invoke(sel);

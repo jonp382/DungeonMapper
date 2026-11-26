@@ -308,7 +308,7 @@ public sealed partial class MapCanvas
         }
         if (ArmedObject is null)
         {
-            StatusMessage?.Invoke("pick an object type in the object panel first");
+            Status("pick an object type in the object panel first", StatusKind.Warning);
             return;
         }
         _objPlacing = true;
@@ -353,7 +353,7 @@ public sealed partial class MapCanvas
             var (x0, y0, x1, y1) = NormRect(_objStart, _objEnd);
             var o = new MapObject { TypeId = ArmedObject.Id, X = x0, Y = y0, W = x1 - x0 + 1, H = y1 - y0 + 1 };
             Document.Objects.Add(o);
-            StatusMessage?.Invoke($"placed {(string.IsNullOrWhiteSpace(ArmedObject.Name) ? "object" : ArmedObject.Name)} ({o.W * 5}x{o.H * 5}ft)");
+            Status($"placed {(string.IsNullOrWhiteSpace(ArmedObject.Name) ? "object" : ArmedObject.Name)} ({o.W * 5}x{o.H * 5}ft)");
             Commit();
             ObjectsChanged?.Invoke();
             return true;
@@ -365,7 +365,7 @@ public sealed partial class MapCanvas
             if (SelectedObject is { } sel && _resizeRect != (sel.X, sel.Y, sel.W, sel.H))
             {
                 (sel.X, sel.Y, sel.W, sel.H) = _resizeRect;
-                StatusMessage?.Invoke($"resized to {sel.W * 5}x{sel.H * 5}ft");
+                Status($"resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ObjectsChanged?.Invoke();
             }

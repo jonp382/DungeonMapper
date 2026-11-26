@@ -62,7 +62,7 @@ public partial class MainWindow
     private void ArmObject(ObjectType t)
     {
         Canvas.ArmedObject = t;
-        StatusText.Text = $"armed {ObjectName(t)} - drag on the map to place it";
+        SetStatus($"armed {ObjectName(t)} - drag on the map to place it");
         RefreshObjectPanel();
         FocusCanvas();
     }
@@ -78,9 +78,9 @@ public partial class MainWindow
             var others = _project.Maps
                 .Select(m => (m.Name, n: m.Doc.Objects.Count(o => o.TypeId == t.Id)))
                 .Where(x => x.n > 0).Select(x => $"{x.Name} ({x.n})").ToList();
-            StatusText.Text = others.Count == 0
+            SetStatus(others.Count == 0
                 ? $"{ObjectName(t)} is not placed on any map"
-                : $"{ObjectName(t)} is not on this map. placed on: {string.Join(", ", others)}";
+                : $"{ObjectName(t)} is not on this map. placed on: {string.Join(", ", others)}", StatusKind.Warning);
             _locateObjectType = null;
             return;
         }
@@ -88,7 +88,7 @@ public partial class MainWindow
         _locateObjectType = t.Id;
         var o = list[_locateObjectIdx];
         Canvas.CenterOn(new CellKey(o.X + (o.W - 1) / 2, o.Y + (o.H - 1) / 2));
-        StatusText.Text = $"{ObjectName(t)} {_locateObjectIdx + 1} / {list.Count} on this map";
+        SetStatus($"{ObjectName(t)} {_locateObjectIdx + 1} / {list.Count} on this map");
     }
 
     // after objects or object types change: map, legend, open menu
@@ -344,7 +344,7 @@ public partial class MainWindow
                         obj.TypeId = pick.Id;
                         ActiveHistory.Commit(_doc);
                         ObjectViewsChanged();
-                        StatusText.Text = $"changed to {ObjectName(pick)}";
+                        SetStatus($"changed to {ObjectName(pick)}");
                     }
                     ShowObjectInfo(obj);
                 };
@@ -435,9 +435,9 @@ public partial class MainWindow
                     var png = PawnImage.Compress(System.IO.File.ReadAllBytes(files[0].Path.LocalPath));
                     // stored once in the campaign's picture pool, the look keeps its key
                     Set(() => look.PictureId = ActiveObjects.AddPicture(Convert.ToBase64String(png)));
-                    StatusText.Text = $"picture compressed to 50x50 png ({png.Length / 1024} KB)";
+                    SetStatus($"picture compressed to 50x50 png ({png.Length / 1024} KB)");
                 }
-                catch (Exception ex) { StatusText.Text = $"could not read picture: {ex.Message}"; }
+                catch (Exception ex) { SetStatus($"could not read picture: {ex.Message}", StatusKind.Error); }
             };
             row.Children.Add(choose);
             if (!string.IsNullOrEmpty(look.PictureId))
@@ -578,7 +578,7 @@ public partial class MainWindow
             _objManageSearch = "";
             search.Text = "";
             ObjectViewsChanged();
-            StatusText.Text = "added new object type";
+            SetStatus("added new object type");
         };
         AddCell(tools, add, 1);
         DockPanel.SetDock(tools, Dock.Top);
@@ -771,7 +771,7 @@ public partial class MainWindow
             ActiveObjects.Add(c);
             _objEditId = c.Id;
             ObjectViewsChanged();
-            StatusText.Text = $"duplicated {ObjectName(t)}";
+            SetStatus($"duplicated {ObjectName(t)}");
         };
         var del = Btn("delete", danger: true);
         int placed = perMap.Sum(x => x.n);
@@ -783,7 +783,7 @@ public partial class MainWindow
                 if (Canvas.ArmedObject == t) Canvas.ArmedObject = null;
                 _objEditId = null;
                 ObjectViewsChanged();
-                StatusText.Text = $"deleted {ObjectName(t)}";
+                SetStatus($"deleted {ObjectName(t)}");
             }
             if (placed == 0) doDelete();
             else ConfirmFlyout(del, $"{Plural(placed, "placed object")} in the campaign use this type. they stay on the map in a plain look and can be given another type with change type. delete?", doDelete);
@@ -807,9 +807,9 @@ public partial class MainWindow
         try
         {
             System.IO.File.WriteAllText(file.Path.LocalPath, MapSerializer.ObjectTypesToJson(ActiveObjects));
-            StatusText.Text = $"exported {Plural(ActiveObjects.Types.Count, "object type")}";
+            SetStatus($"exported {Plural(ActiveObjects.Types.Count, "object type")}", StatusKind.Success);
         }
-        catch (Exception ex) { StatusText.Text = $"export failed: {ex.Message}"; }
+        catch (Exception ex) { SetStatus($"export failed: {ex.Message}", StatusKind.Error); }
     }
 
     // takes the object types of an export, a campaign or a map file. types
@@ -834,8 +834,8 @@ public partial class MainWindow
             ActiveObjects.MergeAppend(types);
             int added = ActiveObjects.Types.Count - before;
             ObjectViewsChanged();
-            StatusText.Text = types.Count == 0 ? "no object types in that file" : $"imported {Plural(added, "object type")}, {types.Count - added} already here";
+            SetStatus(types.Count == 0 ? "no object types in that file" : $"imported {Plural(added, "object type")}, {types.Count - added} already here", types.Count == 0 ? StatusKind.Warning : StatusKind.Success);
         }
-        catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; }
+        catch (Exception ex) { SetStatus($"import failed: {ex.Message}", StatusKind.Error); }
     }
 }

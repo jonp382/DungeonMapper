@@ -63,7 +63,7 @@ public partial class MainWindow
         int idx = _project.Maps.IndexOf(entry);
         if (!commit || idx < 0 || string.IsNullOrEmpty(v) || v == entry.Name) return;
         entry.Name = _project.UniqueName(v, idx);
-        StatusText.Text = $"renamed to {entry.Name}";
+        SetStatus($"renamed to {entry.Name}");
         RefreshMapList();
     }
 
@@ -229,7 +229,7 @@ public partial class MainWindow
         HistoryFor(_project.Maps[_project.ActiveIndex]);
         if (wasActive) Canvas.AutoFit();
         RefreshMapList();
-        StatusText.Text = $"deleted {entry.Name}";
+        SetStatus($"deleted {entry.Name}");
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
@@ -262,11 +262,11 @@ public partial class MainWindow
         {
             var path = file.Path.LocalPath;
             MapSerializer.SaveMapFile(entry, path, ActiveLibrary, ActivePresets, ActiveObjects);
-            StatusText.Text = $"exported {entry.Name} to {path}";
+            SetStatus($"exported {entry.Name} to {path}", StatusKind.Success);
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"export failed: {ex.Message}";
+            SetStatus($"export failed: {ex.Message}", StatusKind.Error);
         }
     }
 
@@ -319,8 +319,8 @@ public partial class MainWindow
             SwitchMap(firstNew);
         }
         if (MapsOverlay.IsVisible || added > 0) ShowMaps();
-        StatusText.Text = failed.Count == 0
+        SetStatus(failed.Count == 0
             ? $"imported {added} map{(added == 1 ? "" : "s")}"
-            : $"imported {added}, failed: {string.Join(", ", failed)}";
+            : $"imported {added}, failed: {string.Join(", ", failed)}", failed.Count == 0 ? StatusKind.Success : StatusKind.Error);
     }
 }

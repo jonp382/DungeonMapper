@@ -40,8 +40,8 @@ public partial class MainWindow
                 },
                 "shape");
             _toolInfo = ToolPanel.AddInfo("");
-            ToolPanel.AddButton("reveal whole map", () => { int n = Canvas.RevealAll(true); StatusText.Text = $"revealed {Plural(n, "cell")}"; FocusCanvas(); });
-            ToolPanel.AddButton("hide whole map", () => { int n = Canvas.RevealAll(false); StatusText.Text = $"hid {Plural(n, "cell")}"; FocusCanvas(); });
+            ToolPanel.AddButton("reveal whole map", () => { int n = Canvas.RevealAll(true); SetStatus($"revealed {Plural(n, "cell")}"); FocusCanvas(); });
+            ToolPanel.AddButton("hide whole map", () => { int n = Canvas.RevealAll(false); SetStatus($"hid {Plural(n, "cell")}"); FocusCanvas(); });
         }
         else
         {
@@ -58,8 +58,8 @@ public partial class MainWindow
             Kind("pawns", RevealItems.Pawns);
             Kind("images", RevealItems.Images);
             _toolInfo = ToolPanel.AddInfo("");
-            ToolPanel.AddButton("make all ticked visible", () => { int n = Canvas.SetAllDmOnly(false); StatusText.Text = $"{Plural(n, "item")} now visible to players"; FocusCanvas(); });
-            ToolPanel.AddButton("make all ticked DM only", () => { int n = Canvas.SetAllDmOnly(true); StatusText.Text = $"{Plural(n, "item")} now DM only"; FocusCanvas(); });
+            ToolPanel.AddButton("make all ticked visible", () => { int n = Canvas.SetAllDmOnly(false); SetStatus($"{Plural(n, "item")} now visible to players"); FocusCanvas(); });
+            ToolPanel.AddButton("make all ticked DM only", () => { int n = Canvas.SetAllDmOnly(true); SetStatus($"{Plural(n, "item")} now DM only"); FocusCanvas(); });
         }
         ToolPanel.AddButton("preview player view", () => SetPlayerPreview(true));
         RefreshToolInfo();
@@ -88,9 +88,9 @@ public partial class MainWindow
         Canvas.PlayerPreview = on;
         MenuPlayerPreview.IsChecked = on;
         ToolPanel.IsEnabled = !on; // panel buttons would act on the preview copy
-        StatusText.Text = on
+        SetStatus(on
             ? "player view preview: this is what players are sent. editing is off, esc returns"
-            : "back to editing";
+            : "back to editing");
         FocusCanvas();
     }
 

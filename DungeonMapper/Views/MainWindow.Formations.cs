@@ -90,7 +90,7 @@ public partial class MainWindow
                 if (done) return;
                 done = true;
                 var n = (box.Text ?? "").Trim();
-                if (keep && n.Length > 0 && n != f.Name) { f.Name = n; SendFormation(f); StatusText.Text = $"formation renamed to {n}"; }
+                if (keep && n.Length > 0 && n != f.Name) { f.Name = n; SendFormation(f); SetStatus($"formation renamed to {n}"); }
                 _formationRenaming = null;
                 RefreshFormations();
                 FocusCanvas();
@@ -197,7 +197,7 @@ public partial class MainWindow
             _formationUnticked.Remove(f.Id);
             if (_lastFormationId == f.Id) _lastFormationId = null;
             RefreshFormations();
-            StatusText.Text = $"deleted formation {f.Name}";
+            SetStatus($"deleted formation {f.Name}");
         });
         foreach (var b in new[] { rename, update, del }) { b.Padding = new Thickness(6, 2); b.Margin = new Thickness(0, 0, 4, 4); acts.Children.Add(b); }
         sp.Children.Add(acts);
@@ -274,14 +274,14 @@ public partial class MainWindow
     private void CaptureFormation(Formation? target)
     {
         if (Canvas.Mode != ToolMode.Pawn) SetTool(ToolMode.Pawn);
-        StatusText.Text = target is null
+        SetStatus(target is null
             ? "new formation: drag a box around the pawns on the map. esc cancels"
-            : $"update {target.Name}: drag a box around the pawns on the map. esc cancels";
+            : $"update {target.Name}: drag a box around the pawns on the map. esc cancels");
         Canvas.BeginAreaPick((x0, y0, x1, y1) =>
         {
             var pawns = PanelDoc.Pawns.Values.Where(p => p.Cell.X >= x0 && p.Cell.X <= x1 && p.Cell.Y >= y0 && p.Cell.Y <= y1)
                 .Where(p => !Joined || PlayerPawns.Controlled(PanelLibrary.Find(p.TemplateId))).ToList();
-            if (pawns.Count == 0) { StatusText.Text = Joined ? "no player pawns in that area, nothing saved" : "no pawns in that area, nothing saved"; return; }
+            if (pawns.Count == 0) { SetStatus(Joined ? "no player pawns in that area, nothing saved" : "no pawns in that area, nothing saved", StatusKind.Warning); return; }
             var members = Formation.Capture(pawns);
             if (target is null)
             {
@@ -290,7 +290,7 @@ public partial class MainWindow
                 SendFormation(f);
                 _formationOpen = f.Id;
                 _formationRenaming = f.Id; // name it right away
-                StatusText.Text = $"saved a formation of {Plural(members.Count, "pawn")}. type a name, enter keeps it";
+                SetStatus($"saved a formation of {Plural(members.Count, "pawn")}. type a name, enter keeps it");
             }
             else if (PanelLibrary.Formations.Contains(target))
             {
@@ -298,7 +298,7 @@ public partial class MainWindow
                 SendFormation(target);
                 _formationUnticked.Remove(target.Id);
                 _formationOpen = target.Id;
-                StatusText.Text = $"updated {target.Name}: {Plural(members.Count, "pawn")}";
+                SetStatus($"updated {target.Name}: {Plural(members.Count, "pawn")}");
             }
             if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();
         });
@@ -313,13 +313,13 @@ public partial class MainWindow
         int missing = f.Members.Count(m => PanelLibrary.Find(m.TemplateId) is null);
         if (members.Count == 0)
         {
-            StatusText.Text = missing == f.Members.Count ? $"{f.Name} has no pawns left in the library" : $"no members of {f.Name} are ticked";
+            SetStatus(missing == f.Members.Count ? $"{f.Name} has no pawns left in the library" : $"no members of {f.Name} are ticked", StatusKind.Warning);
             return;
         }
         if (Canvas.Mode != ToolMode.Pawn) SetTool(ToolMode.Pawn);
         _lastFormationId = f.Id;
         Canvas.ArmFormation(f.Name, members);
-        if (missing > 0) StatusText.Text += $" ({missing} missing from the library, skipped)";
+        if (missing > 0) SetStatus(StatusText.Text + $" ({missing} missing from the library, skipped)", StatusKind.Warning);
         FocusCanvas();
     }
 
@@ -335,7 +335,7 @@ public partial class MainWindow
     private void DeployLastFormation()
     {
         var f = _lastFormationId is null ? null : PanelLibrary.Formations.Find(x => x.Id == _lastFormationId);
-        if (f is null) { StatusText.Text = "no formation deployed yet. pick one in the pawn panel's formations"; return; }
+        if (f is null) { SetStatus("no formation deployed yet. pick one in the pawn panel's formations", StatusKind.Warning); return; }
         DeployFormation(f);
     }
 }

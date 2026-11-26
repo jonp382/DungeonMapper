@@ -89,7 +89,7 @@ public partial class MainWindow
         {
             Canvas.ReloadImages();
             BuildImagePanel();
-            StatusText.Text = "pictures reloaded from the images folder";
+            SetStatus("pictures reloaded from the images folder");
             FocusCanvas();
         });
     }
@@ -128,7 +128,7 @@ public partial class MainWindow
         if (Canvas.Mode != ToolMode.Image) SetTool(ToolMode.Image);
         Canvas.ArmedImage = tpl; // SetTool clears it
         BuildImagePanel();
-        StatusText.Text = $"placing {tpl.FileName}: click a cell for {tpl.W * 5}x{tpl.H * 5} ft, or drag a box";
+        SetStatus($"placing {tpl.FileName}: click a cell for {tpl.W * 5}x{tpl.H * 5} ft, or drag a box");
         FocusCanvas();
     }
 
@@ -137,7 +137,7 @@ public partial class MainWindow
     /// copied in after a yes. null when cancelled or unreadable.
     private async Task<MapImage?> PickPicture(Control anchor)
     {
-        if (!ImageStore.FolderOk) { StatusText.Text = "set the images folder in settings first"; return null; }
+        if (!ImageStore.FolderOk) { SetStatus("set the images folder in settings first", StatusKind.Warning); return null; }
         var start = await StorageProvider.TryGetFolderFromPathAsync(ImageStore.Folder);
         var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
@@ -155,15 +155,15 @@ public partial class MainWindow
                     () => tcs.TrySetResult(true), "copy it");
                 // yes hides the flyout before it runs, so a close answers no a moment later
                 flyout.Closed += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => tcs.TrySetResult(false));
-                if (!await tcs.Task) { StatusText.Text = "picture not used: it is outside the images folder"; return null; }
+                if (!await tcs.Task) { SetStatus("picture not used: it is outside the images folder", StatusKind.Error); return null; }
                 path = await Task.Run(() => ImageStore.CopyIn(path));
-                StatusText.Text = $"copied {System.IO.Path.GetFileName(path)} into the images folder";
+                SetStatus($"copied {System.IO.Path.GetFileName(path)} into the images folder");
             }
             return await Task.Run(() => ImageStore.FromFile(path));
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"could not use that picture: {ex.Message}";
+            SetStatus($"could not use that picture: {ex.Message}", StatusKind.Error);
             return null;
         }
     }
@@ -198,7 +198,7 @@ public partial class MainWindow
         {
             CommitImage(im);
             Canvas.Refresh();
-            if (status is not null) StatusText.Text = status;
+            if (status is not null) SetStatus(status);
             if (ImageDoc.Images.Contains(im)) ShowImageConfig(im); else BuildImagePanel();
             FocusCanvas();
         }
@@ -226,7 +226,7 @@ public partial class MainWindow
             ("turn right", false, () => { im.Turns += 1; (im.W, im.H) = (im.H, im.W); Changed("turned right"); }),
             ("picture size", false, () =>
             {
-                if (im.PixelW <= 0) { StatusText.Text = "the picture's size is not known"; return; }
+                if (im.PixelW <= 0) { SetStatus("the picture's size is not known", StatusKind.Warning); return; }
                 (im.W, im.H) = MapImage.NaturalCells(im.PixelW, im.PixelH, im.Turns);
                 Changed($"back to the picture's size ({im.W * 5}x{im.H * 5} ft)");
             }));
@@ -269,7 +269,7 @@ public partial class MainWindow
                     SendImageDeleteToHost(im.Id);
                     Canvas.Refresh();
                     BuildImagePanel();
-                    StatusText.Text = "image deleted";
+                    SetStatus("image deleted");
                 }
                 else
                 {

@@ -85,7 +85,7 @@ public partial class MainWindow
     private void ArmPawn(PawnTemplate t)
     {
         Canvas.ArmedPawn = t;
-        StatusText.Text = $"armed {PawnName(t)} - click a cell to place";
+        SetStatus($"armed {PawnName(t)} - click a cell to place");
         RefreshPawnPanel();
         FocusCanvas();
     }
@@ -100,7 +100,7 @@ public partial class MainWindow
             .OrderBy(c => c.Y).ThenBy(c => c.X).ToList();
         if (cells.Count == 0 && Joined)
         {
-            StatusText.Text = $"{PawnName(t)} is not on this map";
+            SetStatus($"{PawnName(t)} is not on this map", StatusKind.Warning);
             _locateId = null;
             return;
         }
@@ -109,16 +109,16 @@ public partial class MainWindow
             var others = _project.Maps
                 .Select(m => (m.Name, n: m.Doc.Pawns.Values.Count(p => p.TemplateId == t.Id)))
                 .Where(x => x.n > 0).Select(x => $"{x.Name} ({x.n})").ToList();
-            StatusText.Text = others.Count == 0
+            SetStatus(others.Count == 0
                 ? $"{PawnName(t)} is not placed on any map"
-                : $"{PawnName(t)} is not on this map. placed on: {string.Join(", ", others)}";
+                : $"{PawnName(t)} is not on this map. placed on: {string.Join(", ", others)}", StatusKind.Warning);
             _locateId = null;
             return;
         }
         _locateIdx = _locateId == t.Id ? (_locateIdx + 1) % cells.Count : 0;
         _locateId = t.Id;
         Canvas.CenterOn(cells[_locateIdx]);
-        StatusText.Text = $"{PawnName(t)} {_locateIdx + 1} / {cells.Count} on this map";
+        SetStatus($"{PawnName(t)} {_locateIdx + 1} / {cells.Count} on this map");
     }
 
     // ---------- side panel ----------
@@ -466,7 +466,7 @@ public partial class MainWindow
             search.Text = "";
             PawnsChanged();
             RefreshManageEditor();
-            StatusText.Text = "added new pawn";
+            SetStatus("added new pawn");
         };
         Grid.SetColumn(add, 2);
         tools.Children.Add(add);
@@ -707,7 +707,7 @@ public partial class MainWindow
             _manageSelected.Clear();
             PawnsChanged();
             RefreshManageEditor();
-            StatusText.Text = $"deleted {ids.Count} pawns";
+            SetStatus($"deleted {ids.Count} pawns");
         }
         ConfirmFlyout(anchor, placed == 0
             ? $"delete {ids.Count} pawns from the library?"
@@ -871,11 +871,11 @@ public partial class MainWindow
                 PawnsChanged();
                 TemplateEdited(t, now: true);
                 RefreshManageEditor();
-                StatusText.Text = $"image compressed to 50x50 png ({png.Length / 1024} KB)";
+                SetStatus($"image compressed to 50x50 png ({png.Length / 1024} KB)");
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"could not read image: {ex.Message}";
+                SetStatus($"could not read image: {ex.Message}", StatusKind.Error);
             }
         };
         imgRow.Children.Add(choose);
@@ -940,7 +940,7 @@ public partial class MainWindow
             _manageEditId = c.Id;
             PawnsChanged();
             RefreshManageEditor();
-            StatusText.Text = $"duplicated {PawnName(t)}";
+            SetStatus($"duplicated {PawnName(t)}");
         };
         acts.Children.Add(dup);
         var del = Btn("delete", danger: true);
@@ -1151,7 +1151,7 @@ public partial class MainWindow
 
     private async void ExportPawns(PawnLibrary lib, string label)
     {
-        if (lib.Pawns.Count == 0) { StatusText.Text = "no pawns to export"; return; }
+        if (lib.Pawns.Count == 0) { SetStatus("no pawns to export", StatusKind.Warning); return; }
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
         {
             SuggestedFileName = $"Pawns_{Stamp()}.json",
@@ -1163,9 +1163,9 @@ public partial class MainWindow
         try
         {
             System.IO.File.WriteAllText(path, MapSerializer.LibraryToJson(lib));
-            StatusText.Text = $"exported {label} ({lib.Pawns.Count}) to {path}";
+            SetStatus($"exported {label} ({lib.Pawns.Count}) to {path}", StatusKind.Success);
         }
-        catch (Exception ex) { StatusText.Text = $"export failed: {ex.Message}"; }
+        catch (Exception ex) { SetStatus($"export failed: {ex.Message}", StatusKind.Error); }
     }
 
     // import picker: reads a pawn library or campaign file and lets the user tick
@@ -1182,8 +1182,8 @@ public partial class MainWindow
         var path = files[0].Path.LocalPath;
         List<PawnTemplate> incoming;
         try { incoming = MapSerializer.LibraryFromDtos(MapSerializer.LibraryFromJson(System.IO.File.ReadAllText(path))); }
-        catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; return; }
-        if (incoming.Count == 0) { StatusText.Text = "that file has no pawns in it"; return; }
+        catch (Exception ex) { SetStatus($"import failed: {ex.Message}", StatusKind.Error); return; }
+        if (incoming.Count == 0) { SetStatus("that file has no pawns in it", StatusKind.Warning); return; }
 
         var kinds = incoming.ToDictionary(t => t, t => ActiveLibrary.Classify(t));
         var picked = new HashSet<PawnTemplate>(incoming.Where(t => kinds[t] != PawnLibrary.ImportKind.Have));
@@ -1313,9 +1313,9 @@ public partial class MainWindow
             _manageTab = "pawns";
             ShowPawnManagement();
             PawnsChanged();
-            StatusText.Text = added == chosen.Count
+            SetStatus(added == chosen.Count
                 ? $"imported {added} pawns"
-                : $"imported {added} pawns ({chosen.Count - added} were already in the library)";
+                : $"imported {added} pawns ({chosen.Count - added} were already in the library)", StatusKind.Success);
         }
 
         sbox.TextChanged += (_, _) => { search = (sbox.Text ?? "").Trim(); Rebuild(); };

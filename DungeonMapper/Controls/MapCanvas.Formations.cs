@@ -56,7 +56,7 @@ public sealed partial class MapCanvas
         CancelMove();
         _formation = Formation.Rotate(members, 0);
         _formationName = string.IsNullOrWhiteSpace(name) ? "formation" : name;
-        StatusMessage?.Invoke($"deploy {_formationName}: click to place {_formation.Count} pawns. r / shift+r rotates, esc cancels");
+        Status($"deploy {_formationName}: click to place {_formation.Count} pawns. r / shift+r rotates, esc cancels");
         InvalidateVisual();
     }
 
@@ -106,7 +106,7 @@ public sealed partial class MapCanvas
         var blocked = BlockedCells(targets);
         if (blocked.Count > 0)
         {
-            StatusMessage?.Invoke($"can not deploy {_formationName}: {(blocked.Count == 1 ? "a cell already has" : $"{blocked.Count} cells already have")} a pawn. move the ghost and click again");
+            Status($"can not deploy {_formationName}: {(blocked.Count == 1 ? "a cell already has" : $"{blocked.Count} cells already have")} a pawn. move the ghost and click again", StatusKind.Error);
             InvalidateVisual();
             return false;
         }
@@ -115,13 +115,13 @@ public sealed partial class MapCanvas
             // a joined player: the DM's app places them
             if (PlayerPawns.CheckDeploy(_remote, Library, targets) is { } why)
             {
-                StatusMessage?.Invoke($"can not deploy {_formationName}: {why}");
+                Status($"can not deploy {_formationName}: {why}", StatusKind.Error);
                 return false;
             }
             _formation = null;
             InvalidateVisual();
             PlayerDeployRequested?.Invoke(targets);
-            StatusMessage?.Invoke($"deploying {_formationName}: {targets.Count} pawns");
+            Status($"deploying {_formationName}: {targets.Count} pawns");
             return true;
         }
         // heroes come off the map (and the other maps) first, so a hero
@@ -147,7 +147,7 @@ public sealed partial class MapCanvas
         string name = _formationName;
         _formation = null;
         Commit();
-        StatusMessage?.Invoke($"deployed {name}: {targets.Count} pawns" + (outside > 0 ? $". warning: {outside} outside a room" : ""));
+        Status($"deployed {name}: {targets.Count} pawns" + (outside > 0 ? $". warning: {outside} outside a room" : ""), outside > 0 ? StatusKind.Warning : StatusKind.Info);
         FormationDeployed?.Invoke();
         return true;
     }

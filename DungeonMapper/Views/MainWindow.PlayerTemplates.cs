@@ -131,7 +131,7 @@ public partial class MainWindow
         bool isNew = ActiveLibrary.Find(r.Template.Id) is null;
         if (PlayerTemplates.Set(ActiveLibrary, ActivePresets, r.Template) is { } why) { host.Notice(r, why); return; }
         var t = ActiveLibrary.Find(r.Template.Id)!;
-        StatusText.Text = isNew ? $"{r.Name} added the pawn {PawnName(t)}" : $"{r.Name} changed the pawn {PawnName(t)}";
+        SetStatus(isNew ? $"{r.Name} added the pawn {PawnName(t)}" : $"{r.Name} changed the pawn {PawnName(t)}", StatusKind.Player);
         Canvas.InvalidateImageCache(); // template pictures are cached by id
         Canvas.Refresh();
         if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();

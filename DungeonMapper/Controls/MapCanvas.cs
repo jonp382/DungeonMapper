@@ -135,6 +135,13 @@ public sealed partial class MapCanvas : Control
     public event Action? ViewChanged;
     public event Action<Pawn>? PawnConfigRequested;
     public event Action<string>? StatusMessage;
+    /// the kind of the last status message (its color in the status bar)
+    public StatusKind LastStatusKind { get; private set; }
+    private void Status(string text, StatusKind kind = StatusKind.Info)
+    {
+        LastStatusKind = kind;
+        StatusMessage?.Invoke(text);
+    }
     // a pawn was placed with the pawn tool (template id), for the recent strip
     public event Action<string>? PawnPlaced;
     /// hero pawns are one per campaign. called for each hero placed on this map:
@@ -226,10 +233,10 @@ public sealed partial class MapCanvas : Control
     {
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var snap = Document.CaptureRegion(x0, y0, x1, y1);
-        if (snap.Empty) { StatusMessage?.Invoke("nothing to copy - select a region first"); return; }
+        if (snap.Empty) { Status("nothing to copy - select a region first", StatusKind.Warning); return; }
         _clipboard = snap;
         _cutSource = null; // a plain copy has no source to delete on paste
-        StatusMessage?.Invoke($"copied {snap.Cells.Count} cells");
+        Status($"copied {snap.Cells.Count} cells");
     }
 
     /// Cut: capture the selection AND remember its source region. The next
@@ -238,11 +245,11 @@ public sealed partial class MapCanvas : Control
     {
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var snap = Document.CaptureRegion(x0, y0, x1, y1);
-        if (snap.Empty) { StatusMessage?.Invoke("nothing to cut - select a region first"); return; }
+        if (snap.Empty) { Status("nothing to cut - select a region first", StatusKind.Warning); return; }
         _clipboard = snap;
         _cutSource = (x0, y0, x1, y1);
         _cutSourceDoc = Document; // remember which map the source lives on
-        StatusMessage?.Invoke($"cut {snap.Cells.Count} cells");
+        Status($"cut {snap.Cells.Count} cells");
     }
 
     private (int x0, int y0, int x1, int y1)? _cutSource; // region to delete on the next paste
@@ -257,7 +264,7 @@ public sealed partial class MapCanvas : Control
     /// Pastes the clipboard at the given world cell (origin maps to that cell).
     public void PasteAt(CellKey target)
     {
-        if (_clipboard is null || _clipboard.Empty) { StatusMessage?.Invoke("clipboard empty"); return; }
+        if (_clipboard is null || _clipboard.Empty) { Status("clipboard empty", StatusKind.Warning); return; }
         Document.PasteRegion(_clipboard, target.X, target.Y);
         // after a cut, the first paste deletes the source region from the map
         // it was cut from - works cross-map (cut on map1, paste on map2).
@@ -270,7 +277,7 @@ public sealed partial class MapCanvas : Control
             _cutSource = null;
             _cutSourceDoc = null;
             Document.PasteRegion(_clipboard, target.X, target.Y);
-            StatusMessage?.Invoke("pasted (cut source removed from its map)");
+            Status("pasted (cut source removed from its map)");
         }
         else
         {
@@ -289,7 +296,7 @@ public sealed partial class MapCanvas : Control
     public void MoveAt(CellKey target)
     {
         if (!_moveArmed || _clipboard is null || _clipboard.Empty)
-        { StatusMessage?.Invoke("nothing armed to move"); return; }
+        { Status("nothing armed to move", StatusKind.Warning); return; }
         // a joined player's box goes to the DM
         if (_remote is not null) { RemoteMoveAt(target); return; }
 
@@ -328,7 +335,7 @@ public sealed partial class MapCanvas : Control
         }
         KeepHeroesUnique(_clipboard, target);
         _movePlaced = true; // successful placement restores hotkeys
-        StatusMessage?.Invoke(_rotTurns != 0
+        Status(_rotTurns != 0
             ? $"placed {what} ({_rotTurns * 90}° ccw)"
             : $"moved {what}");
         Commit();
@@ -417,7 +424,7 @@ public sealed partial class MapCanvas : Control
     /// tool's category filters (cells, walls+doors, stairs, labels).
     public void DeleteSelection()
     {
-        if (!HasSelection) { StatusMessage?.Invoke("nothing to delete - select a region first"); return; }
+        if (!HasSelection) { Status("nothing to delete - select a region first", StatusKind.Warning); return; }
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
         var f = EraseFilter;
         for (int x = x0; x <= x1; x++)
@@ -442,7 +449,7 @@ public sealed partial class MapCanvas : Control
         if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
         if (f.Images && EraseImages(x0, y0, x1, y1) > 0) ImagesChanged?.Invoke();
         if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
-        StatusMessage?.Invoke($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
+        Status($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
         Commit();
     }
 
@@ -467,7 +474,7 @@ public sealed partial class MapCanvas : Control
     {
         ResetClipboard();
         ClearSelection();
-        StatusMessage?.Invoke("clipboard cleared");
+        Status("clipboard cleared");
     }
 
     /// Rotates the armed snapshot by turns counterclockwise quarter-turns (R =
@@ -477,10 +484,10 @@ public sealed partial class MapCanvas : Control
     /// until the first placement, so re-rotating before placing is free.
     public void RotateRegion(int turns)
     {
-        if (_clipboard is null || _clipboard.Empty) { StatusMessage?.Invoke("nothing armed to rotate"); return; }
+        if (_clipboard is null || _clipboard.Empty) { Status("nothing armed to rotate", StatusKind.Warning); return; }
         _rotTurns = (((_rotTurns + turns) % 4) + 4) % 4;
         _clipboard = MapDocument.Rotate(_clipboard, turns);
-        StatusMessage?.Invoke($"rotated {(_rotTurns * 90)}° ccw");
+        Status($"rotated {(_rotTurns * 90)}° ccw");
         InvalidateVisual();
     }
 
@@ -1739,14 +1746,14 @@ public sealed partial class MapCanvas : Control
             {
                 placed.Status = old.Status;
                 placed.DmOnly = old.DmOnly;
-                StatusMessage?.Invoke($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
+                Status($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
             }
             Commit();
             PawnPlaced?.Invoke(ArmedPawn.Id);
         }
         else
         {
-            StatusMessage?.Invoke("select a pawn in the pawn menu first");
+            Status("select a pawn in the pawn menu first", StatusKind.Warning);
         }
     }
 
@@ -1820,14 +1827,14 @@ public sealed partial class MapCanvas : Control
                     _floodPreview = null;
                     _floodPreviewCell = null;
                     if (region is null)
-                        StatusMessage?.Invoke("floor fill: region not enclosed (cap 10000 cells), nothing filled");
+                        Status("floor fill: region not enclosed (cap 10000 cells), nothing filled", StatusKind.Error);
                     else
                     {
                         // exact floor geometry: full cells plus the triangular
                         // sections left by diagonal walls, same as polygon floors
                         Document.AddFloodRegion(new FloodRegion { Rings = Document.BuildFloodRings(region) });
                         Commit();
-                        StatusMessage?.Invoke($"floor fill: {region.Count} cells");
+                        Status($"floor fill: {region.Count} cells");
                     }
                     InvalidateVisual();
                     break;
@@ -1877,7 +1884,7 @@ public sealed partial class MapCanvas : Control
                     var orient = VertexDoorOrientation(world, vdxx, vdy);
                     if (orient is null)
                     {
-                        StatusMessage?.Invoke("can't place a door here: a wall at the vertex would bisect the door");
+                        Status("can't place a door here: a wall at the vertex would bisect the door", StatusKind.Error);
                         break;
                     }
                     var vkey = new VertexDoorKey(vdxx, vdy, orient.Value);
@@ -1921,7 +1928,7 @@ public sealed partial class MapCanvas : Control
                 var lbl = LabelAt(cell);
                 if (lbl is not null && _remote is not null && !PlayerLabels.Editable(lbl))
                 {
-                    StatusMessage?.Invoke("only the DM edits that label");
+                    Status("only the DM edits that label", StatusKind.Error);
                     break;
                 }
                 if (lbl is not null)
@@ -1968,12 +1975,12 @@ public sealed partial class MapCanvas : Control
                     Document.AddPolygon(_polyVerts, passageway, strict, PolygonMergeNearby, new CellKey(vx, vy));
                     _polyVerts.Clear();
                     Commit();
-                    StatusMessage?.Invoke("polygon closed");
+                    Status("polygon closed");
                 }
                 else
                 {
                     _polyVerts.Add((vx, vy));
-                    StatusMessage?.Invoke($"vertex ({vx},{vy}) added - click first vertex or press Enter to close");
+                    Status($"vertex ({vx},{vy}) added - click first vertex or press Enter to close");
                 }
                 break;
 
@@ -2133,11 +2140,11 @@ public sealed partial class MapCanvas : Control
                 if (occupant is not null)
                 {
                     Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Status = occupant.Status, DmOnly = occupant.DmOnly };
-                    StatusMessage?.Invoke("swapped pawns");
+                    Status("swapped pawns");
                 }
                 else
                 {
-                    StatusMessage?.Invoke($"moved pawn to ({target.X}, {target.Y})");
+                    Status($"moved pawn to ({target.X}, {target.Y})");
                 }
                 Commit();
             }
@@ -2207,7 +2214,7 @@ public sealed partial class MapCanvas : Control
                     // nothing in the region: drop the selection so the next
                     // drag starts fresh
                     ClearSelection();
-                    StatusMessage?.Invoke(pawnsOnly ? "no pawns in that region" : "nothing to move in that region");
+                    Status(pawnsOnly ? "no pawns in that region" : "nothing to move in that region", StatusKind.Warning);
                     InvalidateVisual();
                     return;
                 }
@@ -2269,13 +2276,13 @@ public sealed partial class MapCanvas : Control
             if (lend == lstart)
             {
                 // zero-length line: press and release on the same vertex
-                StatusMessage?.Invoke("wall line cancelled: start and end are the same vertex");
+                Status("wall line cancelled: start and end are the same vertex", StatusKind.Warning);
             }
             else
             {
                 Document.AddLine(lstart.x, lstart.y, lend.x, lend.y);
                 Commit();
-                StatusMessage?.Invoke($"wall ({lstart.x},{lstart.y}) -> ({lend.x},{lend.y})");
+                Status($"wall ({lstart.x},{lstart.y}) -> ({lend.x},{lend.y})");
             }
             InvalidateVisual();
             return;

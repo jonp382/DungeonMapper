@@ -43,7 +43,7 @@ public partial class MainWindow
         var content = ProjectContent();
         if (content == _autosavedContent)
         {
-            StatusText.Text = "skipped autosave: no changes have been made";
+            SetStatus("skipped autosave: no changes have been made", StatusKind.Warning);
             return;
         }
         var dir = System.IO.Path.Combine(AppContext.BaseDirectory, "maps", "autosaves");
@@ -51,7 +51,7 @@ public partial class MainWindow
         var name = $"autosave_{_project.ActiveIndex}_{Stamp()}.json";
         MapSerializer.SaveProject(_project, System.IO.Path.Combine(dir, name), ActiveLibrary, ActivePresets, ActiveObjects);
         _autosavedContent = content;
-        StatusText.Text = $"autosaved {name}";
+        SetStatus($"autosaved {name}", StatusKind.Success);
     }
 
     protected override void OnClosing(WindowClosingEventArgs e)
@@ -91,7 +91,7 @@ public partial class MainWindow
         {
             CloseExitPrompt();
             if (await SaveCurrentAsync()) ConfirmedClose();
-            else StatusText.Text = "not saved, exit cancelled";
+            else SetStatus("not saved, exit cancelled", StatusKind.Warning);
         };
         no.Click += (_, _) => { CloseExitPrompt(); ConfirmedClose(); };
         cancel.Click += (_, _) => CloseExitPrompt();

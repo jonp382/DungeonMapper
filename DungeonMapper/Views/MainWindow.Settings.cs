@@ -241,7 +241,7 @@ public partial class MainWindow
         MarkSetting();
         RefreshImagesFolderText();
         RefreshImagePanel();
-        StatusText.Text = path.Length == 0 ? "images folder cleared" : $"images folder: {path}";
+        SetStatus(path.Length == 0 ? "images folder cleared" : $"images folder: {path}");
     }
 
     private void RefreshImagesFolderText()
@@ -313,7 +313,7 @@ public partial class MainWindow
         _settings.DefaultLabelText = SettingDefaults.DefaultLabelText;
         SettingChanged();
         RefreshSettings();
-        StatusText.Text = "settings reset to defaults";
+        SetStatus("settings reset to defaults");
     }
 
     // every app wide setting: this page, the default label text and the
@@ -338,9 +338,9 @@ public partial class MainWindow
         try
         {
             File.WriteAllText(file.Path.LocalPath, _settings.ExportJson());
-            StatusText.Text = $"settings exported to {Path.GetFileName(file.Path.LocalPath)}";
+            SetStatus($"settings exported to {Path.GetFileName(file.Path.LocalPath)}", StatusKind.Success);
         }
-        catch (Exception ex) { StatusText.Text = $"settings export failed: {ex.Message}"; }
+        catch (Exception ex) { SetStatus($"settings export failed: {ex.Message}", StatusKind.Error); }
     }
 
     private async Task ImportSettings()
@@ -361,12 +361,12 @@ public partial class MainWindow
         try { read = AppSettings.ParseImport(File.ReadAllText(path)); }
         catch (Exception ex)
         {
-            StatusText.Text = $"could not read {name}: {ex.Message}";
+            SetStatus($"could not read {name}: {ex.Message}", StatusKind.Error);
             return;
         }
         if (read is null)
         {
-            StatusText.Text = $"{name} is not a settings file";
+            SetStatus($"{name} is not a settings file", StatusKind.Error);
             return;
         }
         ConfirmFlyout(SettingsImport,
@@ -386,7 +386,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             // the confirm promised a backup, so no backup means no import
-            StatusText.Text = $"settings not imported, could not keep the current ones: {ex.Message}";
+            SetStatus($"settings not imported, could not keep the current ones: {ex.Message}", StatusKind.Error);
             return;
         }
         _settings.CopyAppWideFrom(read);
@@ -396,6 +396,6 @@ public partial class MainWindow
         RefreshToolLabels();
         RefreshSettings();
         if (Canvas.Mode == ToolMode.Pawn) BuildPawnPanel(); else PopulatePanel(Canvas.Mode);
-        StatusText.Text = $"settings imported from {name}";
+        SetStatus($"settings imported from {name}", StatusKind.Success);
     }
 }

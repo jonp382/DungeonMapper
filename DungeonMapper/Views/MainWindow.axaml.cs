@@ -299,10 +299,7 @@ public partial class MainWindow : Window
             RefreshToolInfo();
         };
         Canvas.TakeHeroFromOtherMaps = id => TakeHeroFromMapsExcept(_doc, id);
-        Canvas.StatusMessage += msg =>
-        {
-            StatusText.Text = msg;
-        };
+        Canvas.StatusMessage += msg => SetStatus(msg, Canvas.LastStatusKind);
 
         // a panel button click counts as a cancel of an armed move: the ghost is
         // disarmed, rotation resets, and hotkeys are restored. the hook fires
@@ -359,8 +356,8 @@ public partial class MainWindow : Window
             if (SettingsOverlay.IsVisible) { CloseSettings(); e.Handled = true; return; }
             if (HotkeysOverlay.IsVisible) { CloseHotkeys(); e.Handled = true; return; }
             // a formation capture or an armed formation goes first
-            if (Canvas.PickingArea) { Canvas.CancelAreaPick(); StatusText.Text = "formation capture cancelled"; e.Handled = true; return; }
-            if (Canvas.FormationArmed) { Canvas.CancelFormation(); StatusText.Text = "deploy cancelled"; e.Handled = true; return; }
+            if (Canvas.PickingArea) { Canvas.CancelAreaPick(); SetStatus("formation capture cancelled"); e.Handled = true; return; }
+            if (Canvas.FormationArmed) { Canvas.CancelFormation(); SetStatus("deploy cancelled"); e.Handled = true; return; }
             // Escape cancels an armed move (disarm ghost, reset rotation, restore
             // hotkeys) and discards polygon vertices.
             if (Canvas.MoveArmed) { Canvas.CancelMove(); Canvas.Refresh(); e.Handled = true; return; }
@@ -546,25 +543,25 @@ public partial class MainWindow : Window
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
         Canvas.ResetReveal();
-        StatusText.Text = mode switch
+        SetStatus(mode switch
         {
-            ToolMode.Select => "select: click an element to configure, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
-            ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
+            ToolMode.Select => "select: click an element to configure, drag a pawn to move it, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
+            ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+drag moves only pawns. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
             ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
-            ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure. one pawn per cell",
+            ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure, drag a pawn to move it, shift+drag a box to move several. one pawn per cell",
             ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize",
             ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
-            ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. drag out from a pawn (or shift+drag) for a radius. esc clears",
+            ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. shift+drag for a radius. esc clears",
             ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",
             ToolMode.Reveal => "reveal: choose cells or items and show or hide, then drag a box (room: click inside a room, circle: drag out from a center)",
             _ => "",
-        };
+        });
         PopulatePanel(mode);
         Canvas.Refresh();
         FocusCanvas(); // restore hotkey focus after the tool button click
@@ -598,7 +595,7 @@ public partial class MainWindow : Window
         Canvas.AutoFit();
         RefreshMapList();
         if (MapsOverlay.IsVisible) ShowMaps();
-        StatusText.Text = $"switched to {_project.ActiveName}";
+        SetStatus($"switched to {_project.ActiveName}");
         Canvas.Refresh();
         PawnViewsChanged();
         RefreshDoorPresets();
@@ -619,7 +616,7 @@ public partial class MainWindow : Window
         PawnViewsChanged();
         RefreshDoorPresets();
         RefreshToolInfo();
-        StatusText.Text = $"added {name}";
+        SetStatus($"added {name}");
         Canvas.Refresh();
         FocusCanvas();
     }
@@ -628,7 +625,7 @@ public partial class MainWindow : Window
     {
         FlushPendingEdits();
         var snap = ActiveHistory.Undo();
-        if (snap is null) { StatusText.Text = "nothing to undo"; return; }
+        if (snap is null) { SetStatus("nothing to undo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
@@ -636,14 +633,14 @@ public partial class MainWindow : Window
         RefreshMaps();
         RefreshToolInfo();
         ReopenConfigView();
-        StatusText.Text = "undo";
+        SetStatus("undo");
     }
 
     private void DoRedo()
     {
         FlushPendingEdits();
         var snap = ActiveHistory.Redo();
-        if (snap is null) { StatusText.Text = "nothing to redo"; return; }
+        if (snap is null) { SetStatus("nothing to redo", StatusKind.Warning); return; }
         _doc.ApplyFrom(snap);
         Canvas.Refresh();
         PawnViewsChanged();
@@ -651,7 +648,7 @@ public partial class MainWindow : Window
         RefreshMaps();
         RefreshToolInfo();
         ReopenConfigView();
-        StatusText.Text = "redo";
+        SetStatus("redo");
     }
 
     private async void SaveMap() => await SaveMapAsync();
@@ -677,10 +674,10 @@ public partial class MainWindow : Window
         if (file is null) return false;
         var path = file.Path.LocalPath;
         try { MapSerializer.SaveProject(_project, path, ActiveLibrary, ActivePresets, ActiveObjects); }
-        catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
+        catch (Exception ex) { SetStatus($"save failed: {ex.Message}", StatusKind.Error); return false; }
         _currentMapPath = path; // Ctrl+S saves over this file from now on
         MarkSaved();
-        StatusText.Text = $"saved {path}";
+        SetStatus($"saved {path}", StatusKind.Success);
         return true;
     }
 
@@ -694,9 +691,9 @@ public partial class MainWindow : Window
         FlushPendingEdits();
         if (_currentMapPath is null) return await SaveMapAsync();
         try { MapSerializer.SaveProject(_project, _currentMapPath, ActiveLibrary, ActivePresets, ActiveObjects); }
-        catch (Exception ex) { StatusText.Text = $"save failed: {ex.Message}"; return false; }
+        catch (Exception ex) { SetStatus($"save failed: {ex.Message}", StatusKind.Error); return false; }
         MarkSaved();
-        StatusText.Text = $"saved {_currentMapPath}";
+        SetStatus($"saved {_currentMapPath}", StatusKind.Success);
         return true;
     }
 
@@ -764,11 +761,11 @@ public partial class MainWindow : Window
             // a map file opened as a new campaign has no campaign file yet, so
             // it counts as unsaved
             if (kind == SaveFileKind.Campaign) MarkSaved(); else _autosavedContent = null;
-            StatusText.Text = $"loaded {path} ({_project.Maps.Count} maps)";
+            SetStatus($"loaded {path} ({_project.Maps.Count} maps)", StatusKind.Success);
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"load failed: {ex.Message}";
+            SetStatus($"load failed: {ex.Message}", StatusKind.Error);
         }
     }
 

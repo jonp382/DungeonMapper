@@ -225,7 +225,7 @@ public partial class MainWindow
         }
         t.Name = to;
         if (Canvas.DefaultDoorType == from) Canvas.DefaultDoorType = to;
-        StatusText.Text = $"renamed door type '{from}' to '{to}'";
+        SetStatus($"renamed door type '{from}' to '{to}'");
         DoorSettingsChanged();
     }
 
@@ -246,7 +246,7 @@ public partial class MainWindow
             int i = ActivePresets.DoorTypes.IndexOf(t);
             ActivePresets.DoorTypes.Remove(t);
             _doorSel = ActivePresets.DoorTypes.Count == 0 ? null : ActivePresets.DoorTypes[Math.Clamp(i, 0, ActivePresets.DoorTypes.Count - 1)];
-            StatusText.Text = $"deleted door type '{t.Name}'";
+            SetStatus($"deleted door type '{t.Name}'");
             DoorSettingsChanged();
         }
 

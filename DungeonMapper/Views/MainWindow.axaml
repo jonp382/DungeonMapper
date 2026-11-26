@@ -122,15 +122,18 @@
              buttons had before they became icons. -->
         <ThemeVariantScope DockPanel.Dock="Bottom" RequestedThemeVariant="Dark">
             <Border Background="#1a1a22">
-                <Border Background="{DynamicResource ButtonBackground}" Padding="10,3">
-                    <DockPanel>
+                <!-- StatusFlash flashes the message's color over the bar (MainWindow.Status.cs) -->
+                <Panel>
+                    <Border Background="{DynamicResource ButtonBackground}" />
+                    <Border x:Name="StatusFlash" Opacity="0" IsHitTestVisible="False" />
+                    <DockPanel Margin="10,3">
                         <TextBlock x:Name="SessionStatus" DockPanel.Dock="Right" IsVisible="False"
-                                   Foreground="#ec5adc" FontSize="12" FontWeight="SemiBold" Margin="12,0,0,0" />
+                                   Foreground="#ec5adc" FontSize="13" FontWeight="SemiBold" Margin="12,0,0,0" />
                         <TextBlock x:Name="StatusText" Text="right or middle drag: pan, wheel: zoom"
-                                   Foreground="White" FontSize="12"
+                                   Foreground="White" FontSize="13" FontWeight="SemiBold"
                                    TextTrimming="CharacterEllipsis" />
                     </DockPanel>
-                </Border>
+                </Panel>
             </Border>
         </ThemeVariantScope>
 

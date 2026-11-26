@@ -75,7 +75,7 @@ public sealed partial class MapCanvas
         e.Pointer.Capture(null);
         if (HandleLabel is { } l && (l.Cell.X, l.Cell.Y, l.W, l.H) != _labelStart)
         {
-            StatusMessage?.Invoke($"label resized to {l.W * 5}x{l.H * 5}ft");
+            Status($"label resized to {l.W * 5}x{l.H * 5}ft");
             Commit();
             LabelResized?.Invoke(l);
         }

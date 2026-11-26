@@ -59,9 +59,9 @@ public partial class MainWindow
         try
         {
             System.IO.File.WriteAllText(path, ActivePresets.ExportJson(part));
-            StatusText.Text = $"exported {n} {PartLabel(part)} to {path}";
+            SetStatus($"exported {n} {PartLabel(part)} to {path}", StatusKind.Success);
         }
-        catch (Exception ex) { StatusText.Text = $"export failed: {ex.Message}"; }
+        catch (Exception ex) { SetStatus($"export failed: {ex.Message}", StatusKind.Error); }
     }
 
     // import and export all under the affiliations and status styles tabs
@@ -126,7 +126,7 @@ public partial class MainWindow
         var path = files[0].Path.LocalPath;
         CampaignPresets incoming;
         try { incoming = CampaignPresets.ReadImport(System.IO.File.ReadAllText(path)); }
-        catch (Exception ex) { StatusText.Text = $"import failed: {ex.Message}"; return; }
+        catch (Exception ex) { SetStatus($"import failed: {ex.Message}", StatusKind.Error); return; }
 
         var p = ActivePresets;
         List<PresetItem> items = part switch
@@ -135,7 +135,7 @@ public partial class MainWindow
             Part.Statuses => incoming.PawnStatuses.Select(s => new PresetItem(s.Name, p.Classify(s), () => StatusLook(s), s)).ToList(),
             _ => incoming.AffiliationColors.Select(a => new PresetItem(a.Name, p.Classify(a), () => AffDot(a, 18), a)).ToList(),
         };
-        if (items.Count == 0) { StatusText.Text = $"that file has no {PartLabel(part)} in it"; return; }
+        if (items.Count == 0) { SetStatus($"that file has no {PartLabel(part)} in it", StatusKind.Warning); return; }
 
         // only names the campaign lacks can be imported
         var fresh = items.Where(i => i.Kind == PawnLibrary.ImportKind.New).ToList();
@@ -232,7 +232,7 @@ public partial class MainWindow
             if (part == Part.Doors && Canvas.Mode == ToolMode.Door) PopulatePanel(ToolMode.Door);
             if (part != Part.Doors) PawnsChanged();
             PresetImportReturn(part);
-            StatusText.Text = $"imported {added} {PartLabel(part)}";
+            SetStatus($"imported {added} {PartLabel(part)}", StatusKind.Success);
         }
 
         all.Click += (_, _) =>

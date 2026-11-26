@@ -85,7 +85,7 @@ public partial class MainWindow
             RefreshMaps();
             RefreshToolInfo();
         }
-        StatusText.Text = n == 0 ? $"no open {type} doors on this map" : $"closed {Plural(n, $"{type} door")}";
+        SetStatus(n == 0 ? $"no open {type} doors on this map" : $"closed {Plural(n, $"{type} door")}", n == 0 ? StatusKind.Warning : StatusKind.Info);
         FocusCanvas();
     }
 }

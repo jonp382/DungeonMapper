@@ -11,6 +11,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 - **Pan:** right-click or middle-click and drag
 - **Zoom:** mouse wheel
 - **Pick a tool:** click it in the toolbar, or press its letter
+- **Status bar:** the line at the bottom left flashes with each message. Red means something failed or was refused, orange means nothing happened (a step is missing), green means a save, export, join or host worked, and pink is a player's change during a session.
 
 ## Tools
 

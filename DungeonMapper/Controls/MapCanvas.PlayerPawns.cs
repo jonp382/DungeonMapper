@@ -68,20 +68,20 @@ public sealed partial class MapCanvas
             {
                 // dragged like in the move tool; a click opens it (on release)
                 if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) { _playerFrom = _playerOver = cell; e.Pointer.Capture(this); }
-                else StatusMessage?.Invoke("only the DM changes that pawn");
+                else Status("only the DM changes that pawn", StatusKind.Error);
             }
             else if (ArmedPawn is { } t)
             {
-                if (PlayerPawns.CheckPlace(_remote, Library, t.Id, cell) is { } why) StatusMessage?.Invoke(why);
+                if (PlayerPawns.CheckPlace(_remote, Library, t.Id, cell) is { } why) Status(why, StatusKind.Error);
                 else PlayerPlaceRequested?.Invoke(t.Id, cell);
             }
-            else StatusMessage?.Invoke("select a pawn in the pawn menu first");
+            else Status("select a pawn in the pawn menu first", StatusKind.Warning);
             return true;
         }
         if (Mode != ToolMode.Move) return false;
         if (_remote.Pawns.TryGetValue(cell, out var p))
         {
-            if (!PlayerPawns.Controlled(Library.Find(p.TemplateId))) { StatusMessage?.Invoke("only the DM moves that pawn"); return true; }
+            if (!PlayerPawns.Controlled(Library.Find(p.TemplateId))) { Status("only the DM moves that pawn", StatusKind.Error); return true; }
             _playerFrom = _playerOver = cell;
             e.Pointer.Capture(this);
             InvalidateVisual();
@@ -109,7 +109,7 @@ public sealed partial class MapCanvas
             if (Mode == ToolMode.Pawn && _remote!.Pawns.TryGetValue(from, out var placed)) PawnConfigRequested?.Invoke(placed);
             return true;
         }
-        if (PlayerPawns.CheckMove(_remote!, Library, from, to) is { } why) StatusMessage?.Invoke(why);
+        if (PlayerPawns.CheckMove(_remote!, Library, from, to) is { } why) Status(why, StatusKind.Error);
         else PlayerMoveRequested?.Invoke(from, to);
         return true;
     }
@@ -127,11 +127,11 @@ public sealed partial class MapCanvas
             if (doc.Pawns.TryGetValue(cell, out var placed))
             {
                 if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) PawnConfigRequested?.Invoke(placed);
-                else StatusMessage?.Invoke("only the DM changes that pawn");
+                else Status("only the DM changes that pawn", StatusKind.Error);
             }
             else if (ArmedPawn is { } t)
             {
-                if (PlayerPawns.CheckPlace(doc, Library, t.Id, cell) is { } why) StatusMessage?.Invoke(why);
+                if (PlayerPawns.CheckPlace(doc, Library, t.Id, cell) is { } why) Status(why, StatusKind.Error);
                 else PlayerPlaceRequested?.Invoke(t.Id, cell);
             }
             return;
@@ -143,7 +143,7 @@ public sealed partial class MapCanvas
         if (snap.Empty)
         {
             ClearSelection();
-            StatusMessage?.Invoke("none of your pawns in that region");
+            Status("none of your pawns in that region", StatusKind.Warning);
             return;
         }
         _selectStart = new CellKey(box.x0, box.y0);
@@ -166,7 +166,7 @@ public sealed partial class MapCanvas
     {
         int dx = target.X - _clipboard!.OriginX, dy = target.Y - _clipboard.OriginY;
         var moves = _remoteMoveFrom.Zip(_clipboard.Pawns, (from, p) => (from, new CellKey(p.Cell.X + dx, p.Cell.Y + dy))).ToList();
-        if (PlayerPawns.CheckMoveMany(_remote!, Library, moves) is { } why) { StatusMessage?.Invoke(why); return; }
+        if (PlayerPawns.CheckMoveMany(_remote!, Library, moves) is { } why) { Status(why, StatusKind.Error); return; }
         PlayerMoveManyRequested?.Invoke(moves);
         CancelMove();
     }

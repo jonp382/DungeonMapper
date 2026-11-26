@@ -27,30 +27,30 @@ public partial class MainWindow
 
     private void DoPing()
     {
-        if (Canvas.CursorCell is not CellKey c) { StatusText.Text = "point at the map to ping"; return; }
+        if (Canvas.CursorCell is not CellKey c) { SetStatus("point at the map to ping", StatusKind.Warning); return; }
         if (_client is not null)
         {
             Canvas.ShowPing(c, "you");
             var cl = _client;
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPing(c.X, c.Y));
-            StatusText.Text = $"pinged {c.X},{c.Y}";
+            SetStatus($"pinged {c.X},{c.Y}");
         }
         else if (_host is not null)
         {
             var shown = ShownMap();
             if (shown is null || shown.Doc != _doc)
             {
-                StatusText.Text = $"ping not sent: players are on {shown?.Name ?? "no map"}, not this one";
+                SetStatus($"ping not sent: players are on {shown?.Name ?? "no map"}, not this one", StatusKind.Warning);
                 return;
             }
             Canvas.ShowPing(c, "you");
             _host.Ping("DM", c.X, c.Y);
-            StatusText.Text = $"pinged {c.X},{c.Y}";
+            SetStatus($"pinged {c.X},{c.Y}");
         }
         else
         {
             Canvas.ShowPing(c, "ping");
-            StatusText.Text = $"pinged {c.X},{c.Y} (nobody else sees it outside a session)";
+            SetStatus($"pinged {c.X},{c.Y} (nobody else sees it outside a session)");
         }
     }
 

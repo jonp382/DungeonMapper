@@ -174,6 +174,6 @@ public partial class MainWindow
         MarkSetting();
         RefreshToolLabels();
         BuildHotkeyRows();
-        StatusText.Text = "hotkeys reset to defaults";
+        SetStatus("hotkeys reset to defaults");
     }
 }

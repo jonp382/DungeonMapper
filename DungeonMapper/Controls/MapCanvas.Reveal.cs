@@ -103,9 +103,9 @@ public sealed partial class MapCanvas
             _revealDragging = false;
             int n = Document.SetDmOnly(x0, y0, x1, y1, RevealKinds, !RevealShow);
             if (n > 0) Commit();
-            StatusMessage?.Invoke(n == 0
+            Status(n == 0
                 ? "no items changed in that area"
-                : $"{n} {(n == 1 ? "item" : "items")} now {(RevealShow ? "visible to players" : "DM only")}");
+                : $"{n} {(n == 1 ? "item" : "items")} now {(RevealShow ? "visible to players" : "DM only")}", n == 0 ? StatusKind.Warning : StatusKind.Info);
             RevealChanged?.Invoke();
             InvalidateVisual();
             return true;
@@ -120,9 +120,9 @@ public sealed partial class MapCanvas
     {
         int n = Document.SetRevealed(cells, RevealShow);
         if (n > 0) Commit();
-        StatusMessage?.Invoke(n == 0
+        Status(n == 0
             ? $"nothing to {(RevealShow ? "reveal" : "hide")} in that {what}"
-            : $"{(RevealShow ? "revealed" : "hid")} {n} {(n == 1 ? "cell" : "cells")}");
+            : $"{(RevealShow ? "revealed" : "hid")} {n} {(n == 1 ? "cell" : "cells")}", n == 0 ? StatusKind.Warning : StatusKind.Info);
         RevealChanged?.Invoke();
         InvalidateVisual();
     }
