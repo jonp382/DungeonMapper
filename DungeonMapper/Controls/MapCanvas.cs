@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal, Image }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal, Image, Sight }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -1116,6 +1116,8 @@ public sealed partial class MapCanvas : Control
             }
         }
 
+        DrawSightTint(ctx); // under the pawns, over the floor and walls
+
         // Pawns: concentric circles (outer + inner) + outer status border, scaled
         // by zoom. Visual data resolves from the library template (hard reference);
         // a missing template renders an X (broken reference). Drawn after labels.
@@ -1158,6 +1160,7 @@ public sealed partial class MapCanvas : Control
         }
 
         DrawFog(ctx); // under the tool overlays, over the whole map
+        DrawSightDim(ctx);
         DrawRevealOverlay(ctx);
         DrawUnlit(ctx);
         DrawPreview(ctx);
@@ -1166,6 +1169,7 @@ public sealed partial class MapCanvas : Control
         DrawLabelHandles(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
+        DrawSightLine(ctx);
         DrawPlayerPawnDrag(ctx);
         DrawPings(ctx);
         DrawFloating(ctx);
@@ -1772,6 +1776,26 @@ public sealed partial class MapCanvas : Control
         return true;
     }
 
+    /// per-pawn move: lift the pawn from its source cell and place it on the
+    /// landing cell. one undoable commit. landing on another pawn SWAPS the
+    /// two pawns' positions. nothing but pawns changes.
+    private void LandPawn(Pawn pawn, CellKey from, CellKey target)
+    {
+        var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
+        Document.Pawns.Remove(from);
+        Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Statuses = pawn.CloneStatuses(), DmOnly = pawn.DmOnly };
+        if (occupant is not null)
+        {
+            Document.Pawns[from] = new Pawn { Cell = from, TemplateId = occupant.TemplateId, Statuses = occupant.CloneStatuses(), DmOnly = occupant.DmOnly };
+            Status("swapped pawns");
+        }
+        else
+        {
+            Status($"moved pawn to ({target.X}, {target.Y})");
+        }
+        Commit();
+    }
+
     private static bool Shifted(PointerPressedEventArgs e) => e.KeyModifiers.HasFlag(KeyModifiers.Shift);
 
     /// Starts a selection box (select, move and pawn tools). A shift box in the
@@ -1837,6 +1861,7 @@ public sealed partial class MapCanvas : Control
         if (FormationPressed(e, cell)) return;
         if (MeasurePressed(e, world, cell)) return;
         if (FogPressed(e, world)) return;
+        if (SightPressed(e, cell)) return;
         if (RevealPressed(e, world, cell)) return;
         if (PlayerPawnPressed(e, cell)) return;
 
@@ -2068,6 +2093,7 @@ public sealed partial class MapCanvas : Control
         if (ImageMoved(world)) return;
         if (MeasureMoved(world)) return;
         if (FogMoved(world)) return;
+        if (SightMoved(world)) return;
         if (RevealMoved(world)) return;
         if (PlayerPawnMoved(world)) return;
         if (LabelResizeMoved(world)) return;
@@ -2165,6 +2191,7 @@ public sealed partial class MapCanvas : Control
         if (ImageReleased(e)) return;
         if (MeasureReleased(e)) return;
         if (FogReleased(e)) return;
+        if (SightReleased(e)) return;
         if (RevealReleased(e)) return;
         if (PlayerPawnReleased(e)) return;
         if (LabelResizeReleased(e)) return;
@@ -2182,25 +2209,7 @@ public sealed partial class MapCanvas : Control
                 // no drag: release on the same cell shows the pawn's config
                 PawnConfigRequested?.Invoke(pawn);
             }
-            else
-            {
-                // per-pawn move: lift the pawn from its source cell and place it
-                // on the landing cell. one undoable commit. landing on another pawn
-                // SWAPS the two pawns' positions. nothing but pawns changes.
-                var occupant = Document.Pawns.TryGetValue(target, out var occ) ? occ : null;
-                Document.Pawns.Remove(_pawnDragStart);
-                Document.Pawns[target] = new Pawn { Cell = target, TemplateId = pawn.TemplateId, Statuses = pawn.CloneStatuses(), DmOnly = pawn.DmOnly };
-                if (occupant is not null)
-                {
-                    Document.Pawns[_pawnDragStart] = new Pawn { Cell = _pawnDragStart, TemplateId = occupant.TemplateId, Statuses = occupant.CloneStatuses(), DmOnly = occupant.DmOnly };
-                    Status("swapped pawns");
-                }
-                else
-                {
-                    Status($"moved pawn to ({target.X}, {target.Y})");
-                }
-                Commit();
-            }
+            else LandPawn(pawn, _pawnDragStart, target);
             InvalidateVisual();
             return;
         }
@@ -2482,6 +2491,12 @@ public sealed partial class MapCanvas : Control
         if (e.KeyModifiers == KeyModifiers.Shift && Mode == ToolMode.Fog)
         {
             StepFog(e.Delta.Y > 0 ? 1 : -1);
+            e.Handled = true;
+            return;
+        }
+        if (e.KeyModifiers == KeyModifiers.Shift && Mode == ToolMode.Sight)
+        {
+            StepSight(e.Delta.Y > 0 ? 1 : -1);
             e.Handled = true;
             return;
         }

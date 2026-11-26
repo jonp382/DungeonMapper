@@ -110,6 +110,7 @@
                             <Button x:Name="ToolErase" Classes="hot" />
                             <Button x:Name="ToolMeasure" Classes="hot" />
                             <Button x:Name="ToolFog" Classes="hot" />
+                            <Button x:Name="ToolSight" Classes="hot" />
                             <Button x:Name="ToolReveal" Classes="hot" />
                         </WrapPanel>
                     </DockPanel>
@@ -383,6 +384,54 @@
                                                     VerticalAlignment="Center" Margin="0,0,10,0" />
                                             <TextBox x:Name="SetFogOpacity" Grid.Column="2" Classes="field number" />
                                             <Button x:Name="ResetFogOpacity" Grid.Column="3" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="sight: clear" />
+                                                <TextBlock Classes="hint" Text="the sight tool's tint where nothing is in the way." />
+                                            </StackPanel>
+                                            <ContentControl x:Name="SetSightClearColor" Grid.Column="1" />
+                                            <Button x:Name="ResetSightClearColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="sight: one pawn" />
+                                                <TextBlock Classes="hint" Text="the tint behind one pawn." />
+                                            </StackPanel>
+                                            <ContentControl x:Name="SetSightOneColor" Grid.Column="1" />
+                                            <Button x:Name="ResetSightOneColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="sight: two pawns" />
+                                                <TextBlock Classes="hint" Text="the tint behind two or more pawns." />
+                                            </StackPanel>
+                                            <ContentControl x:Name="SetSightTwoColor" Grid.Column="1" />
+                                            <Button x:Name="ResetSightTwoColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="sight tint" />
+                                                <TextBlock Classes="hint" Text="how strong the sight tint is, percent 0 to 100." />
+                                                <TextBlock x:Name="SetSightOpacityError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <Slider x:Name="SetSightOpacitySlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"
+                                                    SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetSightOpacity" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetSightOpacity" Grid.Column="3" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="sight dimming" />
+                                                <TextBlock Classes="hint" Text="how dark everything the sight tool can not see is, percent 0 to 100. uses the fog color." />
+                                                <TextBlock x:Name="SetSightDimError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <Slider x:Name="SetSightDimSlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"
+                                                    SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetSightDim" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetSightDim" Grid.Column="3" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                     </StackPanel>
                                 </Border>

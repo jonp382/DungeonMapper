@@ -56,6 +56,12 @@ public partial class MainWindow
                 (s, c) => (s.MeasureR, s.MeasureG, s.MeasureB) = c),
             new(SetFogColor, ResetFogColor, s => (s.FogR, s.FogG, s.FogB),
                 (s, c) => (s.FogR, s.FogG, s.FogB) = c),
+            new(SetSightClearColor, ResetSightClearColor, s => (s.SightClearR, s.SightClearG, s.SightClearB),
+                (s, c) => (s.SightClearR, s.SightClearG, s.SightClearB) = c),
+            new(SetSightOneColor, ResetSightOneColor, s => (s.SightOneR, s.SightOneG, s.SightOneB),
+                (s, c) => (s.SightOneR, s.SightOneG, s.SightOneB) = c),
+            new(SetSightTwoColor, ResetSightTwoColor, s => (s.SightTwoR, s.SightTwoG, s.SightTwoB),
+                (s, c) => (s.SightTwoR, s.SightTwoG, s.SightTwoB) = c),
         ];
         _numberSettings =
         [
@@ -78,6 +84,10 @@ public partial class MainWindow
                 s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
             new(SetFogOpacity, SetFogOpacityError, ResetFogOpacity, 0, AppSettings.MaxFogOpacity,
                 s => s.FogOpacity, (s, v) => s.FogOpacity = v),
+            new(SetSightOpacity, SetSightOpacityError, ResetSightOpacity, 0, AppSettings.MaxSightOpacity,
+                s => s.SightOpacity, (s, v) => s.SightOpacity = v),
+            new(SetSightDim, SetSightDimError, ResetSightDim, 0, AppSettings.MaxSightDim,
+                s => s.SightDim, (s, v) => s.SightDim = v),
         ];
         SetWallThicknessHint.Text = $"pixels, {AppSettings.MinWallThickness} to {AppSettings.MaxWallThickness}.";
         SetAutosaveHint.Text = $"minutes, 0 to {MaxAutosaveMinutes}. 0 turns autosave off.";
@@ -241,6 +251,8 @@ public partial class MainWindow
             if (n.Box == SetFloorGridOpacity) yield return (SetFloorGridOpacitySlider, n);
             else if (n.Box == SetMeasureShade) yield return (SetMeasureShadeSlider, n);
             else if (n.Box == SetFogOpacity) yield return (SetFogOpacitySlider, n);
+            else if (n.Box == SetSightOpacity) yield return (SetSightOpacitySlider, n);
+            else if (n.Box == SetSightDim) yield return (SetSightDimSlider, n);
         }
     }
 

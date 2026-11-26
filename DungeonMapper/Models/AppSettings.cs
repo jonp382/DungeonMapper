@@ -216,6 +216,22 @@ public sealed class AppSettings
     [JsonPropertyName("fog_b")] public int FogB { get; set; } = 0;
     [JsonPropertyName("fog_opacity")] public int FogOpacity { get; set; } = 30;
     public const int MaxFogOpacity = 100;
+    // sight tool: the tint colors (clear, behind one pawn, behind two or
+    // more), how see-through the tint is and how dim everything outside the
+    // visible region is (percent, 0 to 100; the dim uses the fog color)
+    [JsonPropertyName("sight_clear_r")] public int SightClearR { get; set; } = 60;
+    [JsonPropertyName("sight_clear_g")] public int SightClearG { get; set; } = 200;
+    [JsonPropertyName("sight_clear_b")] public int SightClearB { get; set; } = 90;
+    [JsonPropertyName("sight_one_r")] public int SightOneR { get; set; } = 255;
+    [JsonPropertyName("sight_one_g")] public int SightOneG { get; set; } = 150;
+    [JsonPropertyName("sight_one_b")] public int SightOneB { get; set; } = 40;
+    [JsonPropertyName("sight_two_r")] public int SightTwoR { get; set; } = 230;
+    [JsonPropertyName("sight_two_g")] public int SightTwoG { get; set; } = 50;
+    [JsonPropertyName("sight_two_b")] public int SightTwoB { get; set; } = 50;
+    [JsonPropertyName("sight_opacity")] public int SightOpacity { get; set; } = 30;
+    public const int MaxSightOpacity = 100;
+    [JsonPropertyName("sight_dim")] public int SightDim { get; set; } = 40;
+    public const int MaxSightDim = 100;
 
     // Autosave interval in minutes; 0 = autosave off. Writes to
     // maps/autosaves/ with a standardized name (index + datetime stamp).
@@ -299,6 +315,7 @@ public sealed class AppSettings
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             ["Measure"] = "G",
             ["Fog"] = "V",
+            ["Sight"] = "K",
             ["Reveal"] = "H",
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
@@ -432,6 +449,8 @@ public sealed class AppSettings
         s.TimerDistance = Math.Clamp(s.TimerDistance, 0, MaxTimerDistance);
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
         s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
+        s.SightOpacity = Math.Clamp(s.SightOpacity, 0, MaxSightOpacity);
+        s.SightDim = Math.Clamp(s.SightDim, 0, MaxSightDim);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;
         // hotkeys: only known tools, each a letter a to z or one of the
         // ExtraHotkeys (what the hotkeys menu allows); anything else falls

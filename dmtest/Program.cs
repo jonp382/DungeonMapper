@@ -6294,5 +6294,206 @@ try { Directory.Delete(imgDir, true); } catch { }
         "timers: distance is clamped on import, 50 by default");
 }
 
+// --- line of sight (model) ---
+{
+    double Area(List<(double x, double y)> pts)
+    {
+        double a = 0;
+        for (int i = 0; i < pts.Count; i++) { var p = pts[i]; var q = pts[(i + 1) % pts.Count]; a += p.x * q.y - q.x * p.y; }
+        return Math.Abs(a) / 2;
+    }
+    bool Inside(List<(double x, double y)> pts, double x, double y)
+    {
+        bool inside = false;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+            if ((pts[i].y > y) != (pts[j].y > y) && x < (pts[j].x - pts[i].x) * (y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x) inside = !inside;
+        return inside;
+    }
+    var none = new List<(double, double)>();
+
+    var d = new MapDocument();
+    d.AddRoom(0, 0, 9, 9);
+    Check(d.Cells.Count == 100, "sight: test room is 10 by 10");
+    var segs = Sight.Blockers(d);
+    Check(Sight.Line(2.5, 2.5, 7.5, 7.5, 100, segs, none).result == SightLine.Clear, "sight: an open room is clear corner to corner");
+    Check(Math.Abs(Area(Sight.Visible(4.5, 4.5, 100, segs)) - 100) < 0.01, "sight: the region of a closed room is exactly the room");
+    Check(Math.Abs(Area(Sight.Visible(4.5, 4.5, 2, segs)) - Math.PI * 4) < 0.01, "sight: the range cuts the region to a circle");
+    Check(Sight.Line(0.5, 0.5, 9.5, 0.5, 5, segs, none).result == SightLine.OutOfRange, "sight: past the range is out of range");
+    Check(Sight.Line(4.5, 4.5, 12.5, 4.5, 100, segs, none).result == SightLine.Blocked, "sight: the room's walls block");
+
+    // an inner wall down x = 5, with a door at y = 2
+    for (int y = 0; y < 10; y++) d.SetWall(new EdgeKey(new CellKey(4, y), Side.East), true);
+    d.TryPlaceDoor(new EdgeKey(new CellKey(4, 2), Side.East), "standard", "closed", out var door);
+    segs = Sight.Blockers(d);
+    Check(Sight.Line(2.5, 2.5, 7.5, 2.5, 100, segs, none).result == SightLine.Blocked, "sight: a wall with a closed door blocks");
+    door.State = DoorState.Locked;
+    Check(Sight.Line(2.5, 2.5, 7.5, 2.5, 100, Sight.Blockers(d), none).result == SightLine.Blocked, "sight: a locked door blocks");
+    door.State = DoorState.Open;
+    segs = Sight.Blockers(d);
+    Check(Sight.Line(2.5, 2.5, 7.5, 2.5, 100, segs, none).result == SightLine.Clear, "sight: an open door lets sight through");
+    Check(Sight.Line(2.5, 5.5, 7.5, 5.5, 100, segs, none).result == SightLine.Blocked, "sight: the wall beside the open door still blocks");
+    door.DmOnly = true; door.State = DoorState.Closed;
+    Check(Sight.Line(2.5, 2.5, 7.5, 2.5, 100, Sight.Blockers(d), none).result == SightLine.Blocked, "sight: a DM only door blocks too");
+    door.State = DoorState.Open;
+    var through = Sight.Visible(2.5, 2.5, 100, Sight.Blockers(d));
+    Check(Inside(through, 7.5, 2.5) && !Inside(through, 7.5, 8.5) && Area(through) > 50 && Area(through) < 100,
+        "sight: through an open door only a cone of the next room shows");
+    // part of a cell: the cone's edge cuts through cells, so the region is not whole cells
+    // the cone's edge at x = 7.5 is y = 1.5: cell (7, 1) is half seen
+    Check(Inside(through, 7.5, 1.9) && !Inside(through, 7.5, 1.1), "sight: the region cuts cells partly, not whole cells");
+
+    // objects and stairs never block
+    d.Objects.Add(new MapObject { TypeId = "pillar", X = 6, Y = 1, W = 2, H = 3 });
+    d.Stairs[new CellKey(6, 2)] = new Stair();
+    Check(Sight.Line(2.5, 2.5, 8.5, 2.5, 100, Sight.Blockers(d), none).result == SightLine.Clear, "sight: objects and stairs are ignored");
+
+    // pawns in the way
+    var e = new MapDocument();
+    e.AddRoom(0, 0, 9, 9);
+    var es = Sight.Blockers(e);
+    var one = new List<(double, double)> { (3.5, 0.5) };
+    var two = new List<(double, double)> { (3.5, 0.5), (5.5, 0.5) };
+    Check(Sight.Line(0.5, 0.5, 8.5, 0.5, 100, es, one) == (SightLine.OnePawn, 1), "sight: one pawn in the way is orange");
+    Check(Sight.Line(0.5, 0.5, 8.5, 0.5, 100, es, two) == (SightLine.TwoPawns, 2), "sight: two pawns in the way is red");
+    Check(Sight.Line(0.5, 0.5, 5.5, 0.5, 100, es, two) == (SightLine.OnePawn, 1), "sight: the target pawn itself does not count");
+    Check(Sight.Line(0.5, 0.5, 3.5, 2.5, 100, es, two).result == SightLine.Clear, "sight: a line passing beside a pawn's circle is clear");
+    var sh = Sight.Shadow(0.5, 0.5, 3.5, 0.5, 100)!;
+    Check(Inside(sh, 6.5, 0.5) && Inside(sh, 4.0, 0.5) && !Inside(sh, 3.8, 0.5) && !Inside(sh, 2.5, 0.5) && !Inside(sh, 6.5, 3.5),
+        "sight: a pawn's shadow is behind it, not over its own circle or beside it");
+    Check(Sight.Shadow(0.5, 0.5, 0.6, 0.5, 100) is null, "sight: no shadow from a circle the viewer stands in");
+    Check(Sight.SpansOverlap(Sight.ShadowSpan(0.5, 0.5, 3.5, 0.5), Sight.ShadowSpan(0.5, 0.5, 5.5, 0.5))
+        && !Sight.SpansOverlap(Sight.ShadowSpan(0.5, 0.5, 3.5, 0.5), Sight.ShadowSpan(0.5, 0.5, 0.5, 3.5)), "sight: shadow spans overlap only when lined up");
+
+    // corners never leak: two walls meeting at one point
+    var c = new MapDocument();
+    c.AddRoom(0, 0, 5, 5);
+    c.SetWall(new EdgeKey(new CellKey(1, 1), Side.North), true); // y = 1, x 1..2
+    c.SetWall(new EdgeKey(new CellKey(0, 1), Side.East), true);  // x = 1, y 1..2
+    var cs = Sight.Blockers(c);
+    Check(Sight.Line(0.5, 0.5, 1.5, 1.5, 100, cs, none).result == SightLine.Blocked, "sight: a line through the point where two walls meet is blocked");
+    Check(!Inside(Sight.Visible(0.5, 0.5, 100, cs), 1.5, 1.5), "sight: the region does not leak through the corner");
+
+    // vertex door: open only between the two half edges it covers
+    var vd = new MapDocument();
+    vd.AddRoom(0, 0, 5, 5);
+    for (int y = 0; y < 6; y++) vd.SetWall(new EdgeKey(new CellKey(2, y), Side.East), true); // x = 3
+    vd.TryPlaceVertexDoor(3, 3, false, "standard", "open", out _);
+    var vs = Sight.Blockers(vd);
+    Check(Sight.Line(1.5, 3.0, 4.5, 3.0, 100, vs, none).result == SightLine.Clear && Sight.Line(1.5, 0.5, 4.5, 0.5, 100, vs, none).result == SightLine.Blocked,
+        "sight: an open vertex door opens one cell centered on its point");
+
+    // the floor's edge blocks with no wall: two floors with void between
+    var f = new MapDocument();
+    for (int x = 0; x < 3; x++) f.Cells.Add(new CellKey(x, 0));
+    for (int x = 5; x < 8; x++) f.Cells.Add(new CellKey(x, 0));
+    Check(Sight.Line(0.5, 0.5, 6.5, 0.5, 100, Sight.Blockers(f), none).result == SightLine.Blocked, "sight: the floor's edge blocks even without a wall");
+    f.Cells.Add(new CellKey(3, 0)); f.Cells.Add(new CellKey(4, 0));
+    Check(Sight.Line(0.5, 0.5, 6.5, 0.5, 100, Sight.Blockers(f), none).result == SightLine.Clear, "sight: joined floor is clear");
+
+    // fingerprint follows doors and pawns
+    long p0 = Sight.Fingerprint(d);
+    door.State = DoorState.Closed;
+    long p1 = Sight.Fingerprint(d);
+    d.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "x" };
+    Check(p0 != p1 && p1 != Sight.Fingerprint(d) && Sight.Fingerprint(d) == Sight.Fingerprint(d), "sight: the cache key changes with doors and pawns, and only then");
+
+    var defs = AppSettings.Default();
+    Check(defs.ToolHotkeys["Sight"] == "K" && defs.ToolHotkeys.Values.Count(v => v == "K") == 1, "sight: hotkey K by default, used by nothing else");
+    var si = AppSettings.ParseImport("{\"kind\":\"settings\",\"sight_opacity\":500,\"sight_dim\":-3,\"sight_one_r\":12}")!;
+    Check(si.SightOpacity == 100 && si.SightDim == 0 && si.SightOneR == 12 && defs.SightOpacity == 30 && defs.SightDim == 40,
+        "sight: tint and dim are clamped on import, colors kept, 30 and 40 by default");
+}
+
+// --- line of sight (canvas) ---
+{
+    using var h = new CanvasHarness();
+    var cv = h.Canvas;
+    cv.Library.Pawns.Add(new PawnTemplate { Id = "a", Name = "A" });
+    h.Doc.AddRoom(0, 0, 9, 5);
+    for (int y = 0; y < 6; y++) h.Doc.SetWall(new EdgeKey(new CellKey(5, y), Side.East), true); // wall at x = 6
+    h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "a" };
+    h.Doc.Pawns[new CellKey(3, 1)] = new Pawn { Cell = new CellKey(3, 1), TemplateId = "a" };
+    cv.Mode = ToolMode.Sight;
+    int commits = h.CommitCount;
+    h.Click(1, 1);
+    Check(cv.HasSight && cv.SightCell == new CellKey(1, 1) && h.CommitCount == commits, "sight canvas: clicking a pawn shows its sight, no change to the map");
+    Check(cv.SightLineTo(new CellKey(5, 1)) is { result: SightLine.OnePawn } && cv.SightLineTo(new CellKey(1, 3)) is { result: SightLine.Clear }
+        && cv.SightLineTo(new CellKey(8, 1)) is { result: SightLine.Blocked }, "sight canvas: the line counts the other pawn, not the viewer, and the wall blocks");
+
+    // drawn: clear floor is green, floor behind the wall is dimmed
+    var bmp = h.Render();
+    var seen = h.PixelAt(bmp, (int)h.ScreenOf(1, 4).X, (int)h.ScreenOf(1, 4).Y);
+    var behind = h.PixelAt(bmp, (int)h.ScreenOf(8, 4).X, (int)h.ScreenOf(8, 4).Y);
+    var orange = h.PixelAt(bmp, (int)h.ScreenOf(5, 1).X, (int)h.ScreenOf(5, 1).Y);
+    Check(seen.g > seen.r && seen.g > seen.b, "sight canvas: visible floor is tinted green");
+    Check(behind.r + behind.g + behind.b < seen.r + seen.g + seen.b, "sight canvas: floor it can not see is dimmed");
+    Check(orange.r > orange.b && orange.r > seen.r, "sight canvas: floor behind a pawn is tinted orange");
+
+    // dragging the pawn moves it for real, the region follows the ghost
+    h.Press(1, 1);
+    h.MoveTo(1, 3);
+    Check(cv.SightCell == new CellKey(1, 3) && h.Doc.Pawns.ContainsKey(new CellKey(1, 1)), "sight canvas: while dragging, sight is from the ghost and nothing moved yet");
+    Check(cv.SightLineTo(new CellKey(3, 1)) is not null, "sight canvas: the line works mid drag");
+    h.Release(1, 3);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(1, 3)) && !h.Doc.Pawns.ContainsKey(new CellKey(1, 1)) && h.CommitCount == commits + 1 && cv.SightCell == new CellKey(1, 3),
+        "sight canvas: dropping moves the pawn as one undo step and keeps its sight");
+    h.Click(1, 3);
+    Check(h.CommitCount == commits + 1 && cv.SightCell == new CellKey(1, 3), "sight canvas: a click without a drag changes nothing");
+
+    // an empty cell works as if a pawn stood there
+    h.Click(4, 4);
+    Check(cv.SightCell == new CellKey(4, 4), "sight canvas: an empty cell can be the viewer");
+
+    // range: shift+scroll in 5 ft steps, any value through the property
+    cv.SightFeet = 120;
+    h.ShiftWheelAt(h.ScreenOf(4, 4), 1);
+    Check(cv.SightFeet == 125, "sight canvas: shift+scroll grows the range 5 ft");
+    cv.SightFeet = 32;
+    h.ShiftWheelAt(h.ScreenOf(4, 4), -1);
+    Check(cv.SightFeet == 30, "sight canvas: shift+scroll lands on a multiple of 5");
+    cv.SightFeet = 999;
+    Check(cv.SightFeet == Sight.MaxFeet, "sight canvas: range stops at 240 ft");
+
+    Check(cv.ClearSight() && !cv.HasSight && !cv.ClearSight(), "sight canvas: clearing removes it");
+    h.Click(4, 4);
+    cv.Document = new MapDocument();
+    Check(cv.SightCell is null, "sight canvas: a map switch drops it");
+}
+
+// --- line of sight: window smoke test ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var w = new DungeonMapper.Views.MainWindow();
+        w.Show();
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? Call(string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
+        step = "sight panel"; Call("SetTool", ToolMode.Sight);
+        var slider = (Avalonia.Controls.Slider?)t.GetField("_sightSlider", flags)!.GetValue(w);
+        var box = (Avalonia.Controls.TextBox?)t.GetField("_sightBox", flags)!.GetValue(w);
+        var refusal = (Avalonia.Controls.TextBlock?)t.GetField("_sightRefusal", flags)!.GetValue(w);
+        Check(slider?.Value == 120 && box?.Text == "120", "sight: panel builds with the 120 ft default");
+        slider!.Value = 60;
+        Check(canvas.SightFeet == 60 && box!.Text == "60", "sight: the slider sets the range and the box follows");
+        box!.Text = "37"; Call("ApplySightBox");
+        Check(canvas.SightFeet == 37 && !refusal!.IsVisible, "sight: the box takes any value in range");
+        box.Text = "500"; Call("ApplySightBox");
+        Check(canvas.SightFeet == 37 && refusal!.IsVisible, "sight: a value out of range is refused with the red line");
+        canvas.ShowSight(new CellKey(0, 0));
+        step = "settings"; Call("ShowSettings"); Call("CloseSettings");
+        step = "tool switch"; Call("SetTool", ToolMode.Room);
+        Check(canvas.SightCell is null, "sight: a tool switch clears it");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"sight: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

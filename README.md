@@ -32,6 +32,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, and drag its handles to resize it. See [Images](#images). |
 | Measure | G | Drag to measure a distance, or Shift+drag for a spell radius. See [Measuring](#measuring). |
 | Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
+| Sight | K | Shows what a pawn can see, and what it could shoot past other pawns. See [Line of Sight](#line-of-sight). |
 | Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |
 
 You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
@@ -144,6 +145,20 @@ The fog tool shows how far a character can see. Like the measure tool it only re
 
 ![fog of war](./images/fog%20of%20war.png)
 
+## Line of Sight
+
+The sight tool shows everything a pawn can see. It is for the DM only: players in a session can not use it and never see it.
+
+- Click a pawn to see from it. Click an empty cell to see from there, as if a pawn stood on it. Sight is from the center of the cell.
+- What it can see is tinted **green**. Behind one pawn is **orange** (you can shoot over one pawn), behind two or more is **red**. Every pawn counts, whoever's side it is on. The shading is exact, so a cell that is partly visible is partly shaded.
+- Walls, closed and locked doors (DM only doors too) and the edge of the floor block sight. Open doors and stairs do not. Objects are ignored: some block and some do not, so judge those yourself.
+- Everything it can not see is dimmed.
+- Hover over a cell for a line to its center, labelled clear, 1 pawn in the way, 2 pawns in the way, blocked or out of range.
+- Drag a pawn with the tool to move it (one undo step, like the move tool). The sight follows the pawn while you drag, so you can find where it needs to stand.
+- The **range** slider runs from 5 to 240 ft in 5 ft steps, starting at 120 ft. Type any value from 1 to 240 in the box under it. Shift+scroll changes it too. It is kept until you close the app.
+- Opening a door, moving a pawn or undoing updates it straight away. Esc or a tool switch clears it. Nothing is saved.
+- The three colors, how strong the tint is (30 percent by default) and how dark the dimming is (40 percent by default, in the fog color) are in settings.
+
 ## Reveal
 
 The reveal tool marks what players are allowed to see. It is the groundwork for multiplayer, where the DM hosts and players only ever receive what has been revealed. Every change is one undo step and is saved with the map.
@@ -180,4 +195,4 @@ The DM can host a session for players on the same network (home wifi or LAN). Pl
 
 ## Settings
 
-The settings menu covers grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, how much wall is cleared next to a door, the default label text, the autosave interval and the images folder. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.
+The settings menu covers grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, how much wall is cleared next to a door, the sight tool's colors and dimming, the default label text, the autosave interval and the images folder. Settings belong to the app, not to a campaign, and can be exported to a file and imported again on another computer.

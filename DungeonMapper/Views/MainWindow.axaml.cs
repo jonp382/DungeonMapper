@@ -175,6 +175,14 @@ public partial class MainWindow : Window
             Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
             StrokeLineCap = PenLineCap.Round,
         });
+        // no png for sight yet: an eye with sight lines fanning out
+        SetIcon(ToolSight, new Avalonia.Controls.Shapes.Path
+        {
+            Width = 20, Height = 20, Stretch = Stretch.None,
+            Data = Geometry.Parse("M2,10 Q6,5 10,10 Q6,15 2,10 Z M12,10 L18,10 M12,7.5 L17,4 M12,12.5 L17,16"),
+            Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
+            StrokeLineCap = PenLineCap.Round,
+        });
         // no png for reveal yet: a drawn eye with a slash (show / hide for players)
         SetIcon(ToolReveal, new Avalonia.Controls.Shapes.Path
         {
@@ -213,6 +221,7 @@ public partial class MainWindow : Window
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
         ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
         ToolFog.Click += (_, _) => SetTool(ToolMode.Fog);
+        ToolSight.Click += (_, _) => SetTool(ToolMode.Sight);
         ToolReveal.Click += (_, _) => SetTool(ToolMode.Reveal);
 
 
@@ -247,6 +256,7 @@ public partial class MainWindow : Window
         InitSettings();
         InitMeasure();
         InitFog();
+        InitSight();
         InitReveal();
         InitSession();
         InitCombat();
@@ -369,6 +379,8 @@ public partial class MainWindow : Window
             { Canvas.ClearMeasure(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Fog && Canvas.FogAnchored && !IsTyping())
             { Canvas.ReleaseFogAnchor(); e.Handled = true; return; }
+            if (Canvas.Mode == ToolMode.Sight && Canvas.HasSight && !IsTyping())
+            { Canvas.ClearSight(); e.Handled = true; return; }
         }
         else if (e.Key == Key.R && Canvas.FormationArmed && !IsTyping())
         {
@@ -458,6 +470,7 @@ public partial class MainWindow : Window
         LabelTool(ToolImage, "Image");
         LabelTool(ToolMeasure, "Measure");
         LabelTool(ToolFog, "Fog");
+        LabelTool(ToolSight, "Sight");
         LabelTool(ToolReveal, "Reveal");
         // the view menu shows the zoom to fit letter, display only
         MenuFit.InputGesture = Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit)
@@ -480,6 +493,7 @@ public partial class MainWindow : Window
         ToolMode.Image => ToolImage,
         ToolMode.Measure => ToolMeasure,
         ToolMode.Fog => ToolFog,
+        ToolMode.Sight => ToolSight,
         ToolMode.Reveal => ToolReveal,
         _ => ToolPolygon,
     };
@@ -541,6 +555,7 @@ public partial class MainWindow : Window
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
+        Canvas.ClearSight(); // line of sight lasts until a tool switch
         Canvas.ResetReveal();
         SetStatus(mode switch
         {
@@ -558,6 +573,7 @@ public partial class MainWindow : Window
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. shift+drag for a radius. esc clears",
             ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",
+            ToolMode.Sight => "sight: click a pawn or a cell to see what it can see, drag a pawn to move it and watch. hover a cell for the line to it. shift+scroll changes the range, esc clears",
             ToolMode.Reveal => "reveal: choose cells or items and show or hide, then drag a box (room: click inside a room, circle: drag out from a center)",
             _ => "",
         });

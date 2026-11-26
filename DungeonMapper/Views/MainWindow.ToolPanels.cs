@@ -119,6 +119,9 @@ public partial class MainWindow
                 BuildRevealPanel();
                 break;
 
+            case ToolMode.Sight:
+                BuildSightPanel();
+                break;
             case ToolMode.Fog:
                 BuildFogPanel();
                 break;

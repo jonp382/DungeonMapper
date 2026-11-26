@@ -25,8 +25,48 @@ public static class Bench
         return sw.Elapsed.TotalMilliseconds / frames;
     }
 
+    // line of sight on a busy map: a 60x60 grid of 4x4 rooms with doorways
+    // and a pawn in every room, 240 ft range
+    static void SightBench()
+    {
+        var d = new MapDocument();
+        for (int ry = 0; ry < 15; ry++)
+            for (int rx = 0; rx < 15; rx++)
+            {
+                d.AddRoom(rx * 4, ry * 4, rx * 4 + 3, ry * 4 + 3);
+                d.Pawns[new CellKey(rx * 4 + 1, ry * 4 + 1)] = new Pawn { Cell = new CellKey(rx * 4 + 1, ry * 4 + 1), TemplateId = "p" };
+            }
+        for (int ry = 0; ry < 15; ry++)
+            for (int rx = 0; rx < 14; rx++)
+                d.TryPlaceDoor(new EdgeKey(new CellKey(rx * 4 + 3, ry * 4 + 2), Side.East), "standard", "open", out _);
+        var sw = Stopwatch.StartNew();
+        var segs = Sight.Blockers(d);
+        double tb = sw.Elapsed.TotalMilliseconds;
+        sw.Restart();
+        var v = Sight.Visible(30.5, 30.5, 48, segs);
+        double tv = sw.Elapsed.TotalMilliseconds;
+        sw.Restart();
+        int n = 0;
+        foreach (var c in d.Pawns.Keys) if (Sight.Shadow(30.5, 30.5, c.X + 0.5, c.Y + 0.5, 48) is not null) n++;
+        double ts = sw.Elapsed.TotalMilliseconds;
+        Console.WriteLine($"sight: blockers {segs.Count} segs {tb:F1} ms, region {v.Count} pts {tv:F1} ms, {n} shadows {ts:F1} ms");
+        sw.Restart();
+        var fp = Sight.Fingerprint(d);
+        Console.WriteLine($"sight: fingerprint {sw.Elapsed.TotalMilliseconds:F2} ms");
+        using var h = new CanvasHarness();
+        h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "p", Name = "P" });
+        h.Canvas.Document = d;
+        h.Canvas.ViewScale = 10;
+        h.Canvas.Mode = ToolMode.Sight;
+        h.Canvas.SightFeet = 240;
+        Console.WriteLine($"sight: render without {TimeRender(h, 10):F1} ms/frame");
+        h.Canvas.ShowSight(new CellKey(30, 30));
+        Console.WriteLine($"sight: render with sight {TimeRender(h, 10):F1} ms/frame");
+    }
+
     public static void Run()
     {
+        SightBench(); SightBench();
         using var h = new CanvasHarness();
 
         Console.WriteLine($"empty doc (0 cells)              {TimeRender(h, 10):F1} ms/frame");
