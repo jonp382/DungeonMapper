@@ -28,7 +28,7 @@ public sealed class EraseFilter
 
 /// Custom control that renders a MapDocument and hosts the editing tools.
 /// World units = cells (5ft). screen = (world - offset) * scale.
-/// Right-drag pans, wheel zooms (cursor-anchored). Left-click/drag edits per ToolMode.
+/// Right- or middle-drag pans, wheel zooms (cursor-anchored). Left-click/drag edits per ToolMode.
 /// Raises ActionCompleted after each edit so the owner can commit to history;
 /// raises config requests for door/stair/label dialogs.
 public sealed partial class MapCanvas : Control
@@ -1758,7 +1758,7 @@ public sealed partial class MapCanvas : Control
     {
         var props = e.GetCurrentPoint(this).Properties;
 
-        if (props.IsRightButtonPressed)
+        if (props.IsRightButtonPressed || props.IsMiddleButtonPressed)
         {
             _panning = true;
             _panStartScreen = e.GetPosition(this);

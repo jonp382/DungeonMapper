@@ -126,7 +126,7 @@
                     <DockPanel>
                         <TextBlock x:Name="SessionStatus" DockPanel.Dock="Right" IsVisible="False"
                                    Foreground="#ec5adc" FontSize="12" FontWeight="SemiBold" Margin="12,0,0,0" />
-                        <TextBlock x:Name="StatusText" Text="right-drag: pan, wheel: zoom"
+                        <TextBlock x:Name="StatusText" Text="right or middle drag: pan, wheel: zoom"
                                    Foreground="White" FontSize="12"
                                    TextTrimming="CharacterEllipsis" />
                     </DockPanel>

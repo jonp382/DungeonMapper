@@ -97,13 +97,14 @@ public sealed class CanvasHarness : IDisposable
     /// handler. The drag stays inside the window: press right at the right edge,
     /// move to the left edge, release. Positive dx pans the view right (content
     /// moves left on screen, offset.X increases by dx/scale).
-    public void PanBy(double dx, double dy)
+    public void PanBy(double dx, double dy) => PanDrag(new Point(999, 350), new Point(1, 350), MouseButton.Right);
+
+    /// a pan drag with the given button between two window points
+    public void PanDrag(Point start, Point end, MouseButton button)
     {
-        var start = new Point(999, 350);
-        var end = new Point(1, 350);
-        _window.MouseDown(start, MouseButton.Right, RawInputModifiers.None);
+        _window.MouseDown(start, button, RawInputModifiers.None);
         _window.MouseMove(end, RawInputModifiers.None);
-        _window.MouseUp(end, MouseButton.Right, RawInputModifiers.None);
+        _window.MouseUp(end, button, RawInputModifiers.None);
     }
 
     /// shift+scroll at a screen point: +1 up, -1 down

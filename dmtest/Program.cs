@@ -5839,5 +5839,20 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
 }
 
+// --- middle click pans like right click ---
+{
+    foreach (var button in new[] { Avalonia.Input.MouseButton.Middle, Avalonia.Input.MouseButton.Right })
+    {
+        var h = new CanvasHarness();
+        h.Doc.AddRoom(0, 0, 4, 4);
+        h.Canvas.Mode = ToolMode.Room;
+        var at = h.ScreenOf(2, 2);
+        var before = h.PixelAt(h.Render(), (int)at.X, (int)at.Y + 8);
+        h.PanDrag(new Point(600, 350), new Point(200, 350), button);
+        var after = h.PixelAt(h.Render(), (int)at.X, (int)at.Y + 8);
+        Check(before != after && h.CommitCount == 0 && h.Doc.Cells.Count == 25, $"pan: a {button.ToString().ToLower()} drag pans the view and edits nothing");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

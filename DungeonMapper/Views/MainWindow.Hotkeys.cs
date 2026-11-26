@@ -30,7 +30,7 @@ public partial class MainWindow
         ("R / Shift+R", "rotate a picked up selection or an armed formation"),
         ("Enter", "close the polygon"),
         ("Esc", "cancel a move, polygon, wall line or formation deploy, or close a menu"),
-        ("Right drag", "pan"),
+        ("Right or middle drag", "pan"),
         ("Wheel", "zoom"),
     ];
 
