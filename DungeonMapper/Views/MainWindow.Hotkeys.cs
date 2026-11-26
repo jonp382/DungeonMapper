@@ -166,6 +166,7 @@ public partial class MainWindow
         mode == AppSettings.FitHotkey ? "zoom to fit"
         : mode == AppSettings.FormationHotkey ? "deploy last formation"
         : mode == AppSettings.PingHotkey ? "ping (sessions)"
+        : mode == AppSettings.PassTurnHotkey ? "pass turn (in combat)"
         : mode.ToLowerInvariant();
 
     private void ResetAllHotkeys()

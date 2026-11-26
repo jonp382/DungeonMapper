@@ -537,7 +537,10 @@ public partial class MainWindow
         Canvas.InvalidateImageCache(); // template images are cached by id, the host may have changed one
         KeepOpenLabel(pkg.Map);
         KeepPendingImages(pkg.Map);
+        // statuses that wore off between two maps the DM sent show their text
+        if (Canvas.RemoteDocument is { } before) Canvas.ShowWoreOff(TurnTracker.Diff(before, pkg.Map));
         Canvas.RemoteDocument = pkg.Map;
+        RefreshCombatUi();
         // the armed pawn and the panels follow the new library and map
         if (Canvas.ArmedPawn is { } armed)
             Canvas.ArmedPawn = pkg.Library.Find(armed.Id) is { } again && PlayerPawns.Controlled(again) ? again : null;

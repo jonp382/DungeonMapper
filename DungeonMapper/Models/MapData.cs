@@ -272,6 +272,9 @@ public sealed partial class MapDocument
     /// center in world units and radius in cells. null = all revealed floor is
     /// lit. session only: not saved, not part of undo
     public (double x, double y, int radius)? PlayerLight { get; set; }
+    /// turn tracking (Models/TurnTracker.cs): the turn of the combat on this
+    /// map, 0 = no combat. saved and undone with the map
+    public int CombatTurn { get; set; }
 
     /// the topmost object covering the cell, null when none
     public MapObject? ObjectAt(CellKey c)
@@ -1838,6 +1841,7 @@ public sealed partial class MapDocument
         foreach (var im in other.Images) Images.Add(im.Copy());
         Revealed.Clear();
         foreach (var c in other.Revealed) Revealed.Add(c);
+        CombatTurn = other.CombatTurn;
     }
 
     /// Removes all content in the rectangle [x0,y0]-[x1,y1]: cells, stairs,

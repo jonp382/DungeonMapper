@@ -38,6 +38,8 @@ public sealed class MapFileDto
     // multiplayer: cells the DM has revealed to players. older files have
     // none, which loads as nothing revealed
     [JsonPropertyName("revealed")] public List<string> Revealed { get; set; } = new();
+    // turn tracking: the combat's turn, 0 (absent) = no combat
+    [JsonPropertyName("combat_turn")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public int CombatTurn { get; set; }
 }
 
 /// what a player is sent: the cut down map and what it uses (multiplayer)
@@ -486,7 +488,7 @@ public static class MapSerializer
         var res = new List<PawnStatusEntry>();
         foreach (var d in list ?? Enumerable.Empty<PawnStatusDto>())
             if (!string.IsNullOrWhiteSpace(d.Name) && d.Name != CampaignPresets.NoStatus && !res.Any(r => r.Name == d.Name))
-                res.Add(new PawnStatusEntry { Name = d.Name, Turns = d.Turns < -1 ? -1 : d.Turns });
+                res.Add(new PawnStatusEntry { Name = d.Name, Turns = TurnTracker.CleanTurns(d.Turns) });
         return res;
     }
 
@@ -841,6 +843,7 @@ public static class MapSerializer
             });
         foreach (var im in doc.Images) dto.Images.Add(ImageToDto(im));
         foreach (var c in doc.Revealed) dto.Revealed.Add(Key(c));
+        dto.CombatTurn = doc.CombatTurn;
         return dto;
     }
 
@@ -886,6 +889,7 @@ public static class MapSerializer
             }
         foreach (var s in dto.Revealed ?? new())
             if (TryParseCell(s, out var c)) doc.Revealed.Add(c);
+        doc.CombatTurn = Math.Max(0, dto.CombatTurn);
         return doc;
     }
 

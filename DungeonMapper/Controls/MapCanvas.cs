@@ -1160,6 +1160,7 @@ public sealed partial class MapCanvas : Control
         DrawMeasureOverlay(ctx);
         DrawPlayerPawnDrag(ctx);
         DrawPings(ctx);
+        DrawFloating(ctx);
         DrawPreviewBanner(ctx);
     }
 

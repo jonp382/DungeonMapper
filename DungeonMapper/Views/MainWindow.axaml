@@ -127,6 +127,13 @@
                     <Border Background="{DynamicResource ButtonBackground}" />
                     <Border x:Name="StatusFlash" Opacity="0" IsHitTestVisible="False" />
                     <DockPanel Margin="10,3">
+                        <!-- turn tracking (MainWindow.Combat.cs): DM buttons, the turn for everyone -->
+                        <StackPanel x:Name="CombatBar" DockPanel.Dock="Left" Orientation="Horizontal" Spacing="6" Margin="0,0,12,0" VerticalAlignment="Center">
+                            <Button x:Name="BtnStartCombat" Classes="btn quiet" Content="start combat" FontSize="12" Padding="8,1" />
+                            <Button x:Name="BtnPassTurn" Classes="btn" Content="pass turn" FontSize="12" Padding="8,1" IsVisible="False" />
+                            <TextBlock x:Name="TurnLabel" Foreground="#ffd27a" FontSize="13" FontWeight="Bold" VerticalAlignment="Center" IsVisible="False" />
+                            <Button x:Name="BtnEndCombat" Classes="btn quiet" Content="end combat" FontSize="12" Padding="8,1" IsVisible="False" />
+                        </StackPanel>
                         <TextBlock x:Name="SessionStatus" DockPanel.Dock="Right" IsVisible="False"
                                    Foreground="#ec5adc" FontSize="13" FontWeight="SemiBold" Margin="12,0,0,0" />
                         <TextBlock x:Name="StatusText" Text="right or middle drag: pan, wheel: zoom"

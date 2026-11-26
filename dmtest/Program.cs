@@ -6074,5 +6074,173 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(!(mtop.g > 150 && mtop.r < 120) && !(mtop.r > 180 && mtop.b > 150), "multi status: the gap at the top shows the base ring, not a status");
 }
 
+// --- turn tracking ---
+{
+    PawnStatusEntry E(string n, int turns) => new() { Name = n, Turns = turns };
+    var td = new MapDocument();
+    var a = new Pawn { Cell = new CellKey(1, 1), TemplateId = "a", Statuses = new() { E("fear", 2), E("paralyzed", -1), E("hasted", 1) } };
+    td.Pawns[a.Cell] = a;
+    Check(TurnTracker.Pass(td).Count == 0 && a.Statuses.Count == 3, "turns: passing outside combat does nothing");
+    TurnTracker.Start(td);
+    Check(td.CombatTurn == 1 && TurnTracker.InCombat(td), "turns: combat starts at turn 1");
+    var gone = TurnTracker.Pass(td);
+    Check(td.CombatTurn == 2 && gone.Count == 1 && gone[0].Name == "hasted" && gone[0].Cell == a.Cell, "turns: a pass counts down and a status at 0 wears off");
+    Check(a.Statuses.Single(x => x.Name == "fear").Turns == 1 && a.Statuses.Single(x => x.Name == "paralyzed").Turns == -1, "turns: timed ones count down, permanent ones stay");
+    var before = MapSerializer.FromJson(MapSerializer.ToJson(td));
+    a.Statuses.Single(x => x.Name == "fear").Turns = 3;
+    var ended = TurnTracker.End(td);
+    Check(ended.Count == 1 && ended[0].Name == "fear" && St(a) == "paralyzed" && td.CombatTurn == 0, "turns: end combat removes timed statuses, keeps permanent, resets the turn");
+    Check(before.CombatTurn == 2 && St(before.Pawns[a.Cell]) == "fear,paralyzed", "turns: the turn and turns left are saved with the map");
+    Check(TurnTracker.Diff(before, td).Select(g => g.Name).SequenceEqual(new[] { "fear" }), "turns: players see what wore off by comparing the maps they are sent");
+    Check(TurnTracker.Diff(before, before).Count == 0, "turns: no text when the turn did not move");
+    Check(TurnTracker.CleanTurns(0) == -1 && TurnTracker.CleanTurns(-7) == -1 && TurnTracker.CleanTurns(5000) == TurnTracker.MaxTurns && TurnTracker.CleanTurns(4) == 4, "turns: bad durations are cleaned");
+    var pv = PlayerView.Build(before);
+    Check(pv.CombatTurn == 2, "turns: players are sent the turn");
+
+    // canvas floating text
+    var h = new CanvasHarness();
+    h.Canvas.ShowWoreOff(new[] { new TurnTracker.WoreOff(new CellKey(1, 1), "fear"), new TurnTracker.WoreOff(new CellKey(1, 1), "hasted") });
+    Check(h.Canvas.FloatingCount == 2 && h.Canvas.FloatingTexts.Contains("fear wore off!"), "turns: floating text over the pawn for each status");
+    h.Render();
+
+    // window: buttons, pass, undo, end, hero elsewhere, hotkey
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        var w = new DungeonMapper.Views.MainWindow(); w.Show();
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        var pre = (CampaignPresets)t.GetProperty("ActivePresets", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        wlib.Pawns.Add(new PawnTemplate { Id = "hero", Name = "Ana", Hero = true });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var hdoc = canvas.Document;
+        var gp = new Pawn { Cell = new CellKey(2, 1), TemplateId = "gob", Statuses = new() { E("fear", 1), E("paralyzed", -1) } };
+        hdoc.Pawns[gp.Cell] = gp;
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(hdoc);
+        Avalonia.Controls.Control C(string n) => (Avalonia.Controls.Control)FieldOf(w, n)!;
+        Check(C("BtnStartCombat").IsVisible && !C("BtnPassTurn").IsVisible && !C("TurnLabel").IsVisible, "turns window: start combat shows outside combat");
+
+        step = "start";
+        CallOn(w, "StartCombat");
+        Check(hdoc.CombatTurn == 1 && C("BtnPassTurn").IsVisible && C("BtnEndCombat").IsVisible && !C("BtnStartCombat").IsVisible
+            && ((Avalonia.Controls.TextBlock)C("TurnLabel")).Text == "turn 1", "turns window: start combat shows pass turn, the turn and end combat");
+
+        step = "pass";
+        CallOn(w, "PassTurn");
+        Check(hdoc.CombatTurn == 2 && St(hdoc.Pawns[gp.Cell]) == "paralyzed" && canvas.FloatingTexts.Contains("fear wore off!"), "turns window: pass turn wears off fear with floating text");
+        CallOn(w, "DoUndo");
+        Check(hdoc.CombatTurn == 1 && St(hdoc.Pawns[gp.Cell]) == "fear,paralyzed" && ((Avalonia.Controls.TextBlock)C("TurnLabel")).Text == "turn 1", "turns window: undo brings the turn and the status back");
+
+        step = "pawn view turns";
+        CallOn(w, "ShowPawnInfo", hdoc.Pawns[gp.Cell]);
+        var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
+        panel.UpdateLayout();
+        var box = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.TextBox>().First(b => (b.Tag as string) == "fear");
+        Check(box.Text == "1", "turns window: a ticked status shows its turns left");
+        box.Text = "0";
+        box.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+        Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 1, "turns window: 0 turns is refused");
+        box.Text = "4";
+        box.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+        Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 4, "turns window: a new number of turns is kept");
+        var fearPreset = pre.PawnStatuses.First(x => x.Name == "fear");
+        fearPreset.DefaultTurns = 3;
+        var cbs = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().ToList();
+        cbs.First(c => (c.Tag as string) == "fear").IsChecked = false;
+        CallOn(w, "ShowPawnInfo", hdoc.Pawns[gp.Cell]);
+        panel.UpdateLayout();
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().First(c => (c.Tag as string) == "fear").IsChecked = true;
+        Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 3, "turns window: ticking a status fills in its default turns");
+
+        step = "hero elsewhere";
+        var other = new MapEntry { Name = "other", Doc = new MapDocument() };
+        var proj = (MapProject)FieldOf(w, "_project")!;
+        proj.Maps.Add(other);
+        other.Doc.Pawns[new CellKey(0, 0)] = new Pawn { Cell = new CellKey(0, 0), TemplateId = "hero", Statuses = new() { E("fear", 2) } };
+        other.Doc.Pawns[new CellKey(1, 0)] = new Pawn { Cell = new CellKey(1, 0), TemplateId = "gob", Statuses = new() { E("fear", 2) } };
+        CallOn(w, "PassTurn");
+        Check(other.Doc.Pawns[new CellKey(0, 0)].Statuses[0].Turns == 1 && other.Doc.Pawns[new CellKey(1, 0)].Statuses[0].Turns == 2, "turns window: a hero on another map counts down, other pawns there do not");
+
+        step = "end";
+        CallOn(w, "EndCombat");
+        Check(hdoc.CombatTurn == 0 && St(hdoc.Pawns[gp.Cell]) == "paralyzed" && other.Doc.Pawns[new CellKey(0, 0)].Statuses.Count == 0
+            && C("BtnStartCombat").IsVisible && !C("TurnLabel").IsVisible, "turns window: end combat clears timed statuses (heroes elsewhere too) and hides the counter");
+        w.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"turns window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
+// --- turn tracking: players (two windows) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var lib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(dm)!;
+        lib.Pawns.Add(new PawnTemplate { Id = "pc", Name = "Ana", Affiliation = "Player" });
+        var dmDoc = dmCanvas.Document;
+        AddRoom(dmDoc, 0, 0, 5, 5);
+        dmDoc.SetRevealed(dmDoc.RevealRoomCells(new CellKey(1, 1)), true);
+        dmDoc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false, Statuses = new() { new PawnStatusEntry { Name = "fear", Turns = 1 } } };
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(dm)!).Commit(dmDoc);
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "turns players: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        CallOn(pl, "EnterPlayerMode", client);
+        Avalonia.Controls.Control C(string n) => (Avalonia.Controls.Control)FieldOf(pl, n)!;
+        Check(WaitFor(() => plCanvas.RemoteDocument?.Pawns.Count == 1) && !C("BtnStartCombat").IsVisible && !C("TurnLabel").IsVisible, "turns players: no combat, no buttons");
+
+        step = "start";
+        CallOn(dm, "StartCombat");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => C("TurnLabel").IsVisible) && ((Avalonia.Controls.TextBlock)C("TurnLabel")).Text == "turn 1"
+            && !C("BtnPassTurn").IsVisible && !C("BtnEndCombat").IsVisible, "turns players: players see the turn number only");
+
+        step = "pass";
+        CallOn(dm, "PassTurn");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => ((Avalonia.Controls.TextBlock)C("TurnLabel")).Text == "turn 2") && plCanvas.FloatingTexts.Contains("fear wore off!"),
+            "turns players: a status wearing off shows its text for players too");
+
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"turns players: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

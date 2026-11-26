@@ -249,6 +249,7 @@ public partial class MainWindow : Window
         InitFog();
         InitReveal();
         InitSession();
+        InitCombat();
         InitDoorPresets();
         InitHotkeys();
         InitMaps();
@@ -390,6 +391,7 @@ public partial class MainWindow : Window
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FitHotkey, ""), out var fit) && fit == e.Key)
             { Canvas.AutoFit(); e.Handled = true; return; }
             if (IsPingKey(e.Key)) { DoPing(); e.Handled = true; return; }
+            if (!Canvas.HotkeysDisabled && !Joined && TurnTracker.InCombat(_doc) && IsPassTurnKey(e.Key)) { PassTurn(); e.Handled = true; return; }
             if (!Canvas.HotkeysDisabled
                 && Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(AppSettings.FormationHotkey, ""), out var form) && form == e.Key)
             { DeployLastFormation(); e.Handled = true; return; }

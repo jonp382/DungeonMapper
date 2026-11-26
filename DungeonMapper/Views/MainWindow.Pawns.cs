@@ -1046,7 +1046,7 @@ public partial class MainWindow
 
     // ---------- status styles tab ----------
 
-    private const string StatusCols = "40,*,140,90,70";
+    private const string StatusCols = "40,*,140,90,90,70";
 
     private Control BuildStatusesTab()
     {
@@ -1057,7 +1057,7 @@ public partial class MainWindow
             Classes = { "muted" }, Margin = new Thickness(0, 0, 0, 6),
         });
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions(StatusCols), ColumnSpacing = 10 };
-        string[] hs = { "look", "name", "color", "thickness", "" };
+        string[] hs = { "look", "name", "color", "thickness", "turns", "" };
         for (int i = 0; i < hs.Length; i++) AddCell(head, Tx(hs[i], "colhead"), i);
         sp.Children.Add(new Border { Child = head, Classes = { "colhead" }, Margin = new Thickness(0) });
 
@@ -1115,9 +1115,21 @@ public partial class MainWindow
             AddCell(g, thick, 3);
             if (!isNone)
             {
+                // how long it lasts when ticked on a pawn: -1 permanent, else turns
+                var turns = new NumericUpDown { Value = st.DefaultTurns, Minimum = -1, Maximum = TurnTracker.MaxTurns, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+                ToolTip.SetTip(turns, "turns it lasts when ticked on a pawn. -1 is permanent");
+                turns.ValueChanged += (_, _) =>
+                {
+                    int v = (int)(turns.Value ?? -1);
+                    // 0 is not a duration: stepping down from 1 goes to permanent
+                    if (v == 0) { turns.Value = st.DefaultTurns == -1 ? 1 : -1; return; }
+                    st.DefaultTurns = TurnTracker.CleanTurns(v);
+                    PawnsChanged();
+                };
+                AddCell(g, turns, 4);
                 var del = Btn("delete", danger: true);
                 del.Click += (_, _) => DeleteStatusWithWarning(st, del);
-                AddCell(g, del, 4);
+                AddCell(g, del, 5);
             }
             dupMarks.Add((st, name));
             rowsHost.Children.Add(new Border { Child = g, Classes = { "row", "tall" } });

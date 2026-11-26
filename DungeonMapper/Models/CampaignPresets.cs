@@ -80,7 +80,7 @@ public sealed class CampaignPresets
     public CampaignPresets Tidy()
     {
         DoorTypes = Clean(DoorTypes, t => t.Name, t => { t.R = C(t.R); t.G = C(t.G); t.B = C(t.B); });
-        PawnStatuses = Clean(PawnStatuses, s => s.Name, s => { s.R = C(s.R); s.G = C(s.G); s.B = C(s.B); s.Thickness = Math.Clamp(s.Thickness, 0, MaxThickness); });
+        PawnStatuses = Clean(PawnStatuses, s => s.Name, s => { s.R = C(s.R); s.G = C(s.G); s.B = C(s.B); s.Thickness = Math.Clamp(s.Thickness, 0, MaxThickness); s.DefaultTurns = TurnTracker.CleanTurns(s.DefaultTurns); });
         AffiliationColors = Clean(AffiliationColors, a => a.Name, a =>
         {
             a.OuterR = C(a.OuterR); a.OuterG = C(a.OuterG); a.OuterB = C(a.OuterB);
@@ -124,11 +124,11 @@ public sealed class CampaignPresets
     };
 
     public static DoorType Copy(DoorType t) => new(t.Name, t.R, t.G, t.B);
-    public static PawnStatus Copy(PawnStatus s) => new(s.Name, s.R, s.G, s.B, s.Thickness);
+    public static PawnStatus Copy(PawnStatus s) => new(s.Name, s.R, s.G, s.B, s.Thickness) { DefaultTurns = s.DefaultTurns };
     public static AffiliationColor Copy(AffiliationColor a) => new(a.Name, (a.OuterR, a.OuterG, a.OuterB), (a.InnerR, a.InnerG, a.InnerB));
 
     public static bool SameLook(DoorType a, DoorType b) => a.Name == b.Name && a.R == b.R && a.G == b.G && a.B == b.B;
-    public static bool SameLook(PawnStatus a, PawnStatus b) => a.Name == b.Name && a.R == b.R && a.G == b.G && a.B == b.B && a.Thickness == b.Thickness;
+    public static bool SameLook(PawnStatus a, PawnStatus b) => a.Name == b.Name && a.R == b.R && a.G == b.G && a.B == b.B && a.Thickness == b.Thickness && a.DefaultTurns == b.DefaultTurns;
     public static bool SameLook(AffiliationColor a, AffiliationColor b) =>
         a.Name == b.Name && a.OuterR == b.OuterR && a.OuterG == b.OuterG && a.OuterB == b.OuterB
         && a.InnerR == b.InnerR && a.InnerG == b.InnerG && a.InnerB == b.InnerB;

@@ -28,6 +28,9 @@ public sealed class PawnStatus
     [JsonPropertyName("g")] public int G { get; set; } = 255;
     [JsonPropertyName("b")] public int B { get; set; } = 255;
     [JsonPropertyName("thickness")] public int Thickness { get; set; } = 0;
+    // turn tracking: the turns this status lasts when ticked on a pawn, -1 =
+    // permanent (the turns box in the pawn view starts at this)
+    [JsonPropertyName("turns")] public int DefaultTurns { get; set; } = -1;
 
     public PawnStatus() { }
     public PawnStatus(string name, int r, int g, int b, int thickness)
@@ -228,6 +231,8 @@ public sealed class AppSettings
     public const string FormationHotkey = "Formation";
     // not a tool: ping the cell under the cursor (multiplayer). backslash by default
     public const string PingHotkey = "Ping";
+    // not a tool: pass turn (turn tracking). unset by default
+    public const string PassTurnHotkey = "PassTurn";
 
     /// keys a hotkey may use besides the letters a to z, with how they show
     /// (one name per key: some Avalonia keys have alias names)
@@ -290,6 +295,7 @@ public sealed class AppSettings
             [FitHotkey] = "Z",
             [FormationHotkey] = "I",
             [PingHotkey] = "OemPipe",
+            [PassTurnHotkey] = "",
         };
         return s;
     }

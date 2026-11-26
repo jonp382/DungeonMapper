@@ -482,17 +482,29 @@ public partial class MainWindow
     /// header icon follows
     private void AddStatusChecks(Pawn pawn, CampaignPresets presets, Action<List<PawnStatusEntry>> apply)
     {
+        // a ticked status has a turns box: turns left, -1 permanent (ticking
+        // fills in the status's default from the statuses tab)
         var items = presets.PawnStatuses.Where(s => s.Name != CampaignPresets.NoStatus)
-            .Select(s => (s.Name, pawn.HasStatus(s.Name), (Control?)new Ellipse { Width = 9, Height = 9, Fill = Rgb((s.R, s.G, s.B)) }));
+            .Select(s => (s.Name, pawn.HasStatus(s.Name), (Control?)new Ellipse { Width = 9, Height = 9, Fill = Rgb((s.R, s.G, s.B)) },
+                pawn.Statuses.FirstOrDefault(e => e.Name == s.Name)?.Turns));
         ToolPanel.AddChecklist("statuses", items, (name, on) =>
         {
             if (on == pawn.HasStatus(name)) return;
             var list = pawn.CloneStatuses();
-            if (on) list.Add(new PawnStatusEntry { Name = name });
+            if (on) list.Add(new PawnStatusEntry { Name = name, Turns = TurnTracker.CleanTurns(presets.FindPawnStatus(name).DefaultTurns) });
             else list.RemoveAll(s => s.Name == name);
             apply(list);
             Avalonia.Threading.Dispatcher.UIThread.Post(() => ShowPawnInfo(pawn));
-        });
+        },
+        v => v == -1 || (v >= 1 && v <= TurnTracker.MaxTurns) ? null : $"-1 (permanent) or 1 to {TurnTracker.MaxTurns}",
+        (name, v) =>
+        {
+            var list = pawn.CloneStatuses();
+            if (list.FirstOrDefault(s => s.Name == name) is not { } e || e.Turns == v) return;
+            e.Turns = v;
+            apply(list);
+        },
+        "turns left. -1 is permanent");
     }
 
     private void ShowChangePawn(Pawn pawn)

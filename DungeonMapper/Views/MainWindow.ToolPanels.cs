@@ -196,6 +196,7 @@ public partial class MainWindow
     // shows something else (a door, stair or label config view).
     private void RefreshToolInfo()
     {
+        RefreshCombatUi(); // the turn follows the map too (undo, switch, load)
         if (_toolInfo?.Parent is not Border box || !ToolPanel.Target.Children.Contains(box)) return;
         _toolInfo.Text = ToolInfoText(Canvas.Mode, _doc, Canvas.DefaultDoorType);
     }
