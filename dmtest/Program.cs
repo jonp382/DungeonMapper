@@ -6285,6 +6285,13 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(px.g > 180 && px.r < 100, "timers: and an infinity circle when it is on");
     var saved = AppSettings.ParseImport("{\"kind\":\"settings\",\"show_status_timers\":false,\"show_permanent_timers\":false}");
     Check(saved is { ShowStatusTimers: false, ShowPermanentTimers: false } && new AppSettings() is { ShowStatusTimers: true, ShowPermanentTimers: true }, "timers: both settings are saved, on by default");
+    // distance: 0 on the ring, 50 touching it, 100 a timer radius clear (linear)
+    var o = new Point(0, 0);
+    double D(int pct) { var q = MapCanvas.TimerCenter(o, 40, 10, 0, 2, pct); return Math.Sqrt(q.X * q.X + q.Y * q.Y); }
+    Check(Math.Abs(D(0) - 40) < 1e-9 && Math.Abs(D(50) - 50) < 1e-9 && Math.Abs(D(100) - 60) < 1e-9 && Math.Abs(D(25) - 45) < 1e-9,
+        "timers: distance 0 sits on the ring, 50 touches it, 100 is clear of it, linear between");
+    Check(AppSettings.ParseImport("{\"kind\":\"settings\",\"timer_distance\":400}")?.TimerDistance == AppSettings.MaxTimerDistance && new AppSettings().TimerDistance == 50,
+        "timers: distance is clamped on import, 50 by default");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

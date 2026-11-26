@@ -23,10 +23,11 @@ public sealed partial class MapCanvas
         turns < 0 ? (showPermanent ? "∞" : null) : turns > 99 ? "99+" : turns.ToString(CultureInfo.InvariantCulture);
 
     /// where timer i of n sits, around a pawn centered at center with ring
-    /// radius r and timer radius br (screen units)
-    public static Point TimerCenter(Point center, double r, double br, int i, int n)
+    /// radius r and timer radius br (screen units). distance, percent: 0 on
+    /// the ring, 50 just touching it from outside, 100 a timer radius clear
+    public static Point TimerCenter(Point center, double r, double br, int i, int n, int distance = 50)
     {
-        double a = ArcMiddle(i, n) * Math.PI / 180, d = r + br + 2;
+        double a = ArcMiddle(i, n) * Math.PI / 180, d = r + br * Math.Clamp(distance, 0, 100) / 50.0;
         return new Point(center.X + d * Math.Cos(a), center.Y + d * Math.Sin(a));
     }
 
@@ -48,7 +49,7 @@ public sealed partial class MapCanvas
                 var st = ring[i];
                 var entry = p.Statuses.First(e => e.Name == st.Name);
                 if (TimerText(entry.Turns, Settings.ShowPermanentTimers) is not { } text) continue;
-                var at = TimerCenter(center, r, br, i, ring.Count);
+                var at = TimerCenter(center, r, br, i, ring.Count, Settings.TimerDistance);
                 var fill = Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B);
                 ctx.DrawEllipse(new SolidColorBrush(fill), edge, at, br, br);
                 // dark text on light colors, white on dark ones

@@ -325,6 +325,16 @@
                                             <CheckBox x:Name="SetShowPermanentTimers" Grid.Column="1" Classes="toggle" Content="show ∞" Margin="0,0,10,0" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock Classes="body" Text="timer distance" />
+                                                <TextBlock Classes="hint" TextWrapping="Wrap"
+                                                           Text="how far out the turn timers sit, percent, 0 to 100. 0 is on the ring, 50 just touches it, 100 is clear of it." />
+                                                <TextBlock x:Name="SetTimerDistanceError" Classes="refusal" IsVisible="False" />
+                                            </StackPanel>
+                                            <TextBox x:Name="SetTimerDistance" Grid.Column="1" Classes="field number" />
+                                            <Button x:Name="ResetTimerDistance" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                        </Grid>
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <TextBlock Classes="body" Text="stairs" />
                                             <ContentControl x:Name="SetStairColor" Grid.Column="1" />
                                             <Button x:Name="ResetStairColor" Grid.Column="2" Classes="btn quiet" Content="reset" />

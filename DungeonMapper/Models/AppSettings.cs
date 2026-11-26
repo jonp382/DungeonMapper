@@ -190,6 +190,10 @@ public sealed class AppSettings
     // a pawn (zoomed in near max only). permanent ones show ∞ or nothing
     [JsonPropertyName("show_status_timers")] public bool ShowStatusTimers { get; set; } = true;
     [JsonPropertyName("show_permanent_timers")] public bool ShowPermanentTimers { get; set; } = true;
+    // how far out a timer sits, percent: 0 = centered on the ring, 50 = just
+    // touching it from outside, 100 = a timer's radius clear of it (linear)
+    [JsonPropertyName("timer_distance")] public int TimerDistance { get; set; } = 50;
+    public const int MaxTimerDistance = 100;
     public const int MaxGridSpacing = 100, MaxAutosaveMinutes = 999, MaxFloorGridOpacity = 100;
     // single stair color: all stairs (up/down/left/right) render in this color.
     // directional coloring was removed; default is the old down-stair orange.
@@ -425,6 +429,7 @@ public sealed class AppSettings
         s.FloorGridOpacity = Math.Clamp(s.FloorGridOpacity, 0, MaxFloorGridOpacity);
         s.DoorWallGap = Math.Clamp(s.DoorWallGap, 0, MaxDoorWallGap);
         s.PawnStatusGap = Math.Clamp(s.PawnStatusGap, 0, MaxPawnStatusGap);
+        s.TimerDistance = Math.Clamp(s.TimerDistance, 0, MaxTimerDistance);
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
         s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;

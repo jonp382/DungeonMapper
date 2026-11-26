@@ -72,6 +72,8 @@ public partial class MainWindow
                 s => s.DoorWallGap, (s, v) => s.DoorWallGap = v),
             new(SetPawnStatusGap, SetPawnStatusGapError, ResetPawnStatusGap, 0, AppSettings.MaxPawnStatusGap,
                 s => s.PawnStatusGap, (s, v) => s.PawnStatusGap = v),
+            new(SetTimerDistance, SetTimerDistanceError, ResetTimerDistance, 0, AppSettings.MaxTimerDistance,
+                s => s.TimerDistance, (s, v) => s.TimerDistance = v),
             new(SetMeasureShade, SetMeasureShadeError, ResetMeasureShade, 0, AppSettings.MaxMeasureShadeOpacity,
                 s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
             new(SetFogOpacity, SetFogOpacityError, ResetFogOpacity, 0, AppSettings.MaxFogOpacity,
