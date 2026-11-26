@@ -16,10 +16,11 @@ namespace DungeonMapper.Net;
 /// them what they may see, and broadcasts a discovery beacon. Publish is the
 /// only way map data leaves; it takes a PlayerPackage, which is already cut
 /// down by PlayerView. Events fire on background threads.
-public enum PawnAction { Move, Place, Status, Deploy }
+public enum PawnAction { Move, Place, Status, Deploy, MoveMany }
 
 /// a player asks to move (From -> To), place (TemplateId at To), set the
-/// status of (To, Status) or deploy (Placements) Player pawns. the DM's app
+/// status of (To, Status), deploy (Placements) or move together (Moves)
+/// Player pawns. the DM's app
 /// checks it against the real map
 public sealed class PawnRequest
 {
@@ -30,6 +31,7 @@ public sealed class PawnRequest
     public string TemplateId { get; init; } = "";
     public string? Status { get; init; }
     public List<(string id, CellKey cell)> Placements { get; init; } = new();
+    public List<(CellKey from, CellKey to)> Moves { get; init; } = new();
     internal object? Peer { get; init; }
 }
 
@@ -250,6 +252,13 @@ public sealed class SessionHost : IDisposable
             if (list.Count == 0 || list.Count > 500) return;
             r = new PawnRequest { Name = from.Name, Action = PawnAction.Deploy, Placements = list, Peer = from };
         }
+        else if (m.Type == "pawn_move_many")
+        {
+            var moves = (m.Placements ?? new()).Where(p => p.FromX is not null && p.FromY is not null)
+                .Select(p => (new CellKey(p.FromX!.Value, p.FromY!.Value), new CellKey(p.X, p.Y))).ToList();
+            if (moves.Count == 0 || moves.Count > 500) return;
+            r = new PawnRequest { Name = from.Name, Action = PawnAction.MoveMany, Moves = moves, Peer = from };
+        }
         else if (m.X is int x && m.Y is int y)
         {
             if (m.Type == "pawn_place" && !string.IsNullOrEmpty(m.TemplateId))
@@ -341,7 +350,7 @@ public sealed class SessionHost : IDisposable
             while (await NetProtocol.ReadAsync(s, ct) is { } m)
             {
                 if (m.Type == "ping") OnPing(peer, m);
-                else if (m.Type is "pawn_move" or "pawn_place" or "pawn_status" or "pawn_deploy") OnPawn(peer, m);
+                else if (m.Type is "pawn_move" or "pawn_place" or "pawn_status" or "pawn_deploy" or "pawn_move_many") OnPawn(peer, m);
                 else if (m.Type is "formation_set" or "formation_delete") OnFormation(peer, m);
                 else if (m.Type is "label_set" or "label_delete") OnLabel(peer, m);
                 else if (m.Type is "image_set" or "image_delete") OnImage(peer, m);

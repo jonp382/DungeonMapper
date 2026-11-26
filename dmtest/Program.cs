@@ -5689,5 +5689,155 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(!p.Canvas.MoveArmed && p.Statuses.Contains("no pawns in that region"), "shift box (Pawn): a box with no pawns arms nothing");
 }
 
+// --- multiplayer: a player's shift+drag box (several pawns at once) ---
+{
+    var lib = new PawnLibrary();
+    lib.Pawns.Add(new PawnTemplate { Id = "pc", Name = "Ana", Affiliation = "Player", Hero = true });
+    lib.Pawns.Add(new PawnTemplate { Id = "pg", Name = "Hireling", Affiliation = "Player" });
+    lib.Pawns.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
+    MapDocument Map()
+    {
+        var r = new MapDocument();
+        AddRoom(r, 0, 0, 6, 6);
+        AddRoom(r, 9, 0, 10, 2);
+        r.SetRevealed(r.RevealRoomCells(new CellKey(1, 1)), true);
+        r.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false, Status = "x" };
+        r.Pawns[new CellKey(2, 1)] = new Pawn { Cell = new CellKey(2, 1), TemplateId = "pg", DmOnly = false };
+        r.Pawns[new CellKey(1, 2)] = new Pawn { Cell = new CellKey(1, 2), TemplateId = "orc", DmOnly = false };
+        return r;
+    }
+    var k1 = new CellKey(1, 1); var k2 = new CellKey(2, 1);
+
+    // rules
+    var d = Map();
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k1, new CellKey(1, 4)), (k2, new CellKey(2, 4)) }) is null, "pawn box rules: two Player pawns to empty revealed floor");
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k1, k2), (k2, new CellKey(3, 1)) }) is null, "pawn box rules: a pawn may land where another of the group leaves");
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k1, new CellKey(1, 2)) }) == "a cell already has a pawn", "pawn box rules: no landing on a pawn outside the group (no swaps)");
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (new CellKey(1, 2), new CellKey(1, 4)) }) == "only the DM moves some of those pawns", "pawn box rules: an enemy is refused");
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k1, new CellKey(9, 1)) }) == "pawns can only go onto revealed floor", "pawn box rules: hidden floor is refused");
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k1, new CellKey(3, 3)), (k2, new CellKey(3, 3)) }) == "two pawns on one cell", "pawn box rules: two pawns on one cell are refused");
+    d.Pawns[k2].DmOnly = true;
+    Check(PlayerPawns.CheckMoveMany(d, lib, new[] { (k2, new CellKey(3, 3)) }) == "there is no pawn there", "pawn box rules: a DM only pawn is not there for players");
+    d = Map();
+    PlayerPawns.ApplyMoveMany(d, new[] { (k1, k2), (k2, new CellKey(3, 1)) });
+    Check(d.Pawns[k2].TemplateId == "pc" && d.Pawns[k2].Status == "x" && d.Pawns[new CellKey(3, 1)].TemplateId == "pg" && !d.Pawns.ContainsKey(k1),
+        "pawn box rules: apply moves them all, status kept");
+
+    // wire
+    var msg = new DungeonMapper.Net.NetMessage { Type = "pawn_move_many", Placements = new() { new DungeonMapper.Net.PawnPlacement { FromX = 1, FromY = 2, X = 3, Y = 4 } } };
+    var ms = new MemoryStream(DungeonMapper.Net.NetProtocol.Encode(msg));
+    var back = DungeonMapper.Net.NetProtocol.ReadAsync(ms).GetAwaiter().GetResult()!;
+    Check(back.Placements![0] is { FromX: 1, FromY: 2, X: 3, Y: 4 }, "pawn box wire: from and to cross the wire");
+
+    // canvas: move and pawn tools, joined
+    foreach (var mode in new[] { ToolMode.Move, ToolMode.Pawn })
+    {
+        var h = new CanvasHarness();
+        h.Canvas.Library = lib;
+        var r = Map();
+        h.Canvas.RemoteDocument = r;
+        h.Canvas.Mode = mode;
+        if (mode == ToolMode.Pawn) h.Canvas.ArmedPawn = lib.Find("pg");
+        var sent = new List<List<(CellKey from, CellKey to)>>(); var single = 0; var placed = 0; var opened = 0;
+        h.Canvas.PlayerMoveManyRequested += m => sent.Add(m);
+        h.Canvas.PlayerMoveRequested += (_, _) => single++;
+        h.Canvas.PlayerPlaceRequested += (_, _) => placed++;
+        h.Canvas.PawnConfigRequested += _ => opened++;
+        var sh = Avalonia.Input.RawInputModifiers.Shift;
+        h.DragMods(1, 1, 2, 2, sh);
+        Check(h.Canvas.MoveArmed && single == 0 && r.Pawns.Count == 3, $"pawn box joined ({mode}): shift+drag from a pawn arms a box, nothing sent yet");
+        h.Click(9, 1);
+        Check(sent.Count == 0 && h.Canvas.MoveArmed && h.LastStatus == "pawns can only go onto revealed floor", $"pawn box joined ({mode}): a refused spot stays armed");
+        h.Click(3, 4);
+        Check(sent.Count == 1 && sent[0].Count == 2 && sent[0].Contains((k1, new CellKey(3, 4))) && sent[0].Contains((k2, new CellKey(4, 4)))
+            && !h.Canvas.MoveArmed && r.Pawns.ContainsKey(k1) && placed == 0,
+            $"pawn box joined ({mode}): the click sends only the Player pawns (the orc stays out) and nothing changes locally");
+        // rotated: still maps each source pawn to its landing cell
+        h.DragMods(1, 1, 2, 2, sh);
+        h.Canvas.RotateRegion(-1);
+        h.Click(3, 3);
+        Check(sent.Count == 2 && sent[1].Select(m => m.from).OrderBy(x => x.X).SequenceEqual(new[] { k1, k2 })
+            && sent[1].First(m => m.from == k1).to.X == sent[1].First(m => m.from == k2).to.X,
+            $"pawn box joined ({mode}): a rotated box keeps each pawn's source");
+        h.DragMods(1, 2, 1, 3, sh);
+        Check(!h.Canvas.MoveArmed && h.LastStatus == "none of your pawns in that region", $"pawn box joined ({mode}): a box with only DM pawns arms nothing");
+        h.DragMods(1, 1, 1, 1, sh);
+        Check(mode == ToolMode.Pawn ? opened == 1 : opened == 0, $"pawn box joined ({mode}): a shift+click acts as a plain click");
+        h.Canvas.RemoteDocument = null;
+        Check(!h.Canvas.MoveArmed, $"pawn box joined ({mode}): leaving the session disarms");
+    }
+}
+
+// --- multiplayer: a player's pawn box (two windows) ---
+{
+    _ = new CanvasHarness();
+    string step = "construct";
+    try
+    {
+        bool WaitFor(Func<bool> cond, int ms = 4000)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < ms)
+            {
+                if (cond()) return true;
+                Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+                System.Threading.Thread.Sleep(20);
+            }
+            return cond();
+        }
+        var t = typeof(DungeonMapper.Views.MainWindow);
+        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+        object? CallOn(object w, string name, params object?[] args) =>
+            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+        object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+        var dm = new DungeonMapper.Views.MainWindow(); dm.Show();
+        var pl = new DungeonMapper.Views.MainWindow(); pl.Show();
+        var dmCanvas = (MapCanvas)FieldOf(dm, "Canvas")!;
+        var plCanvas = (MapCanvas)FieldOf(pl, "Canvas")!;
+        var lib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(dm)!;
+        lib.Pawns.Add(new PawnTemplate { Id = "pc", Name = "Ana", Affiliation = "Player", Hero = true });
+        lib.Pawns.Add(new PawnTemplate { Id = "pg", Name = "Hireling", Affiliation = "Player" });
+        lib.Pawns.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
+        var dmDoc = dmCanvas.Document;
+        AddRoom(dmDoc, 0, 0, 5, 5);
+        dmDoc.SetRevealed(dmDoc.RevealRoomCells(new CellKey(1, 1)), true);
+        dmDoc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "pc", DmOnly = false };
+        dmDoc.Pawns[new CellKey(2, 1)] = new Pawn { Cell = new CellKey(2, 1), TemplateId = "pg", DmOnly = false };
+        dmDoc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "orc", DmOnly = false };
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(dm)!).Commit(dmDoc);
+
+        step = "host";
+        t.GetField("_hostPort", flags)!.SetValue(dm, 0);
+        Check(CallOn(dm, "StartHosting") is null, "pawn box window: hosting starts");
+        var host = (DungeonMapper.Net.SessionHost)FieldOf(dm, "_host")!;
+        var client = Task.Run(() => DungeonMapper.Net.SessionClient.ConnectAsync("127.0.0.1", host.Port, "", "Dee")).GetAwaiter().GetResult();
+        string? notice = null;
+        client.NoticeReceived += why => notice = why;
+        CallOn(pl, "EnterPlayerMode", client);
+        Check(WaitFor(() => plCanvas.RemoteDocument?.Pawns.Count == 3), "pawn box window: the player gets the map");
+
+        step = "move many";
+        Task.Run(() => client.SendPawnMoveMany(new[] { (new CellKey(1, 1), new CellKey(1, 3)), (new CellKey(2, 1), new CellKey(2, 3)) })).Wait();
+        Check(WaitFor(() => dmDoc.Pawns.ContainsKey(new CellKey(1, 3)) && dmDoc.Pawns.ContainsKey(new CellKey(2, 3)))
+            && !dmDoc.Pawns.ContainsKey(new CellKey(1, 1)) && !dmDoc.Pawns.ContainsKey(new CellKey(2, 1)), "pawn box window: the group lands on the DM's map");
+        CallOn(dm, "PublishNow");
+        Check(WaitFor(() => plCanvas.RemoteDocument?.Pawns.ContainsKey(new CellKey(1, 3)) == true), "pawn box window: and comes back to the player");
+        CallOn(dm, "DoUndo");
+        Check(dmCanvas.Document.Pawns.ContainsKey(new CellKey(1, 1)) && dmCanvas.Document.Pawns.ContainsKey(new CellKey(2, 1)), "pawn box window: the group move is one undo step");
+
+        step = "refused";
+        Task.Run(() => client.SendPawnMoveMany(new[] { (new CellKey(2, 2), new CellKey(4, 4)) })).Wait();
+        Check(WaitFor(() => notice == "only the DM moves some of those pawns") && dmCanvas.Document.Pawns.ContainsKey(new CellKey(2, 2)), "pawn box window: an enemy in the group is refused with a notice");
+
+        CallOn(pl, "LeavePlayerMode", "test");
+        CallOn(dm, "StopHosting");
+        dm.Close(); pl.Close();
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"pawn box window: test failed at {step}: {(ex.InnerException ?? ex)}");
+    }
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

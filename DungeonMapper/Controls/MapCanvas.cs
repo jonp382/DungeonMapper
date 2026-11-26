@@ -290,6 +290,8 @@ public sealed partial class MapCanvas : Control
     {
         if (!_moveArmed || _clipboard is null || _clipboard.Empty)
         { StatusMessage?.Invoke("nothing armed to move"); return; }
+        // a joined player's box goes to the DM
+        if (_remote is not null) { RemoteMoveAt(target); return; }
 
         // first placement clears the source on the map it was selected on.
         // move-pawns-only keeps the old contract: only the pawns leave the source,
@@ -2156,6 +2158,12 @@ public sealed partial class MapCanvas : Control
             // pawn tool (the pawn tool only ever moves pawns)
             bool pawnsOnly = Mode == ToolMode.Pawn || (Mode == ToolMode.Move && (MovePawnsOnly || _shiftBox));
             _shiftBox = false;
+            if (_remote is not null)
+            {
+                RemoteBoxReleased(cell, singleCell);
+                InvalidateVisual();
+                return;
+            }
             if (Mode == ToolMode.Pawn && singleCell)
             {
                 // a shift+click without a drag is a plain pawn tool click

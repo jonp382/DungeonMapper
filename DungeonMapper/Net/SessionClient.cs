@@ -42,6 +42,10 @@ public sealed class SessionClient : IDisposable
     public Task SendPawnMove(CellKey from, CellKey to) =>
         Send(new NetMessage { Type = "pawn_move", X = from.X, Y = from.Y, ToX = to.X, ToY = to.Y });
 
+    /// asks the DM to move several of the player's pawns at once (from, to each)
+    public Task SendPawnMoveMany(IEnumerable<(CellKey from, CellKey to)> moves) =>
+        Send(new NetMessage { Type = "pawn_move_many", Placements = moves.Select(m => new PawnPlacement { FromX = m.from.X, FromY = m.from.Y, X = m.to.X, Y = m.to.Y }).ToList() });
+
     /// asks the DM to place a Player pawn at the cell
     public Task SendPawnPlace(string templateId, CellKey at) =>
         Send(new NetMessage { Type = "pawn_place", TemplateId = templateId, X = at.X, Y = at.Y });

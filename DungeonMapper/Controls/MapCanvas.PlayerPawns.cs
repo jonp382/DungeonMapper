@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Input;
 using Avalonia.Media;
@@ -25,13 +26,16 @@ public sealed partial class MapCanvas
         set
         {
             _remote = value;
-            if (value is null) { _playerFrom = _playerOver = null; ArmedPawn = null; CancelFormation(); CancelAreaPick(); }
+            if (value is null) { _playerFrom = _playerOver = null; ArmedPawn = null; CancelFormation(); CancelAreaPick(); CancelMove(); }
             InvalidateVisual();
         }
     }
 
     /// the player dragged one of their pawns (from, to); checked, not applied
     public event Action<CellKey, CellKey>? PlayerMoveRequested;
+    /// the player moved several of their pawns at once (from, to each: a
+    /// shift+drag box); checked, not applied
+    public event Action<List<(CellKey from, CellKey to)>>? PlayerMoveManyRequested;
     /// the player placed one of their pawns (template id, cell); checked, not applied
     public event Action<string, CellKey>? PlayerPlaceRequested;
     /// the player deployed a formation (template id, cell each); checked, not applied
@@ -43,9 +47,21 @@ public sealed partial class MapCanvas
     /// a joined player added or changed a label (shown here, not yet kept)
     public event Action<MapLabel>? RemoteLabelChanged;
 
+    // the source cell of each pawn in the armed box, in snapshot order (a
+    // rotation keeps the order)
+    private List<CellKey> _remoteMoveFrom = new();
+
     private bool PlayerPawnPressed(PointerPressedEventArgs e, CellKey cell)
     {
         if (_remote is null) return false;
+        if (Mode is ToolMode.Move or ToolMode.Pawn)
+        {
+            // an armed box: this click is its target. shift starts a box, like
+            // the DM's move and pawn tools (pawns only, released in the select
+            // box code, which calls RemoteBoxReleased)
+            if (_moveArmed) { MoveAt(cell); return true; }
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { BeginBox(e, cell); return true; }
+        }
         if (Mode == ToolMode.Pawn)
         {
             if (_remote.Pawns.TryGetValue(cell, out var placed))
@@ -96,6 +112,63 @@ public sealed partial class MapCanvas
         if (PlayerPawns.CheckMove(_remote!, Library, from, to) is { } why) StatusMessage?.Invoke(why);
         else PlayerMoveRequested?.Invoke(from, to);
         return true;
+    }
+
+    /// a joined player's box was released: a shift+click acts as a plain click
+    /// (the pawn tool opens a Player pawn or places the armed one), a box picks
+    /// up the Player pawns in it and arms the move
+    private void RemoteBoxReleased(CellKey cell, bool singleCell)
+    {
+        var doc = _remote!;
+        if (singleCell)
+        {
+            ClearSelection();
+            if (Mode != ToolMode.Pawn) return;
+            if (doc.Pawns.TryGetValue(cell, out var placed))
+            {
+                if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) PawnConfigRequested?.Invoke(placed);
+                else StatusMessage?.Invoke("only the DM changes that pawn");
+            }
+            else if (ArmedPawn is { } t)
+            {
+                if (PlayerPawns.CheckPlace(doc, Library, t.Id, cell) is { } why) StatusMessage?.Invoke(why);
+                else PlayerPlaceRequested?.Invoke(t.Id, cell);
+            }
+            return;
+        }
+        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
+        var snap = doc.CaptureRegion(x0, y0, x1, y1);
+        snap.Pawns.RemoveAll(p => !PlayerPawns.Controlled(Library.Find(p.TemplateId)));
+        snap = PawnsOnlySnapshot(snap, out var box);
+        if (snap.Empty)
+        {
+            ClearSelection();
+            StatusMessage?.Invoke("none of your pawns in that region");
+            return;
+        }
+        _selectStart = new CellKey(box.x0, box.y0);
+        _selectEnd = new CellKey(box.x1, box.y1);
+        _remoteMoveFrom = snap.Pawns.Select(p => p.Cell).ToList();
+        _clipboard = snap;
+        _moveSourceDoc = null;
+        _cutSource = null;
+        _moveArmed = true;
+        _armedPawnsOnly = true;
+        _moveSourceRect = box;
+        _moveSourceCleared = false;
+        _movePlaced = false;
+        _rotTurns = 0;
+    }
+
+    /// the armed box lands at target: checked here, sent to the DM, nothing
+    /// changes locally. a refused spot keeps it armed to try another
+    private void RemoteMoveAt(CellKey target)
+    {
+        int dx = target.X - _clipboard!.OriginX, dy = target.Y - _clipboard.OriginY;
+        var moves = _remoteMoveFrom.Zip(_clipboard.Pawns, (from, p) => (from, new CellKey(p.Cell.X + dx, p.Cell.Y + dy))).ToList();
+        if (PlayerPawns.CheckMoveMany(_remote!, Library, moves) is { } why) { StatusMessage?.Invoke(why); return; }
+        PlayerMoveManyRequested?.Invoke(moves);
+        CancelMove();
     }
 
     private static readonly Color PlayerPawnColor = Color.FromRgb(120, 230, 160);

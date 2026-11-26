@@ -26,7 +26,8 @@ namespace DungeonMapper.Net;
 //                           player's ping on to the other players)
 //   player -> host  pawn_move (x,y -> to_x,to_y), pawn_place (template id,
 //                           x,y), pawn_status (x,y, status), pawn_deploy
-//                           (placements), formation_set (formation) and
+//                           (placements), pawn_move_many (placements with
+//                           from_x,from_y -> x,y), formation_set (formation) and
 //                           formation_delete (id): Player pawns only. the DM's
 //                           app checks and applies them
 //   player -> host  label_set (a label with its id: new or changed) and
@@ -156,10 +157,13 @@ public sealed class NetMessage
     [JsonPropertyName("package")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public PackageWire? Package { get; set; }
 }
 
-/// one pawn of a deploy: template and cell
+/// one pawn of a deploy (template and cell) or of a group move (from cell
+/// and cell)
 public sealed class PawnPlacement
 {
     [JsonPropertyName("template_id")] public string TemplateId { get; set; } = "";
     [JsonPropertyName("x")] public int X { get; set; }
     [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("from_x")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? FromX { get; set; }
+    [JsonPropertyName("from_y")][JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? FromY { get; set; }
 }

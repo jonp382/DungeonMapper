@@ -50,6 +50,12 @@ public partial class MainWindow
             _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnMove(from, to));
             StatusText.Text = $"moving {PlayerPawnName(Canvas.RemoteDocument?.Pawns.GetValueOrDefault(from)?.TemplateId)}";
         };
+        Canvas.PlayerMoveManyRequested += moves =>
+        {
+            if (_client is not { } cl) return;
+            _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnMoveMany(moves));
+            StatusText.Text = $"moving {Plural(moves.Count, "pawn")}";
+        };
         Canvas.PlayerPlaceRequested += (id, at) =>
         {
             if (_client is not { } cl) return;
@@ -228,6 +234,7 @@ public partial class MainWindow
             PawnAction.Move => PlayerPawns.CheckMove(doc, lib, r.From, r.To),
             PawnAction.Place => PlayerPawns.CheckPlace(doc, lib, r.TemplateId, r.To, OnOtherMap(r.TemplateId)),
             PawnAction.Status => PlayerPawns.CheckStatus(doc, lib, ActivePresets, r.To, r.Status),
+            PawnAction.MoveMany => PlayerPawns.CheckMoveMany(doc, lib, r.Moves),
             _ => PlayerPawns.CheckDeploy(doc, lib, r.Placements, OnOtherMap),
         };
         if (why is not null) { host.Notice(r, why); return; }
@@ -246,6 +253,10 @@ public partial class MainWindow
                 var pawn = doc.Pawns[r.To];
                 pawn.Status = r.Status;
                 StatusText.Text = $"{r.Name} set {Name(pawn.TemplateId)} to {r.Status ?? "its usual status"}";
+                break;
+            case PawnAction.MoveMany:
+                PlayerPawns.ApplyMoveMany(doc, r.Moves);
+                StatusText.Text = $"{r.Name} moved {Plural(r.Moves.Count, "pawn")}";
                 break;
             default:
                 var templates = r.Placements.Select(p => lib.Find(p.id)!).Distinct().ToList();
@@ -647,12 +658,12 @@ public partial class MainWindow
     }
 
     // keys while joined: esc, zoom to fit, measure, move, label, pawn, deploy
-    // formation (r rotates it) and ping. everything
+    // formation (r rotates it or an armed pawn box) and ping. everything
     // else is swallowed. true when handled here
     private bool PlayerKey(KeyEventArgs e)
     {
         if (e.Key == Key.Escape) return false;
-        if (e.Key == Key.R && Canvas.FormationArmed && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift) return false;
+        if (e.Key == Key.R && (Canvas.FormationArmed || Canvas.MoveArmed) && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
         foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), nameof(ToolMode.Pawn), nameof(ToolMode.Image), AppSettings.FormationHotkey, AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
@@ -670,7 +681,7 @@ public partial class MainWindow
     private void BuildPlayerMovePanel()
     {
         ToolPanel.Clear("move");
-        ToolPanel.AddHint("drag one of your party's pawns (Player pawns) to an empty revealed cell to move it. it moves on the DM's map for everyone. other pawns are moved by the DM. the pawn tool places pawns and deploys formations.");
+        ToolPanel.AddHint("drag one of your party's pawns (Player pawns) to an empty revealed cell to move it. shift+drag a box to pick up several of them, then click where they go (r turns them, esc cancels). it moves on the DM's map for everyone. other pawns are moved by the DM. the pawn tool places pawns and deploys formations.");
     }
 
     private string PlayerPawnName(string? id) => Canvas.Library.Find(id ?? "") is { } t ? PawnName(t) : "pawn";

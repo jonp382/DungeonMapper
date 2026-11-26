@@ -89,6 +89,39 @@ public static class PlayerPawns
         return null;
     }
 
+    /// why a player can not move these pawns together (from, to each; a
+    /// shift+drag box), null when they can. every pawn is a visible Player
+    /// pawn; each landing cell is revealed floor, empty or left by the group
+    /// (no swaps, like a single move)
+    public static string? CheckMoveMany(MapDocument doc, PawnLibrary lib, IReadOnlyList<(CellKey from, CellKey to)> moves)
+    {
+        if (moves.Count == 0) return "no pawns to move";
+        if (moves.Select(m => m.from).Distinct().Count() != moves.Count) return "a pawn is moved twice";
+        if (moves.Select(m => m.to).Distinct().Count() != moves.Count) return "two pawns on one cell";
+        var leaving = moves.Select(m => m.from).ToHashSet();
+        foreach (var (from, _) in moves)
+        {
+            if (!doc.Pawns.TryGetValue(from, out var p) || !Visible(doc, p)) return "there is no pawn there";
+            if (!Controlled(lib.Find(p.TemplateId))) return "only the DM moves some of those pawns";
+        }
+        if (moves.All(m => m.from == m.to)) return "those pawns are already there";
+        foreach (var (_, to) in moves)
+        {
+            if (!doc.Revealed.Contains(to) || !doc.IsFloorCell(to)) return "pawns can only go onto revealed floor";
+            if (doc.Pawns.ContainsKey(to) && !leaving.Contains(to)) return "a cell already has a pawn";
+        }
+        return null;
+    }
+
+    /// moves them all at once (status kept, visible). call CheckMoveMany first
+    public static void ApplyMoveMany(MapDocument doc, IReadOnlyList<(CellKey from, CellKey to)> moves)
+    {
+        var pawns = moves.Select(m => doc.Pawns[m.from]).ToList();
+        foreach (var (from, _) in moves) doc.Pawns.Remove(from);
+        for (int i = 0; i < moves.Count; i++)
+            doc.Pawns[moves[i].to] = new Pawn { Cell = moves[i].to, TemplateId = pawns[i].TemplateId, Status = pawns[i].Status, DmOnly = false };
+    }
+
     /// moves the pawn (status kept, visible). call CheckMove first
     public static void ApplyMove(MapDocument doc, CellKey from, CellKey to)
     {
