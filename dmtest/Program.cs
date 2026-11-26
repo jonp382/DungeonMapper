@@ -6056,7 +6056,7 @@ try { Directory.Delete(imgDir, true); } catch { }
     var mparsed = AppSettings.ParseImport("{\"kind\":\"settings\",\"pawn_status_gap\":500}");
     Check(mparsed is null || mparsed.PawnStatusGap <= AppSettings.MaxPawnStatusGap, "multi status: the gap setting is clamped on import");
 
-    // pixels: two statuses split the ring, mright half first, mleft half second
+    // pixels: two statuses split the ring, top half first, bottom half second
     var h = new CanvasHarness();
     h.Canvas.Presets = mpre;
     h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "a", Name = "A" });
@@ -6065,13 +6065,19 @@ try { Directory.Delete(imgDir, true); } catch { }
     var c = h.ScreenOf(3, 3);
     double r = 0.42 * 40;
     var mbmp = h.Render();
-    var mright = h.PixelAt(mbmp, (int)Math.Round(c.X + r), (int)c.Y);
-    var mleft = h.PixelAt(mbmp, (int)Math.Round(c.X - r), (int)c.Y);
-    Check(mright.r > 180 && mright.b > 150 && mleft.g > 150 && mleft.r < 120, "multi status: the first status (preset order) is on the right, the second on the left");
+    var mtopArc = h.PixelAt(mbmp, (int)c.X, (int)Math.Round(c.Y - r));
+    var mbottomArc = h.PixelAt(mbmp, (int)c.X, (int)Math.Round(c.Y + r));
+    Check(mtopArc.r > 180 && mtopArc.b > 150 && mbottomArc.g > 150 && mbottomArc.r < 120, "multi status: two statuses sit top (first in preset order) and bottom");
     h.Canvas.Settings.PawnStatusGap = 30;
     mbmp = h.Render();
-    var mtop = h.PixelAt(mbmp, (int)c.X, (int)Math.Round(c.Y - r));
-    Check(!(mtop.g > 150 && mtop.r < 120) && !(mtop.r > 180 && mtop.b > 150), "multi status: the gap at the top shows the base ring, not a status");
+    var mside = h.PixelAt(mbmp, (int)Math.Round(c.X + r), (int)c.Y);
+    Check(!(mside.g > 150 && mside.r < 120) && !(mside.r > 180 && mside.b > 150), "multi status: with two, the gaps are at the sides and show the base ring");
+    // three keep the old layout: the first arc starts at the top and goes clockwise
+    h.Doc.Pawns[new CellKey(3, 3)].Statuses = S("hasted", "paralyzed", "fear");
+    h.Canvas.Settings.PawnStatusGap = 8;
+    mbmp = h.Render();
+    var m3 = h.PixelAt(mbmp, (int)Math.Round(c.X + r * Math.Cos(-60 * Math.PI / 180)), (int)Math.Round(c.Y + r * Math.Sin(-60 * Math.PI / 180)));
+    Check(m3.r > 180 && m3.b > 150, "multi status: three still start at the top, the first going clockwise");
 }
 
 // --- turn tracking ---

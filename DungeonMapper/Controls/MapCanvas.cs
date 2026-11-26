@@ -1522,7 +1522,8 @@ public sealed partial class MapCanvas : Control
 
     /// the arcs of a pawn's status ring: one equal slice per status from the
     /// top, clockwise, with gapDeg between them (shrunk to at most half a
-    /// slice). one status is the whole circle
+    /// slice). one status is the whole circle. two are turned a quarter so
+    /// they sit top and bottom with the gaps at the sides (user)
     public static List<(Geometry geo, PawnStatus st)> StatusArcs(Point center, double r, IReadOnlyList<PawnStatus> statuses, double gapDeg)
     {
         var res = new List<(Geometry, PawnStatus)>();
@@ -1530,10 +1531,11 @@ public sealed partial class MapCanvas : Control
         if (n == 0) return res;
         if (n == 1) { res.Add((new EllipseGeometry(new Rect(center.X - r, center.Y - r, r * 2, r * 2)), statuses[0])); return res; }
         double slice = 360.0 / n, gap = Math.Min(Math.Max(0, gapDeg), slice * 0.5);
+        double start = n == 2 ? -180 : -90;
         Point At(double deg) => new(center.X + r * Math.Cos(deg * Math.PI / 180), center.Y + r * Math.Sin(deg * Math.PI / 180));
         for (int i = 0; i < n; i++)
         {
-            double a0 = -90 + i * slice + gap / 2, sweep = slice - gap;
+            double a0 = start + i * slice + gap / 2, sweep = slice - gap;
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
