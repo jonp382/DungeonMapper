@@ -6016,12 +6016,13 @@ try { Directory.Delete(imgDir, true); } catch { }
     var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
     CallOn(w, "ShowPawnInfo", gp);
     panel.UpdateLayout();
-    var boxes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Where(c => c.Tag is string).ToList();
-    Check(boxes.Count == pre.PawnStatuses.Count - 1 && !boxes.Any(c => (string)c.Tag! == "inherit" || (string)c.Tag! == CampaignPresets.NoStatus),
-        "no type status: the pawn view lists every status as a checkbox, no inherit and no none");
-    Check(boxes.Single(c => (string)c.Tag! == st).IsChecked == true, "no type status: the pawn's status is ticked");
-    boxes.Single(c => (string)c.Tag! == st).IsChecked = false;
-    Check(gp.Statuses.Count == 0, "no type status: unticking it leaves none");
+    var removes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>()
+        .Where(c => c.Tag is string tg && tg.StartsWith("remove:")).ToList();
+    Check(removes.Count == 1 && (string)removes[0].Tag! == "remove:" + st && !Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Any(c => c.Tag is string),
+        "status list: the pawn view lists only the pawn's statuses, each with a remove button, no checkboxes");
+    removes[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+    Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+    Check(hdoc.Pawns[gp.Cell].Statuses.Count == 0, "status list: the x removes it, leaving none");
     CallOn(w, "DoUndo");
     Check(St(hdoc.Pawns[gp.Cell]) == st, "no type status: and undo brings it back");
     w.Close();
@@ -6157,12 +6158,9 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 4, "turns window: a new number of turns is kept");
         var fearPreset = pre.PawnStatuses.First(x => x.Name == "fear");
         fearPreset.DefaultTurns = 3;
-        var cbs = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().ToList();
-        cbs.First(c => (c.Tag as string) == "fear").IsChecked = false;
-        CallOn(w, "ShowPawnInfo", hdoc.Pawns[gp.Cell]);
-        panel.UpdateLayout();
-        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().First(c => (c.Tag as string) == "fear").IsChecked = true;
-        Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 3, "turns window: ticking a status fills in its default turns");
+        CallOn(w, "RemovePawnStatus", gp.Cell, "fear");
+        CallOn(w, "AddPawnStatus", gp.Cell, "fear");
+        Check(hdoc.Pawns[gp.Cell].Statuses.First(x => x.Name == "fear").Turns == 3, "turns window: adding a status fills in its default turns");
 
         step = "hero elsewhere";
         var other = new MapEntry { Name = "other", Doc = new MapDocument() };
@@ -6630,6 +6628,66 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(im is { X: 5, W: 4, H: 4 }, "image tool: the side handle still resizes (keep shape)");
     h.PressW(5, 8.4); h.MoveToAt(h.ScreenWorld(4, 8.4)); h.ReleaseW(4, 8.4);
     Check(im is { X: 4, Y: 7, W: 4, H: 4 }, "image tool: dragging the edge moves the image");
+}
+
+// --- add status menu ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        var pre = (CampaignPresets)t.GetProperty("ActivePresets", flags)!.GetValue(w)!;
+        pre.PawnStatuses.Add(new PawnStatus("hasted", 40, 220, 60, 3) { DefaultTurns = 4 });
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var sdoc = canvas.Document;
+        var cell = new CellKey(2, 1);
+        sdoc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = "gob", Statuses = new() { new PawnStatusEntry { Name = "fear", Turns = -1 } } };
+        var hist = (History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!;
+        hist.Commit(sdoc);
+        CallOn(w, "ShowPawnInfo", sdoc.Pawns[cell]);
+        var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
+        panel.UpdateLayout();
+        var addBtn = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>().FirstOrDefault(b => b.Content as string == "add status");
+        Check(addBtn is not null, "add status: the pawn view has an add status button");
+        addBtn!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        var overlay = (Avalonia.Controls.Control)FieldOf(w, "ModalOverlay")!;
+        Check(overlay.IsVisible && (string?)FieldOf(w, "_modalKind") == "add-status", "add status: the button opens the add status menu");
+        overlay.UpdateLayout();
+        List<string> Rows() => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Border>()
+            .Where(b => b.Tag is string && b.Classes.Contains("row")).Select(b => (string)b.Tag!).ToList();
+        var rows = Rows();
+        int total = pre.PawnStatuses.Count(x => x.Name != CampaignPresets.NoStatus);
+        Check(rows.Count == total - 1 && !rows.Contains("fear") && !rows.Contains(CampaignPresets.NoStatus) && rows.Contains("hasted"),
+            "add status: the menu lists the statuses the pawn does not have, not none");
+        var search = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.TextBox>().First();
+        search.Text = "HAST";
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        overlay.UpdateLayout();
+        Check(Rows().SequenceEqual(new[] { "hasted" }), "add status: search narrows the list, ignoring case");
+        // a click on the row adds it with its default turns, the menu stays open and the row goes
+        CallOn(w, "AddPawnStatus", cell, "hasted");
+        search.Text = "";
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        overlay.UpdateLayout();
+        Check(sdoc.Pawns[cell].Statuses.Any(e => e is { Name: "hasted", Turns: 4 }), "add status: adding gives the default turns");
+        Check(overlay.IsVisible && !Rows().Contains("hasted") && Rows().Count == total - 2, "add status: the menu stays open without the added status");
+        panel.UpdateLayout();
+        Check(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>().Any(b => (b.Tag as string) == "remove:hasted"),
+            "add status: the pawn view shows the added status");
+        CallOn(w, "DoUndo");
+        Check(!sdoc.Pawns[cell].HasStatus("hasted") && sdoc.Pawns[cell].HasStatus("fear"), "add status: undo takes it off");
+        CallOn(w, "CloseModals");
+        Check(!overlay.IsVisible, "add status: done closes the menu");
+    }
+    catch (Exception ex) { Check(false, $"add status: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

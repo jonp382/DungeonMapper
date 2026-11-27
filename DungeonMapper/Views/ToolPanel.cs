@@ -78,47 +78,52 @@ public sealed class ToolPanel : Border
         return cb;
     }
 
-    // a list of checkboxes under a label, each with an optional dot before its
-    // name (the pawn view's statuses). onChange gets the name and its new state.
-    // an item with a number gets a box after it (a status's turns left); the
-    // number is applied on enter or leaving the box, a bad one shows a red line
-    public StackPanel AddChecklist(string label, IEnumerable<(string name, bool on, Control? dot, int? number)> items, Action<string, bool> onChange,
-        Func<int, string?>? checkNumber = null, Action<string, int>? onNumber = null, string? numberTip = null)
+    // a list of named rows under a label (the pawn view's statuses): an
+    // optional dot, the name, an optional number box (a status's turns left,
+    // applied on enter or leaving the box, a bad one shows a red line) and an
+    // x that removes the row (onRemove gets the name). empty shows emptyText.
+    public StackPanel AddRemovableList(string label, IEnumerable<(string name, Control? dot, int? number)> items, Action<string> onRemove,
+        Func<int, string?>? checkNumber = null, Action<string, int>? onNumber = null, string? numberTip = null, string emptyText = "none")
     {
         Target.Children.Add(FieldLabel(label));
-        var list = new StackPanel { Spacing = 0 };
-        foreach (var (name, on, dot, number) in items)
+        var list = new StackPanel { Spacing = 2 };
+        foreach (var (name, dot, number) in items)
         {
             var n = name;
-            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 4 };
+            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
             if (dot is not null) { dot.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(dot); }
-            content.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center });
-            var cb = new CheckBox { Content = content, IsChecked = on, Tag = name };
-            cb.IsCheckedChanged += (_, _) => { ButtonHook?.Invoke(); onChange(n, cb.IsChecked == true); };
-            if (number is not int start || onNumber is null) { list.Children.Add(cb); continue; }
-
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-            row.Children.Add(cb);
-            var box = new TextBox { Text = start.ToString(), Classes = { "field", "number" }, Tag = name, Width = 56, VerticalAlignment = VerticalAlignment.Center };
-            if (numberTip is not null) ToolTip.SetTip(box, numberTip);
-            Grid.SetColumn(box, 1);
-            row.Children.Add(box);
-            var refusal = RefusalLine();
-            int last = start;
-            void Apply()
-            {
-                string? why = int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number";
-                SetRefusal(refusal, why);
-                if (why is null && v != last) { last = v; onNumber(n, v); }
-            }
-            box.TextChanged += (_, _) => SetRefusal(refusal, int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number");
-            box.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) { Apply(); e.Handled = true; } };
-            box.LostFocus += (_, _) => Apply();
+            content.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+            row.Children.Add(content);
+            var remove = new Button { Content = "✕", Classes = { "btn", "quiet" }, Tag = "remove:" + name, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(6, 2) };
+            ToolTip.SetTip(remove, $"remove {name}");
+            remove.Click += (_, _) => { ButtonHook?.Invoke(); onRemove(n); };
+            Grid.SetColumn(remove, 2);
+            row.Children.Add(remove);
             var wrap = new StackPanel { Spacing = 0 };
             wrap.Children.Add(row);
-            wrap.Children.Add(refusal);
+            if (number is int start && onNumber is not null)
+            {
+                var box = new TextBox { Text = start.ToString(), Classes = { "field", "number" }, Tag = name, Width = 56, VerticalAlignment = VerticalAlignment.Center };
+                if (numberTip is not null) ToolTip.SetTip(box, numberTip);
+                Grid.SetColumn(box, 1);
+                row.Children.Add(box);
+                var refusal = RefusalLine();
+                int last = start;
+                void Apply()
+                {
+                    string? why = int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number";
+                    SetRefusal(refusal, why);
+                    if (why is null && v != last) { last = v; onNumber(n, v); }
+                }
+                box.TextChanged += (_, _) => SetRefusal(refusal, int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number");
+                box.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) { Apply(); e.Handled = true; } };
+                box.LostFocus += (_, _) => Apply();
+                wrap.Children.Add(refusal);
+            }
             list.Children.Add(wrap);
         }
+        if (list.Children.Count == 0) list.Children.Add(new TextBlock { Text = emptyText, Classes = { "hint" } });
         Target.Children.Add(list);
         return list;
     }

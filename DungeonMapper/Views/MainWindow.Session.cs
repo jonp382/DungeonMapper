@@ -733,14 +733,7 @@ public partial class MainWindow
         head.Children.Add(titles);
         ToolPanel.AddButtonRaw(head);
 
-        AddStatusChecks(pawn, PanelPresets, list =>
-        {
-            if (_client is not { } cl) return;
-            pawn.Statuses = list; // shown at once, the DM's map confirms it
-            Canvas.Refresh();
-            _ = System.Threading.Tasks.Task.Run(() => cl.SendPawnStatus(cell, list));
-            SetStatus($"{PawnName(t)}: {StatusNames(pawn)}");
-        });
+        AddStatusList(pawn); // sent to the DM (MainWindow.PawnStatuses.cs)
         ToolPanel.AddInfo($"{PanelDoc.Pawns.Values.Count(p => p.TemplateId == pawn.TemplateId)} on this map");
         ToolPanel.AddButton("back to pawns", BackToToolView);
     }

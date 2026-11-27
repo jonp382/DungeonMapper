@@ -356,7 +356,7 @@ public partial class MainWindow : Window
         {
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
-            if (ModalOverlay.IsVisible && _modalKind == "close-doors") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind is "close-doors" or "add-status") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind is "host" or "join") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "objects") { CloseManage(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }
