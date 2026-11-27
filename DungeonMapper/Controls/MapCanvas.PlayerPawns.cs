@@ -41,9 +41,9 @@ public sealed partial class MapCanvas
     /// the player deployed a formation (template id, cell each); checked, not applied
     public event Action<List<(string id, CellKey cell)>>? PlayerDeployRequested;
 
-    private bool PlayerPawnsActive => _remote is not null && Mode is ToolMode.Move or ToolMode.Pawn;
+    private bool PlayerPawnsActive => _remote is not null && Mode == ToolMode.Pawn;
     /// the tools a joined player edits with (the measure tool only reads)
-    private bool JoinedTool => _remote is not null && Mode is ToolMode.Move or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
+    private bool JoinedTool => _remote is not null && Mode is ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
     /// a joined player added or changed a label (shown here, not yet kept)
     public event Action<MapLabel>? RemoteLabelChanged;
 
@@ -54,22 +54,19 @@ public sealed partial class MapCanvas
     private bool PlayerPawnPressed(PointerPressedEventArgs e, CellKey cell)
     {
         if (_remote is null) return false;
-        if (Mode is ToolMode.Move or ToolMode.Pawn)
+        if (Mode == ToolMode.Pawn)
         {
-            // an armed box: this click is its target. shift starts a box, like
-            // the DM's move and pawn tools (pawns only, released in the select
-            // box code, which calls RemoteBoxReleased)
-            if (_moveArmed) { MoveAt(cell); return true; }
-            // the pawn tool: inside a box of your pawns, drag to move them
-            if (Mode == ToolMode.Pawn && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && BeginDragMove(e, cell)) return true;
+            // inside a box of your pawns, drag to move them; shift starts a
+            // box (released in the select box code, which calls RemoteBoxReleased)
+            if (!e.KeyModifiers.HasFlag(KeyModifiers.Shift) && BeginDragMove(e, cell)) return true;
             if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { BeginBox(e, cell); return true; }
-            if (Mode == ToolMode.Pawn && HasSelection) ClearSelection();
+            if (HasSelection) ClearSelection();
         }
         if (Mode == ToolMode.Pawn)
         {
             if (_remote.Pawns.TryGetValue(cell, out var placed))
             {
-                // dragged like in the move tool; a click opens it (on release)
+                // dragged like in the select tool; a click opens it (on release)
                 if (PlayerPawns.Controlled(Library.Find(placed.TemplateId))) { _playerFrom = _playerOver = cell; e.Pointer.Capture(this); }
                 else Status("only the DM changes that pawn", StatusKind.Error);
             }
@@ -81,15 +78,7 @@ public sealed partial class MapCanvas
             else Status("select a pawn in the pawn menu first", StatusKind.Warning);
             return true;
         }
-        if (Mode != ToolMode.Move) return false;
-        if (_remote.Pawns.TryGetValue(cell, out var p))
-        {
-            if (!PlayerPawns.Controlled(Library.Find(p.TemplateId))) { Status("only the DM moves that pawn", StatusKind.Error); return true; }
-            _playerFrom = _playerOver = cell;
-            e.Pointer.Capture(this);
-            InvalidateVisual();
-        }
-        return true; // nothing else edits in a session
+        return false;
     }
 
     private bool PlayerPawnMoved(Point world)
@@ -151,18 +140,7 @@ public sealed partial class MapCanvas
         }
         _selectStart = new CellKey(box.x0, box.y0);
         _selectEnd = new CellKey(box.x1, box.y1);
-        // the pawn tool: the box only selects, a drag inside moves (DragMove)
-        if (Mode == ToolMode.Pawn) return;
-        _remoteMoveFrom = snap.Pawns.Select(p => p.Cell).ToList();
-        _clipboard = snap;
-        _moveSourceDoc = null;
-        _cutSource = null;
-        _moveArmed = true;
-        _armedPawnsOnly = true;
-        _moveSourceRect = box;
-        _moveSourceCleared = false;
-        _movePlaced = false;
-        _rotTurns = 0;
+        // the box only selects, a drag inside moves (DragMove)
     }
 
     /// the armed box lands at target: checked here, sent to the DM, nothing

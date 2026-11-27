@@ -171,7 +171,7 @@ public sealed partial class MapCanvas
         _sightCell = cell;
         _sightDoc = Document;
         _sightHover = null;
-        // a pawn drags like in the move tool, the region follows the ghost
+        // a pawn drags like in the select tool, the region follows the ghost
         if (!BeginPawnDrag(e, cell))
         {
             _sightDragging = true;

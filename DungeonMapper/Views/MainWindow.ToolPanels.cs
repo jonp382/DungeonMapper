@@ -42,18 +42,8 @@ public partial class MainWindow
                 ToolPanel.AddHint("click an element to configure it, drag a region to select. drag inside the selection to move it (r / shift+r turns it, esc cancels). drag a pawn, object, label or image to move it, shift+drag to start a selection on one. ctrl+c and ctrl+v copy and paste, the paste ghost follows the cursor. r, shift+r or shift+scroll rotates the clipboard.");
                 ToolPanel.AddCheck("pawns only", Canvas.SelectPawnsOnly, v => { Canvas.SelectPawnsOnly = v; FocusCanvas(); },
                     "dragging the selection moves only its pawns");
+                ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 ToolPanel.AddButton("clear clipboard", () => { Canvas.ClearClipboard(); FocusCanvas(); });
-                break;
-
-            case ToolMode.Move when _client is not null:
-                BuildPlayerMovePanel();
-                break;
-
-            case ToolMode.Move:
-                ToolPanel.Clear("move");
-                ToolPanel.AddHint("drag on empty space to select a region, then click the destination. drag a pawn to move just that pawn. shift+drag moves only the pawns in the box, even on a pawn and with pawns only off. esc cancels.");
-                ToolPanel.AddCheck("move pawns only", Canvas.MovePawnsOnly, v => { Canvas.MovePawnsOnly = v; FocusCanvas(); });
-                ToolPanel.AddCheck("show destination ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
                 break;
 
             case ToolMode.Room:

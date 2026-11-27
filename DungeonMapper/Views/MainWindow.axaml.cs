@@ -134,7 +134,6 @@ public partial class MainWindow : Window
 
         // hotbar icons. tools without a png yet get a drawn placeholder.
         SetIcon(ToolSelect, PngIcon("DMSelect"));
-        SetIcon(ToolMove, PngIcon("DMMove"));
         SetIcon(ToolRoom, PngIcon("DMRoom2"));
         SetIcon(ToolFloor, PngIcon("DMFloor"));
         SetIcon(ToolWall, PngIcon("DMWall"));
@@ -199,7 +198,6 @@ public partial class MainWindow : Window
 
         // Tool buttons
         ToolSelect.Click += (_, _) => SetTool(ToolMode.Select);
-        ToolMove.Click += (_, _) => SetTool(ToolMode.Move);
         ToolRoom.Click += (_, _) => SetTool(ToolMode.Room);
         ToolFloor.Click += (_, _) => SetTool(ToolMode.Floor);
         ToolWall.Click += (_, _) => SetTool(ToolMode.Wall);
@@ -444,7 +442,6 @@ public partial class MainWindow : Window
     private void RefreshToolLabels()
     {
         LabelTool(ToolSelect, "Select");
-        LabelTool(ToolMove, "Move");
         LabelTool(ToolRoom, "Room");
         LabelTool(ToolFloor, "Floor");
         LabelTool(ToolWall, "Wall");
@@ -467,7 +464,6 @@ public partial class MainWindow : Window
     private Button ToolButton(ToolMode mode) => mode switch
     {
         ToolMode.Select => ToolSelect,
-        ToolMode.Move => ToolMove,
         ToolMode.Room => ToolRoom,
         ToolMode.Floor => ToolFloor,
         ToolMode.Wall => ToolWall,
@@ -545,7 +541,6 @@ public partial class MainWindow : Window
         SetStatus(mode switch
         {
             ToolMode.Select => "select: click an element to configure, drag a pawn, object, label or image to move it (objects, labels and images get resize handles), drag empty space to select a region, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
-            ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+drag moves only pawns. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",

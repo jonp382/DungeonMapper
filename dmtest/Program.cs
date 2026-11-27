@@ -1247,32 +1247,28 @@ Check(!d.Cells.Contains(new CellKey(0, 0)) && d.Cells.Contains(new CellKey(5, 5)
 {
     var h = new CanvasHarness();
     h.Doc.AddRoom(0, 0, 1, 1);
-    h.Canvas.Mode = ToolMode.Move;
+    h.Canvas.Mode = ToolMode.Select;
     h.Drag(0, 0, 1, 1);
-    Check(h.Canvas.MoveArmed, "canvas move: drag-select arms the move");
+    Check(h.Canvas.SelectionRect == (0, 0, 1, 1), "canvas move: drag-select selects the region");
 
-    h.Click(5, 5);
+    h.Drag(0, 0, 5, 5);
     Check(!h.Doc.Cells.Contains(new CellKey(0, 0)) && !h.Doc.Cells.Contains(new CellKey(1, 1)),
         "canvas move: source region cleared after destination click");
     Check(h.Doc.Cells.Contains(new CellKey(5, 5)) && h.Doc.Cells.Contains(new CellKey(6, 6)),
         "canvas move: pasted content lands at destination");
     Check(h.Doc.Cells.Count == 4, "canvas move: exactly the moved cells remain, no source left behind");
 
-    // one placement per arm: the placement disarms, so a second click places nothing
-    Check(!h.Canvas.MoveArmed, "canvas move: placement disarms the move");
-    h.Click(9, 9);
-    Check(h.Doc.Cells.Count == 4 && !h.Doc.Cells.Contains(new CellKey(9, 9))
-          && !h.Doc.Cells.Contains(new CellKey(0, 0)),
-        "canvas move: second click after placement places nothing");
+    Check(!h.Canvas.MoveArmed, "canvas move: the drop disarms the move");
 
     // rotation: the armed snapshot rotates (R / shift+R / shift+scroll) before placement
     var h2 = new CanvasHarness();
     h2.Doc.AddRoom(0, 0, 2, 0); // horizontal 3-cell bar
-    h2.Canvas.Mode = ToolMode.Move;
+    h2.Canvas.Mode = ToolMode.Select;
     h2.Drag(0, 0, 2, 0);
-    Check(h2.Canvas.MoveArmed, "canvas move: rotation run arms the move");
+    h2.Press(0, 0);
+    Check(h2.Canvas.MoveArmed, "canvas move: a press inside the selection picks it up");
     h2.Canvas.RotateRegion(1); // 90 deg ccw: bar turns vertical
-    h2.Click(5, 5);
+    h2.MoveTo(5, 5); h2.Release(5, 5);
     Check(!h2.Doc.Cells.Contains(new CellKey(0, 0)) && !h2.Doc.Cells.Contains(new CellKey(2, 0)),
         "canvas move: rotated placement clears the source");
     Check(h2.Doc.Cells.Count == 3 && h2.Doc.Cells.Contains(new CellKey(5, 2))
@@ -2849,105 +2845,58 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(DungeonMapper.Views.MainWindow.StairConfigInfo(1) == "a single stair, no others are connected to it", "config views: stair info for a lone stair");
 }
 
-// --- move tool: a leftover selection must not block a new move ---
-{
-    // a region dragged with the select tool, then the move tool picked
-    var h = new CanvasHarness();
-    h.Doc.AddRoom(0, 0, 1, 1);
-    h.Canvas.Mode = ToolMode.Select;
-    h.Drag(0, 0, 1, 1);
-    h.Canvas.Mode = ToolMode.Move; h.Canvas.CancelMove();
-    h.Drag(0, 0, 1, 1);
-    Check(h.Canvas.MoveArmed, "move stuck: a select tool selection does not block a new move drag");
-    h.Click(5, 5);
-    Check(h.Doc.Cells.Contains(new CellKey(5, 5)) && !h.Doc.Cells.Contains(new CellKey(0, 0)), "move stuck: the move after a select tool selection lands");
-
-    // a move drag over empty space selects nothing, the next drag still works
-    var h2 = new CanvasHarness();
-    h2.Doc.AddRoom(0, 0, 1, 1);
-    h2.Canvas.Mode = ToolMode.Move;
-    h2.Drag(10, 10, 12, 12);
-    Check(!h2.Canvas.MoveArmed && !h2.Canvas.HasSelection, "move stuck: an empty move drag leaves no selection");
-    h2.Drag(0, 0, 1, 1);
-    Check(h2.Canvas.MoveArmed, "move stuck: a drag after an empty one arms the move");
-    h2.Click(5, 5);
-    Check(h2.Doc.Cells.Contains(new CellKey(5, 5)) && !h2.Doc.Cells.Contains(new CellKey(0, 0)), "move stuck: the move after an empty drag lands");
-}
-
-// --- move tool: pawns only shrinks the selection to the pawns ---
+// --- select tool: pawns only moves anchor on the pawns ---
 {
     var h = new CanvasHarness();
     h.Doc.AddRoom(0, 0, 8, 8);
     h.Doc.PlacePawn(new Pawn { Cell = new CellKey(3, 3), TemplateId = "p1" });
     h.Doc.PlacePawn(new Pawn { Cell = new CellKey(4, 5), TemplateId = "p2" });
-    h.Canvas.Mode = ToolMode.Move;
-    h.Canvas.MovePawnsOnly = true;
+    h.Canvas.Mode = ToolMode.Select;
+    h.Canvas.SelectPawnsOnly = true;
     h.Drag(0, 0, 8, 8);
-    Check(h.Canvas.MoveArmed, "pawns only: a wide drag around the pawns arms the move");
-    // the anchor is the pawn box (3,3)-(4,5), so a click at (10,10) puts the
-    // top left pawn there, not 3 cells in from it
-    h.Click(10, 10);
+    h.Drag(3, 3, 10, 10);
     Check(h.Doc.Pawns.TryGetValue(new CellKey(10, 10), out var a) && a.TemplateId == "p1"
         && h.Doc.Pawns.TryGetValue(new CellKey(11, 12), out var b) && b.TemplateId == "p2",
-        "pawns only: the move lands anchored on the pawns, not the dragged rectangle");
+        "pawns only: the pawns move by the drag, keeping their spacing");
     Check(h.Doc.Pawns.Count == 2 && h.Doc.Cells.Contains(new CellKey(3, 3)) && h.Doc.Cells.Count == 81,
         "pawns only: the pawns leave the source and the room stays");
 
-    // one pawn shrinks to a single cell and still moves, without opening its config
-    var h2 = new CanvasHarness();
-    h2.Doc.AddRoom(0, 0, 5, 5);
-    h2.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
-    int cfg = 0; h2.Canvas.PawnConfigRequested += _ => cfg++;
-    h2.Canvas.Mode = ToolMode.Move;
-    h2.Canvas.MovePawnsOnly = true;
-    h2.Drag(0, 0, 4, 4);
-    Check(h2.Canvas.MoveArmed && cfg == 0, "pawns only: one pawn in a wide drag arms without opening its config");
-    h2.Click(8, 8);
-    Check(h2.Doc.Pawns.ContainsKey(new CellKey(8, 8)) && h2.Doc.Pawns.Count == 1, "pawns only: one pawn lands on the click");
-
-    // a drag with no pawns in it leaves nothing armed and nothing selected
+    // a selection with no pawns picks nothing up
     var h3 = new CanvasHarness();
     h3.Doc.AddRoom(0, 0, 5, 5);
-    h3.Canvas.Mode = ToolMode.Move;
-    h3.Canvas.MovePawnsOnly = true;
+    h3.Canvas.Mode = ToolMode.Select;
+    h3.Canvas.SelectPawnsOnly = true;
     h3.Drag(0, 0, 4, 4);
-    Check(!h3.Canvas.MoveArmed && !h3.Canvas.HasSelection && h3.Statuses.Contains("no pawns in that region"),
-        "pawns only: a drag over no pawns arms nothing");
+    h3.Press(1, 1);
+    Check(!h3.Canvas.MoveArmed && h3.Statuses.Contains("no pawns in the selection"), "pawns only: a selection with no pawns picks nothing up");
+    h3.Release(1, 1);
 
-    // flipping pawns only while armed drops the move
-    var h4 = new CanvasHarness();
-    h4.Doc.AddRoom(0, 0, 5, 5);
-    h4.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
-    h4.Canvas.Mode = ToolMode.Move;
-    h4.Canvas.MovePawnsOnly = true;
-    h4.Drag(0, 0, 4, 4);
-    h4.Canvas.MovePawnsOnly = false;
-    Check(!h4.Canvas.MoveArmed && !h4.Canvas.HasSelection, "pawns only: toggling it while armed cancels the move");
-
-    // without pawns only the whole dragged rectangle still moves
+    // without pawns only the whole region moves
     var h5 = new CanvasHarness();
     h5.Doc.AddRoom(0, 0, 3, 3);
     h5.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
-    h5.Canvas.Mode = ToolMode.Move;
+    h5.Canvas.Mode = ToolMode.Select;
     h5.Drag(0, 0, 3, 3);
-    h5.Click(10, 10);
+    h5.Drag(0, 0, 10, 10);
     Check(h5.Doc.Pawns.ContainsKey(new CellKey(12, 12)) && h5.Doc.Cells.Contains(new CellKey(10, 10)),
-        "move: the full move still anchors on the dragged rectangle");
+        "move: the full move carries the floor and the pawn together");
 }
 
-// --- move tool: the pawns only ghost draws the pawns at the cursor ---
+// --- select tool: the pawns only ghost draws the pawns while dragging ---
 {
     var h = new CanvasHarness();
     h.Doc.AddRoom(0, 0, 5, 5);
     h.Doc.PlacePawn(new Pawn { Cell = new CellKey(2, 2), TemplateId = "p1" });
-    h.Canvas.Mode = ToolMode.Move;
-    h.Canvas.MovePawnsOnly = true;
+    h.Canvas.Mode = ToolMode.Select;
+    h.Canvas.SelectPawnsOnly = true;
     h.Drag(0, 0, 4, 4);
+    h.Press(2, 2);
     h.MoveTo(12, 3);
     var bmp = h.Render();
     var at = h.PixelAt(bmp, (int)h.ScreenOf(12, 3).X, (int)h.ScreenOf(12, 3).Y);
     var off = h.PixelAt(bmp, (int)h.ScreenOf(18, 3).X, (int)h.ScreenOf(18, 3).Y);
     Check(at != off, "pawns only: the ghost shows the pawn under the cursor");
+    h.Release(12, 3);
 }
 
 // --- stair delete takes the whole connected group ---
@@ -3241,10 +3190,10 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     // move tool carries a whole object
     var m = new CanvasHarness();
     m.Doc.Objects.Add(new MapObject { TypeId = red.Id, X = 1, Y = 1, W = 2, H = 2 });
-    m.Canvas.Mode = ToolMode.Move;
+    m.Canvas.Mode = ToolMode.Select;
     m.Drag(0, 0, 3, 3);
-    m.Click(8, 0);
-    Check(m.Doc.Objects.Count == 1 && m.Doc.Objects[0].X == 9 && m.Doc.Objects[0].Y == 1, "move tool: an object moves with its region");
+    m.Drag(0, 0, 8, 0);
+    Check(m.Doc.Objects.Count == 1 && m.Doc.Objects[0].X == 9 && m.Doc.Objects[0].Y == 1, "select move: an object moves with its region");
 
     // a placed object with a missing type still draws
     var g = new CanvasHarness();
@@ -3737,7 +3686,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(h.CommitCount == c2 && lbl.W == 3, "label resize: a click on a handle changes nothing");
 
     // handles only in the label and select tools, only for the selected label
-    h.Canvas.Mode = ToolMode.Move;
+    h.Canvas.Mode = ToolMode.Measure;
     h.PressAt(h.ScreenWorld(4, 2)); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseAt(h.ScreenWorld(6, 2));
     Check(lbl.W == 3, "label resize: no handles outside the label and select tools");
     h.Canvas.Mode = ToolMode.Label;
@@ -3934,9 +3883,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     c.SetAllDmOnly(true);
     Check(h.Doc.AllItems(RevealItems.All).All(MapDocument.IsDmOnly), "reveal tool: make all DM only");
 
-    // a pawn moved with the move tool keeps its flag
+    // a dragged pawn keeps its flag
     h.Doc.Pawns[new CellKey(2, 2)].DmOnly = false;
-    c.Mode = ToolMode.Move;
+    c.Mode = ToolMode.Select;
     h.Drag(2, 2, 1, 2);
     Check(h.Doc.Pawns.TryGetValue(new CellKey(1, 2), out var moved) && !moved.DmOnly, "reveal: a moved pawn keeps its flag");
 }
@@ -4354,9 +4303,9 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         var room = (Avalonia.Controls.Button)Field("ToolRoom")!;
         var measure = (Avalonia.Controls.Button)Field("ToolMeasure")!;
         var file = (Avalonia.Controls.MenuItem)Field("MenuFile")!;
-        var move = (Avalonia.Controls.Button)Field("ToolMove")!;
-        Check(!room.IsEnabled && measure.IsEnabled && move.IsEnabled && !file.IsEnabled, "player mode: editing tools and the file menu are off, measure and move (own heroes) on");
-        step = "your pawns panel"; Call("SetTool", ToolMode.Move); Call("SetTool", ToolMode.Measure);
+        var pawnTool = (Avalonia.Controls.Button)Field("ToolPawn")!;
+        Check(!room.IsEnabled && measure.IsEnabled && pawnTool.IsEnabled && !file.IsEnabled, "player mode: editing tools and the file menu are off, measure and pawn on");
+        step = "your pawns panel"; Call("SetTool", ToolMode.Pawn); Call("SetTool", ToolMode.Measure);
         Check(canvas.Document != remote && canvas.Document.Cells.Contains(new CellKey(20, 20)), "player mode: the received copy is drawn");
         th.Stop();
         Check(WaitFor(() => canvas.RemoteDocument is null), "player mode: the host stopping returns the player to their own maps");
@@ -4561,7 +4510,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     r.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "orc", DmOnly = false };
     r.Pawns[new CellKey(3, 3)] = new Pawn { Cell = new CellKey(3, 3), TemplateId = "pg", DmOnly = false };
     c.RemoteDocument = r;
-    c.Mode = ToolMode.Move;
+    c.Mode = ToolMode.Pawn;
     var moves = new List<(CellKey, CellKey)>();
     var places = new List<(string, CellKey)>();
     var deploys = new List<List<(string id, CellKey cell)>>();
@@ -4578,7 +4527,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     Check(moves.Count == 2, "player pawns canvas: dragging a non-hero Player pawn asks the DM");
     Check(r.Pawns.ContainsKey(new CellKey(1, 1)) && h.CommitCount == commits, "player pawns canvas: nothing changes until the DM sends the map");
     h.Drag(2, 2, 4, 2);
-    Check(moves.Count == 2 && h.LastStatus == "only the DM moves that pawn", "player pawns canvas: an enemy can not be dragged");
+    Check(moves.Count == 2 && h.LastStatus == "only the DM changes that pawn", "player pawns canvas: an enemy can not be dragged");
     h.Drag(1, 1, 8, 1);
     Check(moves.Count == 2 && h.LastStatus == "pawns can only go onto revealed floor", "player pawns canvas: hidden floor is refused before sending");
 
@@ -4612,12 +4561,12 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     c.RemoteDocument = null;
     Check(c.ArmedPawn is null && !c.FormationArmed && c.Document == h.Doc, "player pawns canvas: leaving the session disarms");
 
-    // outside a session the move tool moves for real
-    c.Mode = ToolMode.Move;
+    // outside a session a drag moves for real
+    c.Mode = ToolMode.Select;
     h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "orc" };
     AddRoom(h.Doc, 0, 0, 5, 5);
     h.Drag(1, 1, 3, 3);
-    Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && moves.Count == 2, "player pawns canvas: outside a session the move tool moves for real");
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && moves.Count == 2, "player pawns canvas: outside a session a drag moves for real");
 }
 
 // --- multiplayer: player pawns (two windows) ---
@@ -4736,7 +4685,7 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         step = "delete formation";
         Task.Run(() => client.SendFormationDelete(f.Id)).Wait();
         Check(WaitFor(() => !lib.Formations.Any(x => x.Id == f.Id)), "pawns window: a player deletes their formation");
-        CallOn(pl, "SetTool", ToolMode.Move);
+        CallOn(pl, "SetTool", ToolMode.Pawn);
         CallOn(pl, "LeavePlayerMode", "test");
         CallOn(dm, "StopHosting");
         dm.Close(); pl.Close();
@@ -5383,9 +5332,9 @@ try { Directory.Delete(imgDir, true); } catch { }
     h.Doc.Stairs[new CellKey(5, 1)] = new Stair();
     h.Doc.Labels.Add(new MapLabel { Cell = new CellKey(4, 1), Text = "x" });
     int walls = h.Doc.Walls.Count;
-    h.Canvas.Mode = ToolMode.Move; h.Canvas.MovePawnsOnly = true;
+    h.Canvas.Mode = ToolMode.Select; h.Canvas.SelectPawnsOnly = true;
     h.Drag(2, 2, 0, 0);
-    h.Click(4, 1);
+    h.Drag(0, 0, 4, 1);
     Check(h.Doc.Pawns.ContainsKey(new CellKey(4, 1)) && h.Doc.Pawns.ContainsKey(new CellKey(5, 1)), "pawn landing: pawns only move lands");
     Check(h.Doc.Walls.Count == walls, "pawn landing: pawns only keeps the walls beside the landing cells");
     Check(h.Doc.Stairs.ContainsKey(new CellKey(5, 1)) && h.Doc.Labels.Count == 1, "pawn landing: pawns only keeps stairs and labels under the pawns");
@@ -5396,7 +5345,7 @@ try { Directory.Delete(imgDir, true); } catch { }
     h2.Doc.PlacePawn(new Pawn { Cell = new CellKey(3, 1), TemplateId = "p1" });
     h2.Doc.Stairs[new CellKey(4, 1)] = new Stair();
     walls = h2.Doc.Walls.Count;
-    h2.Canvas.Mode = ToolMode.Move;
+    h2.Canvas.Mode = ToolMode.Select;
     h2.Drag(3, 1, 4, 1);
     Check(h2.Doc.Pawns.ContainsKey(new CellKey(4, 1)) && h2.Doc.Walls.Count == walls && h2.Doc.Stairs.ContainsKey(new CellKey(4, 1)),
         "pawn landing: a single pawn drag keeps walls and stairs");
@@ -5481,29 +5430,6 @@ try { Directory.Delete(imgDir, true); } catch { }
     s1.DragMods(1, 1, 1, 1, sh);
     Check(opened == 1, "shift box (Select): a shift+click on a pawn still opens it");
 
-    foreach (var mode in new[] { ToolMode.Move })
-    {
-        var h = Setup(mode);
-        Check(!h.Canvas.MovePawnsOnly, $"shift box ({mode}): move pawns only is off");
-        h.DragMods(1, 1, 2, 2, sh);
-        Check(h.Canvas.MoveArmed && h.Doc.Pawns.Count == 2, $"shift box ({mode}): shift+drag from a pawn arms a move, nothing moved yet");
-        int commits = h.CommitCount;
-        h.Click(3, 3);
-        Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && h.Doc.Pawns.ContainsKey(new CellKey(4, 4)) && h.Doc.Pawns.Count == 2
-            && h.CommitCount == commits + 1 && !h.Canvas.MoveArmed,
-            $"shift box ({mode}): the click moves the pawns in one step and disarms");
-        Check(h.Doc.Stairs.ContainsKey(new CellKey(1, 2)) && h.Doc.Cells.Contains(new CellKey(1, 1)) && !h.Doc.Stairs.ContainsKey(new CellKey(3, 4)),
-            $"shift box ({mode}): only pawns move, the stair and floor stay");
-        // rotate is available while armed
-        h.DragMods(3, 3, 4, 4, sh);
-        Check(h.Canvas.CanRotate, $"shift box ({mode}): an armed pawn box can be rotated");
-        h.Canvas.CancelMove();
-        Check(!h.Canvas.MoveArmed, $"shift box ({mode}): cancel disarms");
-        // a plain drag still drags one pawn
-        h.Drag(3, 3, 0, 4);
-        Check(h.Doc.Pawns.ContainsKey(new CellKey(0, 4)) && !h.Doc.Pawns.ContainsKey(new CellKey(3, 3)), $"shift box ({mode}): a plain drag still moves one pawn");
-    }
-
     // pawn tool: a shift box selects the pawns, a drag inside moves them
     {
         var h = Setup(ToolMode.Pawn);
@@ -5522,12 +5448,6 @@ try { Directory.Delete(imgDir, true); } catch { }
         h.Drag(3, 3, 0, 4);
         Check(h.Doc.Pawns.ContainsKey(new CellKey(0, 4)) && !h.Doc.Pawns.ContainsKey(new CellKey(3, 3)), "shift box (Pawn): with no box a plain drag moves one pawn");
     }
-
-    // move tool: a plain box with pawns only off still moves everything
-    var m = Setup(ToolMode.Move);
-    m.Drag(0, 0, 2, 2);
-    m.Click(10, 10);
-    Check(m.Doc.Stairs.ContainsKey(new CellKey(11, 12)), "shift box: a plain move box (pawns only off) still moves the stair");
 
     // pawn tool: a shift+click with no drag places the armed pawn as usual
     var p = Setup(ToolMode.Pawn);
@@ -5616,43 +5536,6 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(opened == 1, "pawn box joined (Pawn): a shift+click acts as a plain click");
     }
 
-    // canvas: move tool, joined
-    foreach (var mode in new[] { ToolMode.Move })
-    {
-        var h = new CanvasHarness();
-        h.Canvas.Library = lib;
-        var r = Map();
-        h.Canvas.RemoteDocument = r;
-        h.Canvas.Mode = mode;
-        if (mode == ToolMode.Pawn) h.Canvas.ArmedPawn = lib.Find("pg");
-        var sent = new List<List<(CellKey from, CellKey to)>>(); var single = 0; var placed = 0; var opened = 0;
-        h.Canvas.PlayerMoveManyRequested += m => sent.Add(m);
-        h.Canvas.PlayerMoveRequested += (_, _) => single++;
-        h.Canvas.PlayerPlaceRequested += (_, _) => placed++;
-        h.Canvas.PawnConfigRequested += _ => opened++;
-        var sh = Avalonia.Input.RawInputModifiers.Shift;
-        h.DragMods(1, 1, 2, 2, sh);
-        Check(h.Canvas.MoveArmed && single == 0 && r.Pawns.Count == 3, $"pawn box joined ({mode}): shift+drag from a pawn arms a box, nothing sent yet");
-        h.Click(9, 1);
-        Check(sent.Count == 0 && h.Canvas.MoveArmed && h.LastStatus == "pawns can only go onto revealed floor", $"pawn box joined ({mode}): a refused spot stays armed");
-        h.Click(3, 4);
-        Check(sent.Count == 1 && sent[0].Count == 2 && sent[0].Contains((k1, new CellKey(3, 4))) && sent[0].Contains((k2, new CellKey(4, 4)))
-            && !h.Canvas.MoveArmed && r.Pawns.ContainsKey(k1) && placed == 0,
-            $"pawn box joined ({mode}): the click sends only the Player pawns (the orc stays out) and nothing changes locally");
-        // rotated: still maps each source pawn to its landing cell
-        h.DragMods(1, 1, 2, 2, sh);
-        h.Canvas.RotateRegion(-1);
-        h.Click(3, 3);
-        Check(sent.Count == 2 && sent[1].Select(m => m.from).OrderBy(x => x.X).SequenceEqual(new[] { k1, k2 })
-            && sent[1].First(m => m.from == k1).to.X == sent[1].First(m => m.from == k2).to.X,
-            $"pawn box joined ({mode}): a rotated box keeps each pawn's source");
-        h.DragMods(1, 2, 1, 3, sh);
-        Check(!h.Canvas.MoveArmed && h.LastStatus == "none of your pawns in that region", $"pawn box joined ({mode}): a box with only DM pawns arms nothing");
-        h.DragMods(1, 1, 1, 1, sh);
-        Check(mode == ToolMode.Pawn ? opened == 1 : opened == 0, $"pawn box joined ({mode}): a shift+click acts as a plain click");
-        h.Canvas.RemoteDocument = null;
-        Check(!h.Canvas.MoveArmed, $"pawn box joined ({mode}): leaving the session disarms");
-    }
 }
 
 // --- multiplayer: a player's pawn box (two windows) ---
@@ -6795,6 +6678,7 @@ try { Directory.Delete(imgDir, true); } catch { }
         && h.Canvas.SnapCenter(new Point(2.05, 2.95)) == new Point(2.5, 2.5),
         "reveal snap: closest corner or center, a pawn's cell snaps to the pawn");
     Check(!Enum.GetNames<ToolMode>().Contains("Fog") && !AppSettings.Default().ToolHotkeys.ContainsKey("Fog"), "fog tool: gone from the tools and the hotkeys");
+    Check(!Enum.GetNames<ToolMode>().Contains("Move") && !AppSettings.Default().ToolHotkeys.ContainsKey("Move"), "move tool: gone from the tools and the hotkeys");
     var old = AppSettings.Default(); old.ToolHotkeys["Fog"] = "V";
     var fogLoaded = AppSettings.Parse(old.ToJson());
     var dimOld = AppSettings.ParseImport("{\"kind\":\"settings\",\"fog_r\":10,\"fog_g\":20,\"fog_b\":30,\"fog_opacity\":55}");

@@ -308,7 +308,6 @@ public sealed class AppSettings
         s.ToolHotkeys = new Dictionary<string, string>
         {
             ["Select"] = "S",
-            ["Move"] = "M",
             ["Room"] = "R",
             ["Floor"] = "F",
             ["Wall"] = "W",

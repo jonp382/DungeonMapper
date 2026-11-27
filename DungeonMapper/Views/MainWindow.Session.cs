@@ -18,7 +18,7 @@ namespace DungeonMapper.Views;
 // multiplayer sessions (see Agent.md "Multiplayer Design", Net/). the DM
 // hosts: a timer sends players the PlayerView package of the map picked to
 // show, only when it changed. a player joins: this window switches to the
-// received map, read only, with the measure tool and the move tool for their
+// received map, read only, with the measure tool and the pawn tool for their
 // own heroes (sent to the DM, who applies them); their own campaign is left
 // alone and comes back on leaving.
 public partial class MainWindow
@@ -669,7 +669,7 @@ public partial class MainWindow
     private void SetEditingUi(bool on)
     {
         foreach (var m in Enum.GetValues<ToolMode>())
-            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Move or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
+            ToolButton(m).IsEnabled = on || m is ToolMode.Measure or ToolMode.Label or ToolMode.Pawn or ToolMode.Image;
         MenuFile.IsEnabled = on;
         MenuEdit.IsEnabled = on;
         MenuManage.IsEnabled = on;
@@ -690,24 +690,18 @@ public partial class MainWindow
         if (e.Key == Key.Escape) return false;
         if (e.Key == Key.R && (Canvas.FormationArmed || Canvas.MoveArmed) && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Shift) return false;
         if (e.KeyModifiers != KeyModifiers.None) return true;
-        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Move), nameof(ToolMode.Label), nameof(ToolMode.Pawn), nameof(ToolMode.Image), AppSettings.FormationHotkey, AppSettings.PingHotkey })
+        foreach (var name in new[] { AppSettings.FitHotkey, nameof(ToolMode.Measure), nameof(ToolMode.Label), nameof(ToolMode.Pawn), nameof(ToolMode.Image), AppSettings.FormationHotkey, AppSettings.PingHotkey })
             if (Enum.TryParse<Key>(_settings.ToolHotkeys.GetValueOrDefault(name, ""), out var k) && k == e.Key) return false;
         return true;
     }
 }
 
-// the players' pawns while joined: the move tool hint and a placed pawn's view
+// the players' pawns while joined: a placed pawn's view
 // (the pawn tool panel is the DM's, cut down: MainWindow.Pawns.cs)
 public partial class MainWindow
 {
     // the cell of the placed pawn whose view is open, null when none
     private CellKey? _playerPawnInfoCell;
-
-    private void BuildPlayerMovePanel()
-    {
-        ToolPanel.Clear("move");
-        ToolPanel.AddHint("drag one of your party's pawns (Player pawns) to an empty revealed cell to move it. shift+drag a box to pick up several of them, then click where they go (r turns them, esc cancels). it moves on the DM's map for everyone. other pawns are moved by the DM. the pawn tool places pawns and deploys formations.");
-    }
 
     private string PlayerPawnName(string? id) => Canvas.Library.Find(id ?? "") is { } t ? PawnName(t) : "pawn";
 

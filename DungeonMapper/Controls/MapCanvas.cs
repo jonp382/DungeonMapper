@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Reveal, Image, Sight }
+public enum ToolMode { Select, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Reveal, Image, Sight }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -98,16 +98,6 @@ public sealed partial class MapCanvas : Control
         }
         catch { return null; }
     }
-    // special move mode: selection captures and moves ONLY pawns; every other
-    // element is untouched, at the source and at the destination.
-    // flipping it while a move is armed drops the move, the armed snapshot
-    // was shaped for the other mode
-    public bool MovePawnsOnly
-    {
-        get => _movePawnsOnly;
-        set { if (value == _movePawnsOnly) return; _movePawnsOnly = value; CancelMove(); }
-    }
-    private bool _movePawnsOnly;
 
     /// Pawns only moves carry just the pawns, with the origin at their bounding
     /// box so the ghost and the landing spot fit the pawns, not the dragged
@@ -192,7 +182,7 @@ public sealed partial class MapCanvas : Control
     private MapDocument.RegionSnapshot? _clipboard;
     private CellKey _selectStart, _selectEnd;
     private bool _selectDragging;
-    // per-pawn drag in the Move tool: pressing directly on a pawn drags that
+    // per-pawn drag in the select and pawn tools: pressing directly on a pawn drags that
     // single pawn to the release cell; a press without drag shows its config.
     private Pawn? _pawnDragPawn;
     private CellKey _pawnDragStart, _pawnDragEnd;
@@ -203,10 +193,10 @@ public sealed partial class MapCanvas : Control
     // armed so the destination ghost persists (and can be re-placed). _rotTurns
     // is the counterclockwise quarter-turns applied to the armed snapshot.
     private bool _moveArmed;
-    // the armed move carries only pawns: the move tool with "move pawns only"
-    // on, or a shift+drag box in the move or pawn tool
+    // the armed move carries only pawns: "pawns only" in the select tool,
+    // or a shift+drag box in the pawn tool
     private bool _armedPawnsOnly;
-    // the box being dragged is a shift+drag (pawns only in the move and pawn tools)
+    // the box being dragged is a shift+drag
     private bool _shiftBox;
     private int _rotTurns;
     private (int x0, int y0, int x1, int y1)? _moveSourceRect; // source region to clear on first placement
@@ -217,7 +207,7 @@ public sealed partial class MapCanvas : Control
     // exists in Select mode (copy/cut paste). In Move mode a stale clipboard from
     // an earlier copy must NOT be rotatable - only the armed snapshot is.
     public bool CanRotate => _clipboard is not null && !_clipboard.Empty
-        && (Mode == ToolMode.Select || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed));
+        && (Mode == ToolMode.Select || (Mode == ToolMode.Pawn && _moveArmed));
     public EraseFilter EraseFilter { get; } = new(); // categories the Erase tool removes
     public bool EraseAdjustWalls { get; set; } = false; // Erase tool: after erasing, rebuild room boundary walls so the new outer edge gets walls
     public bool RoomStrict { get; set; } = false; // Room tool: draw walls on the outer border regardless of existing cells, keep interior walls
@@ -1425,8 +1415,8 @@ public sealed partial class MapCanvas : Control
         }
 
         // selection rectangle (cyan)
-        if (_selectDragging || (_selectStart != _selectEnd && (Mode is ToolMode.Select or ToolMode.Move or ToolMode.Pawn))
-            || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed))
+        if (_selectDragging || (_selectStart != _selectEnd && (Mode is ToolMode.Select or ToolMode.Pawn))
+            || (Mode == ToolMode.Pawn && _moveArmed))
         {
             var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
             var tl = WorldToScreen(x0, y0);
@@ -1523,7 +1513,7 @@ public sealed partial class MapCanvas : Control
         // destination ghost keeps showing for rotation and repeat placement -
         // the old HasSelection check killed the ghost after the first move).
         bool ghostMode = Mode == ToolMode.Select
-            || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed && !_dragging);
+            || (Mode == ToolMode.Pawn && _moveArmed && !_dragging);
         if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && (GhostEnabled || _dragMoving))
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
@@ -1979,30 +1969,17 @@ public sealed partial class MapCanvas : Control
         switch (Mode)
         {
             case ToolMode.Select:
-            case ToolMode.Move:
-                // only an armed move makes this click the target. a leftover
-                // selection with nothing armed (a select tool drag, or a move
-                // drag over empty space) must not swallow the click, or a new
-                // drag can never start and the tool looks dead.
-                if (Mode == ToolMode.Move && _moveArmed)
-                {
-                    // a region is already armed; this click is the move target.
-                    // the armed snapshot persists after placement so the ghost
-                    // keeps showing for rotation and repeat placement.
-                    MoveAt(cell);
-                    break;
-                }
                 // inside the selected region: drag to move what is in it
-                if (Mode == ToolMode.Select && !Shifted(e) && BeginDragMove(e, cell)) break;
+                if (!Shifted(e) && BeginDragMove(e, cell)) break;
                 // the open object, label or image: its handles resize, its
-                // dashed edge moves it (select tool)
-                if (Mode == ToolMode.Select && SelectBoxPressed(e)) break;
+                // dashed edge moves it
+                if (SelectBoxPressed(e)) break;
                 // pressing directly on a pawn: per-pawn drag (select and move
                 // tools). a click without a drag shows the pawn's info. shift
                 // starts the box even on a pawn.
                 if (!Shifted(e) && BeginPawnDrag(e, cell)) break;
                 // a label, image or object: drag it to move it, a click opens it
-                if (Mode == ToolMode.Select && !Shifted(e) && SelectBodyPressed(e, world, cell)) break;
+                if (!Shifted(e) && SelectBodyPressed(e, world, cell)) break;
                 BeginBox(e, cell);
                 break;
 
@@ -2150,15 +2127,12 @@ public sealed partial class MapCanvas : Control
                 break;
 
             case ToolMode.Pawn:
-                // an armed pawns only move (from a shift+drag box): this click
-                // is its target
-                if (_moveArmed) { MoveAt(cell); break; }
                 // inside a shift box's pawns: drag to move them
                 if (!Shifted(e) && BeginDragMove(e, cell)) break;
                 // shift+drag: a box that picks pawns
                 if (Shifted(e)) { BeginBox(e, cell); break; }
                 if (HasSelection) ClearSelection();
-                // a placed pawn drags like in the move tool; a click opens it
+                // a placed pawn drags like in the select tool; a click opens it
                 if (BeginPawnDrag(e, cell)) break;
                 PawnToolClick(cell);
                 break;
@@ -2227,7 +2201,7 @@ public sealed partial class MapCanvas : Control
         if (!_selectDragging && !_dragging && !_panning)
         {
             // redraw so the paste ghost tracks the cursor on hover
-            if (_clipboard is not null && !_clipboard.Empty && (Mode is ToolMode.Select or ToolMode.Move || (Mode == ToolMode.Pawn && _moveArmed)))
+            if (_clipboard is not null && !_clipboard.Empty && (Mode == ToolMode.Select || (Mode == ToolMode.Pawn && _moveArmed)))
                 InvalidateVisual();
         }
 
@@ -2350,9 +2324,6 @@ public sealed partial class MapCanvas : Control
             _selectEnd = cell;
             // decided before a pawns only shrink can turn the box into one cell
             bool singleCell = _selectStart == _selectEnd;
-            // pawns only: the move tool's checkbox, or a shift box in the move or
-            // pawn tool (the pawn tool only ever moves pawns)
-            bool pawnsOnly = Mode == ToolMode.Pawn || (Mode == ToolMode.Move && (MovePawnsOnly || _shiftBox));
             _shiftBox = false;
             if (_remote is not null)
             {
@@ -2382,46 +2353,6 @@ public sealed partial class MapCanvas : Control
                 else { _selectStart = new CellKey(pbox.x0, pbox.y0); _selectEnd = new CellKey(pbox.x1, pbox.y1); }
                 InvalidateVisual();
                 return;
-            }
-            if (Mode == ToolMode.Move && !singleCell)
-            {
-                // arm the move: capture the region so the paste ghost previews
-                // it at the cursor until the destination click. remember the map
-                // it was selected on so the move works after a map switch.
-                var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
-                var snap = Document.CaptureRegion(x0, y0, x1, y1);
-                if (pawnsOnly)
-                {
-                    // shrink the selection to the pawns
-                    snap = PawnsOnlySnapshot(snap, out var box);
-                    if (!snap.Empty)
-                    {
-                        (x0, y0, x1, y1) = box;
-                        _selectStart = new CellKey(x0, y0);
-                        _selectEnd = new CellKey(x1, y1);
-                    }
-                }
-                if (!snap.Empty)
-                {
-                    _clipboard = snap;
-                    _moveSourceDoc = Document;
-                    _cutSource = null;
-                    _moveArmed = true;
-                    _armedPawnsOnly = pawnsOnly;
-                    _moveSourceRect = (x0, y0, x1, y1);
-                    _moveSourceCleared = false;
-                    _movePlaced = false;
-                    _rotTurns = 0;
-                }
-                else
-                {
-                    // nothing in the region: drop the selection so the next
-                    // drag starts fresh
-                    ClearSelection();
-                    Status(pawnsOnly ? "no pawns in that region" : "nothing to move in that region", StatusKind.Warning);
-                    InvalidateVisual();
-                    return;
-                }
             }
             // a region drag lets go of the boxed object, label or image
             if (!singleCell && Mode == ToolMode.Select) ClearBoxSelection();

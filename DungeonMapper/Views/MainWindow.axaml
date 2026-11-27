@@ -93,7 +93,6 @@
                         <!-- map switching sits at the right end of the bar -->
                         <WrapPanel ItemSpacing="2" LineSpacing="4" VerticalAlignment="Center">
                             <Button x:Name="ToolSelect" Classes="hot" />
-                            <Button x:Name="ToolMove" Classes="hot" />
                             <Border Classes="sep" />
                             <Button x:Name="ToolRoom" Classes="hot" />
                             <Button x:Name="ToolFloor" Classes="hot" />
