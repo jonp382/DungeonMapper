@@ -18,7 +18,7 @@ public sealed partial class MapCanvas
     /// the type the object tool places, null when none is armed
     public ObjectType? ArmedObject { get; set; }
     /// the object whose config view is open. it gets resize handles while the
-    /// object tool is active. an id, so undo and redo (which swap the object
+    /// object or select tool is active. an id, so undo and redo (which swap the object
     /// instances) keep it.
     public string? SelectedObjectId { get; set; }
 
@@ -216,8 +216,8 @@ public sealed partial class MapCanvas
     // ghost while dragging a new object, and the handles of the configured one
     private void DrawObjectOverlay(DrawingContext ctx)
     {
-        if (Mode != ToolMode.Object) return;
-        if (_objPlacing && ArmedObject is not null)
+        if (!BoxTool(ToolMode.Object)) return;
+        if (Mode == ToolMode.Object && _objPlacing && ArmedObject is not null)
         {
             var (x0, y0, x1, y1) = NormRect(_objStart, _objEnd);
             var tl = WorldToScreen(x0, y0);
@@ -235,16 +235,9 @@ public sealed partial class MapCanvas
         {
             var look = sel.EffectiveLook(ObjectTypes);
             DrawObjectShape(ctx, box, look, CaptionText(look, sel.DisplayName(ObjectTypes)), 0.6);
-            DrawSizeRuler(ctx, rw, rh, new Point(box.Center.X, box.Top));
+            if (_resizeHandle != MoveHandle) DrawSizeRuler(ctx, rw, rh, new Point(box.Center.X, box.Top));
         }
-        var accent = new SolidColorBrush(Color.FromRgb(90, 127, 208));
-        ctx.DrawRectangle(new Pen(accent, 2, new DashStyle(new double[] { 3, 2 }, 0)), box);
-        foreach (var (_, hp) in Handles(box))
-        {
-            var hr = new Rect(hp.X - HandleSize / 2, hp.Y - HandleSize / 2, HandleSize, HandleSize);
-            ctx.FillRectangle(Brushes.White, hr);
-            ctx.DrawRectangle(new Pen(accent, 1.5), hr);
-        }
+        DrawBoxHandles(ctx, box);
     }
 
     // feet label above a point, like the room tool's
@@ -279,24 +272,23 @@ public sealed partial class MapCanvas
             }
     }
 
+    /// a press on the open object's handles (resize) or dashed edge (move)
+    private bool ObjectHandlePressed(PointerPressedEventArgs e)
+    {
+        if (!BoxTool(ToolMode.Object) || SelectedObject is not { } sel) return false;
+        if (BoxHit(CellBox(sel.X, sel.Y, sel.W, sel.H), e.GetPosition(this)) is not { } h) return false;
+        _objResizing = true;
+        _resizeHandle = h;
+        _resizeRect = (sel.X, sel.Y, sel.W, sel.H);
+        _boxGrab = ScreenToWorld(e.GetPosition(this));
+        e.Pointer.Capture(this);
+        InvalidateVisual();
+        return true;
+    }
+
     private void ObjectPressed(PointerPressedEventArgs e, CellKey cell)
     {
-        var screen = e.GetPosition(this);
-        if (SelectedObject is { } sel)
-        {
-            var p = WorldToScreen(sel.X, sel.Y);
-            var box = new Rect(p.X, p.Y, sel.W * _scale, sel.H * _scale);
-            foreach (var (h, hp) in Handles(box))
-                if (Math.Abs(screen.X - hp.X) <= HandleSize && Math.Abs(screen.Y - hp.Y) <= HandleSize)
-                {
-                    _objResizing = true;
-                    _resizeHandle = h;
-                    _resizeRect = (sel.X, sel.Y, sel.W, sel.H);
-                    e.Pointer.Capture(this);
-                    InvalidateVisual();
-                    return;
-                }
-        }
+        if (ObjectHandlePressed(e)) return;
         // shift places over an existing object instead of opening it
         bool force = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         if (!force && Document.ObjectAt(cell) is { } hit)
@@ -328,6 +320,12 @@ public sealed partial class MapCanvas
         }
         if (_objResizing && SelectedObject is { } sel)
         {
+            if (_resizeHandle == MoveHandle)
+            {
+                var m = MovedRect((sel.X, sel.Y, sel.W, sel.H), world);
+                if (m != _resizeRect) { _resizeRect = m; InvalidateVisual(); }
+                return true;
+            }
             // the dragged sides snap to the nearest grid line, at least one cell
             int left = sel.X, top = sel.Y, right = sel.X + sel.W, bottom = sel.Y + sel.H;
             int gx = (int)Math.Round(world.X), gy = (int)Math.Round(world.Y);
@@ -365,7 +363,7 @@ public sealed partial class MapCanvas
             if (SelectedObject is { } sel && _resizeRect != (sel.X, sel.Y, sel.W, sel.H))
             {
                 (sel.X, sel.Y, sel.W, sel.H) = _resizeRect;
-                Status($"resized to {sel.W * 5}x{sel.H * 5}ft");
+                Status(_resizeHandle == MoveHandle ? $"moved to {sel.X},{sel.Y}" : $"resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ObjectsChanged?.Invoke();
             }

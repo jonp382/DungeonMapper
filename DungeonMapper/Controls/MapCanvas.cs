@@ -1893,6 +1893,9 @@ public sealed partial class MapCanvas : Control
                     MoveAt(cell);
                     break;
                 }
+                // the open object, label or image: its handles resize, its
+                // dashed edge moves it (select tool)
+                if (Mode == ToolMode.Select && SelectBoxPressed(e)) break;
                 // pressing directly on a pawn: per-pawn drag (select and move
                 // tools). a click without a drag shows the pawn's info. shift
                 // starts the box even on a pawn.
@@ -2102,6 +2105,7 @@ public sealed partial class MapCanvas : Control
         var hoverBefore = CursorCell;
         CursorCell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
         HoverTimers(hoverBefore);
+        if (!_objResizing && !_imgResizing && !_labelResizing) UpdateBoxCursor(e.GetPosition(this));
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         if (ImageMoved(world)) return;
@@ -2221,6 +2225,8 @@ public sealed partial class MapCanvas : Control
             if (target == _pawnDragStart)
             {
                 // no drag: release on the same cell shows the pawn's config
+                // (and the select tool's boxed item lets go)
+                if (Mode == ToolMode.Select) ClearBoxSelection();
                 PawnConfigRequested?.Invoke(pawn);
             }
             else LandPawn(pawn, _pawnDragStart, target);
@@ -2299,7 +2305,9 @@ public sealed partial class MapCanvas : Control
             {
                 // single cell: manage the element under the cursor. a pawn here
                 // means a shift+click (a plain press on a pawn drags it), which
-                // opens it like a plain click
+                // opens it like a plain click. the boxed item's handles go
+                // unless the click opens one again
+                ClearBoxSelection();
                 if (Document.Pawns.TryGetValue(cell, out var clicked))
                 {
                     PawnConfigRequested?.Invoke(clicked);

@@ -6,13 +6,15 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-// resize handles on the label open in the label tool's config view, like the
-// object tool's: the dragged sides snap to grid lines, at least one cell. the
+// resize handles on the label open in the label (or select) tool's config
+// view, like the object tool's: the dragged sides snap to grid lines, at
+// least one cell; the dashed edge moves it (MapCanvas.BoxHandles.cs). the
 // label changes live while dragging (an auto size font refits as it goes) and
 // one undo step is taken on release when the range changed.
 public sealed partial class MapCanvas
 {
-    /// the label whose config view is open, it gets the handles (label tool only)
+    /// the label whose config view is open, it gets the handles (label and
+    /// select tools)
     public MapLabel? SelectedLabel { get; set; }
 
     /// a label was resized by its handles (the config view rebuilds)
@@ -23,7 +25,7 @@ public sealed partial class MapCanvas
     private (int x, int y, int w, int h) _labelStart;
 
     private MapLabel? HandleLabel =>
-        Mode == ToolMode.Label && SelectedLabel is { } l && Document.Labels.Contains(l) ? l : null;
+        BoxTool(ToolMode.Label) && SelectedLabel is { } l && Document.Labels.Contains(l) ? l : null;
 
     private Rect LabelBox(MapLabel l)
     {
@@ -34,24 +36,26 @@ public sealed partial class MapCanvas
     private bool LabelHandlePressed(PointerPressedEventArgs e)
     {
         if (HandleLabel is not { } l) return false;
-        var screen = e.GetPosition(this);
-        foreach (var (h, hp) in Handles(LabelBox(l)))
-            if (Math.Abs(screen.X - hp.X) <= HandleSize && Math.Abs(screen.Y - hp.Y) <= HandleSize)
-            {
-                _labelResizing = true;
-                _labelHandle = h;
-                _labelStart = (l.Cell.X, l.Cell.Y, l.W, l.H);
-                e.Pointer.Capture(this);
-                InvalidateVisual();
-                return true;
-            }
-        return false;
+        if (BoxHit(LabelBox(l), e.GetPosition(this)) is not { } h) return false;
+        _labelResizing = true;
+        _labelHandle = h;
+        _labelStart = (l.Cell.X, l.Cell.Y, l.W, l.H);
+        _boxGrab = ScreenToWorld(e.GetPosition(this));
+        e.Pointer.Capture(this);
+        InvalidateVisual();
+        return true;
     }
 
     private bool LabelResizeMoved(Point world)
     {
         if (!_labelResizing || HandleLabel is not { } l) return false;
         var (sx, sy, sw, sh) = _labelStart;
+        if (_labelHandle == MoveHandle)
+        {
+            var (mx, my, _, _) = MovedRect(_labelStart, world);
+            if (l.Cell != new CellKey(mx, my)) { l.Cell = new CellKey(mx, my); InvalidateVisual(); }
+            return true;
+        }
         int left = sx, top = sy, right = sx + sw, bottom = sy + sh;
         int gx = (int)Math.Round(world.X), gy = (int)Math.Round(world.Y);
         if (_labelHandle.sx < 0) left = Math.Min(gx, right - 1);
@@ -75,7 +79,7 @@ public sealed partial class MapCanvas
         e.Pointer.Capture(null);
         if (HandleLabel is { } l && (l.Cell.X, l.Cell.Y, l.W, l.H) != _labelStart)
         {
-            Status($"label resized to {l.W * 5}x{l.H * 5}ft");
+            Status(_labelHandle == MoveHandle ? $"label moved to {l.Cell.X},{l.Cell.Y}" : $"label resized to {l.W * 5}x{l.H * 5}ft");
             Commit();
             LabelResized?.Invoke(l);
         }
@@ -87,14 +91,7 @@ public sealed partial class MapCanvas
     {
         if (HandleLabel is not { } l) return;
         var box = LabelBox(l);
-        if (_labelResizing) DrawSizeRuler(ctx, l.W, l.H, new Point(box.Center.X, box.Top));
-        var accent = new SolidColorBrush(Color.FromRgb(90, 127, 208));
-        ctx.DrawRectangle(new Pen(accent, 2, new DashStyle(new double[] { 3, 2 }, 0)), box);
-        foreach (var (_, hp) in Handles(box))
-        {
-            var hr = new Rect(hp.X - HandleSize / 2, hp.Y - HandleSize / 2, HandleSize, HandleSize);
-            ctx.FillRectangle(Brushes.White, hr);
-            ctx.DrawRectangle(new Pen(accent, 1.5), hr);
-        }
+        if (_labelResizing && _labelHandle != MoveHandle) DrawSizeRuler(ctx, l.W, l.H, new Point(box.Center.X, box.Top));
+        DrawBoxHandles(ctx, box);
     }
 }

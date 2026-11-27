@@ -3736,10 +3736,10 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     h.PressAt(h.ScreenWorld(4, 2)); h.ReleaseAt(h.ScreenWorld(4, 2));
     Check(h.CommitCount == c2 && lbl.W == 3, "label resize: a click on a handle changes nothing");
 
-    // handles only in the label tool, only for the selected label
-    h.Canvas.Mode = ToolMode.Select;
+    // handles only in the label and select tools, only for the selected label
+    h.Canvas.Mode = ToolMode.Move;
     h.PressAt(h.ScreenWorld(4, 2)); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseAt(h.ScreenWorld(6, 2));
-    Check(lbl.W == 3, "label resize: no handles outside the label tool");
+    Check(lbl.W == 3, "label resize: no handles outside the label and select tools");
     h.Canvas.Mode = ToolMode.Label;
     h.Canvas.SelectedLabel = null;
     h.PressAt(h.ScreenWorld(4, 2)); h.MoveToAt(h.ScreenWorld(6, 2)); h.ReleaseAt(h.ScreenWorld(6, 2));
@@ -6552,6 +6552,84 @@ try { Directory.Delete(imgDir, true); } catch { }
     {
         Check(false, $"renderer: settings view failed: {(ex.InnerException ?? ex)}");
     }
+}
+
+// --- box handles: select tool + move by the dashed edge ---
+{
+    // hit test: handles resize, the dashed edge between them moves, the middle is nothing
+    var box = new Rect(100, 100, 120, 80);
+    Check(MapCanvas.BoxHit(box, new Point(220, 180)) == (1, 1) && MapCanvas.BoxHit(box, new Point(160, 100)) == (0, -1),
+        "box handles: the corner and side handles resize");
+    Check(MapCanvas.BoxHit(box, new Point(130, 102)) == MapCanvas.MoveHandle && MapCanvas.BoxHit(box, new Point(97, 125)) == MapCanvas.MoveHandle,
+        "box handles: the dashed edge between handles moves (just inside or outside the line)");
+    Check(MapCanvas.BoxHit(box, new Point(160, 140)) is null && MapCanvas.BoxHit(box, new Point(130, 80)) is null,
+        "box handles: the middle and clear of the edge hit nothing");
+
+    using var h = new CanvasHarness();
+    var lib = new ObjectLibrary();
+    var t = new ObjectType { Name = "statue" };
+    lib.Types.Add(t);
+    h.Canvas.ObjectTypes = lib;
+    var obj = new MapObject { TypeId = t.Id, X = 1, Y = 1, W = 2, H = 2 };
+    h.Doc.Objects.Add(obj);
+    var lbl = new MapLabel { Cell = new CellKey(8, 2), W = 2, H = 1, Text = "hall" };
+    h.Doc.Labels.Add(lbl);
+
+    // select tool: clicking the object selects it for handles, then the corner handle resizes
+    h.Canvas.Mode = ToolMode.Select;
+    h.Click(2, 2);
+    Check(h.Canvas.SelectedObjectId == obj.Id, "select handles: clicking an object selects it");
+    int c0 = h.CommitCount;
+    h.PressW(3, 3); h.MoveToAt(h.ScreenWorld(4, 4)); h.ReleaseW(4, 4);
+    Check(obj is { X: 1, Y: 1, W: 3, H: 3 } && h.CommitCount == c0 + 1 && h.Doc.Labels.Count == 1, "select handles: the object's corner handle resizes, one undo step");
+    // the top edge, between the corner and middle handles: moves two right, one down
+    h.PressW(1.7, 1); h.MoveToAt(h.ScreenWorld(3.7, 2)); h.ReleaseW(3.7, 2);
+    Check(obj is { X: 3, Y: 2, W: 3, H: 3 } && h.CommitCount == c0 + 2 && h.LastStatus.Contains("moved"), "select handles: dragging the object's edge moves it, size kept, one undo step");
+    // a press on the edge with no drag changes nothing
+    h.PressW(3.7, 2); h.ReleaseW(3.7, 2);
+    Check(obj is { X: 3, Y: 2 } && h.CommitCount == c0 + 2, "select handles: an edge click without a drag changes nothing");
+
+    // a label: the select tool's click opens it (window sets SelectedLabel), the object's handles go
+    h.Canvas.LabelConfigRequested += l => h.Canvas.SelectedLabel = l;
+    h.Click(8, 2);
+    Check(h.Canvas.SelectedLabel == lbl && h.Canvas.SelectedObjectId is null, "select handles: opening a label moves the handles to it");
+    h.PressW(8.3, 2); h.MoveToAt(h.ScreenWorld(9.3, 4)); h.ReleaseW(9.3, 4);
+    Check(lbl.Cell == new CellKey(9, 4) && lbl.W == 2 && lbl.H == 1, "select handles: dragging the label's edge moves it");
+    h.PressW(11, 4.5); h.MoveToAt(h.ScreenWorld(12, 4.5)); h.ReleaseW(12, 4.5);
+    Check(lbl.W == 3, "select handles: the label's side handle resizes");
+    // clicking empty floor drops the handles
+    h.Doc.AddRoom(15, 10, 2, 2);
+    h.Click(15, 10);
+    Check(h.Canvas.SelectedLabel is null && h.Canvas.SelectedObjectId is null && h.Canvas.SelectedImageId is null, "select handles: a click on nothing drops the handles");
+    h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "pw", Name = "P" });
+    h.Doc.Pawns[new CellKey(16, 10)] = new Pawn { Cell = new CellKey(16, 10), TemplateId = "pw" };
+    h.Canvas.SelectedObjectId = obj.Id;
+    h.Click(16, 10);
+    Check(h.Canvas.SelectedObjectId is null, "select handles: opening a pawn drops the handles");
+
+    // the object tool moves by the edge too
+    h.Canvas.Mode = ToolMode.Object;
+    h.Canvas.SelectedObjectId = obj.Id;
+    h.PressW(3, 2.8); h.MoveToAt(h.ScreenWorld(1, 2.8)); h.ReleaseW(1, 2.8);
+    Check(obj is { X: 1, Y: 2, W: 3, H: 3 }, "object tool: dragging the edge moves the object");
+    // and the label tool
+    h.Canvas.Mode = ToolMode.Label;
+    h.Canvas.SelectedLabel = lbl;
+    h.PressW(10, 5); h.MoveToAt(h.ScreenWorld(10, 7)); h.ReleaseW(10, 7);
+    Check(lbl.Cell == new CellKey(9, 6) && lbl.W == 3, "label tool: dragging the edge moves the label");
+
+    // images: a move keeps the size even with keep shape
+    var im = new MapImage { Id = "im1", Path = "x.png", X = 2, Y = 8, W = 2, H = 2, PixelW = 200, PixelH = 200, KeepShape = true };
+    h.Doc.Images.Add(im);
+    h.Canvas.Mode = ToolMode.Select;
+    h.Canvas.SelectedImageId = im.Id;
+    h.PressW(2.6, 10); h.MoveToAt(h.ScreenWorld(5.6, 9)); h.ReleaseW(5.6, 9);
+    Check(im is { X: 5, Y: 7, W: 2, H: 2 }, "select handles: dragging an image's edge moves it");
+    h.Canvas.Mode = ToolMode.Image;
+    h.PressW(7, 8); h.MoveToAt(h.ScreenWorld(9, 8)); h.ReleaseW(9, 8);
+    Check(im is { X: 5, W: 4, H: 4 }, "image tool: the side handle still resizes (keep shape)");
+    h.PressW(5, 8.4); h.MoveToAt(h.ScreenWorld(4, 8.4)); h.ReleaseW(4, 8.4);
+    Check(im is { X: 4, Y: 7, W: 4, H: 4 }, "image tool: dragging the edge moves the image");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

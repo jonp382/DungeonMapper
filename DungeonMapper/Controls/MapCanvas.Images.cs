@@ -187,9 +187,8 @@ public sealed partial class MapCanvas
     // ghost while placing, handles on the open image
     private void DrawImageOverlay(DrawingContext ctx)
     {
-        if (Mode != ToolMode.Image) return;
-        var accent = new SolidColorBrush(Color.FromRgb(90, 127, 208));
-        if (_imgPlacing && ArmedImage is not null)
+        if (!BoxTool(ToolMode.Image)) return;
+        if (Mode == ToolMode.Image && _imgPlacing && ArmedImage is not null)
         {
             var (x, y, w, h) = PlacingRect();
             var tl = WorldToScreen(x, y);
@@ -207,15 +206,9 @@ public sealed partial class MapCanvas
         {
             var ghost = sel.Copy();
             DrawImageIn(ctx, ghost, box, 0.6);
-            DrawSizeRuler(ctx, rw, rh, new Point(box.Center.X, box.Top));
+            if (_imgHandle != MoveHandle) DrawSizeRuler(ctx, rw, rh, new Point(box.Center.X, box.Top));
         }
-        ctx.DrawRectangle(new Pen(accent, 2, new DashStyle(new double[] { 3, 2 }, 0)), box);
-        foreach (var (_, hp) in Handles(box))
-        {
-            var hr = new Rect(hp.X - HandleSize / 2, hp.Y - HandleSize / 2, HandleSize, HandleSize);
-            ctx.FillRectangle(Brushes.White, hr);
-            ctx.DrawRectangle(new Pen(accent, 1.5), hr);
-        }
+        DrawBoxHandles(ctx, box);
     }
 
     // ---- image tool input ----
@@ -235,24 +228,23 @@ public sealed partial class MapCanvas
         return (x0, y0, x1 - x0 + 1, y1 - y0 + 1);
     }
 
+    /// a press on the open image's handles (resize) or dashed edge (move)
+    private bool ImageHandlePressed(PointerPressedEventArgs e)
+    {
+        if (!BoxTool(ToolMode.Image) || SelectedImage is not { } sel || (_remote is not null && !PlayerImages.Editable(sel))) return false;
+        if (BoxHit(CellBox(sel.X, sel.Y, sel.W, sel.H), e.GetPosition(this)) is not { } h) return false;
+        _imgResizing = true;
+        _imgHandle = h;
+        _imgRect = (sel.X, sel.Y, sel.W, sel.H);
+        _boxGrab = ScreenToWorld(e.GetPosition(this));
+        e.Pointer.Capture(this);
+        InvalidateVisual();
+        return true;
+    }
+
     private void ImagePressed(PointerPressedEventArgs e, CellKey cell)
     {
-        var screen = e.GetPosition(this);
-        if (SelectedImage is { } sel && (_remote is null || PlayerImages.Editable(sel)))
-        {
-            var p = WorldToScreen(sel.X, sel.Y);
-            var box = new Rect(p.X, p.Y, sel.W * _scale, sel.H * _scale);
-            foreach (var (h, hp) in Handles(box))
-                if (Math.Abs(screen.X - hp.X) <= HandleSize && Math.Abs(screen.Y - hp.Y) <= HandleSize)
-                {
-                    _imgResizing = true;
-                    _imgHandle = h;
-                    _imgRect = (sel.X, sel.Y, sel.W, sel.H);
-                    e.Pointer.Capture(this);
-                    InvalidateVisual();
-                    return;
-                }
-        }
+        if (ImageHandlePressed(e)) return;
         // shift places over an existing image instead of opening it
         bool force = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         if (!force && Document.ImageAt(cell) is { } hit)
@@ -289,7 +281,7 @@ public sealed partial class MapCanvas
         }
         if (_imgResizing && SelectedImage is { } sel)
         {
-            var r = ResizedRect(sel, _imgHandle, world);
+            var r = _imgHandle == MoveHandle ? MovedRect((sel.X, sel.Y, sel.W, sel.H), world) : ResizedRect(sel, _imgHandle, world);
             if (r != _imgRect) { _imgRect = r; InvalidateVisual(); }
             return true;
         }
@@ -353,7 +345,7 @@ public sealed partial class MapCanvas
             if (SelectedImage is { } sel && _imgRect != (sel.X, sel.Y, sel.W, sel.H))
             {
                 (sel.X, sel.Y, sel.W, sel.H) = _imgRect;
-                Status($"image resized to {sel.W * 5}x{sel.H * 5}ft");
+                Status(_imgHandle == MoveHandle ? $"image moved to {sel.X},{sel.Y}" : $"image resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ImagesChanged?.Invoke();
                 ImageConfigRequested?.Invoke(sel);
