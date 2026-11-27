@@ -88,6 +88,8 @@ Each status ticked on a pawn has a **turns** box: how many turns it has left, or
 
 Click **start combat** at the bottom left to start counting turns on the open map. **Pass turn** counts every timed status down by one; one that reaches 0 is removed and "<status> wore off!" floats up over the pawn. Heroes count down wherever they are. **End combat** removes every timed status (permanent ones stay) and hides the counter. Each of these is one undo step. Pass turn can also have a hotkey (unset by default, in the hotkeys menu).
 
+A status's arc on the pawn's ring runs down with its turns: full at 6 or more turns left (and for permanent statuses), then a sixth shorter each turn, keeping its start and pulling back its end.
+
 When you zoom in close, each status on a pawn gets a small circle in its color beside the ring with the turns it has left (99+ past 99). A permanent status shows ∞, or no circle if you turn **timers for permanent statuses** off in settings; **status turn timers** turns them all off, and **timer distance** sets how far out they sit (0% on the ring, 50% just touching it, 100% clear of it). With names on, a pawn's name sits inside its circle, low down, out of the timers' way. In a session, players see the turn number and the "wore off" text, but only the DM runs the turns.
 
 ## Objects

@@ -1537,25 +1537,37 @@ public sealed partial class MapCanvas : Control
     /// the arcs of a pawn's status ring: one equal slice per status from the
     /// top, clockwise, with gapDeg between them (shrunk to at most half a
     /// slice). one status is the whole circle. two are turned a quarter so
-    /// they sit top and bottom with the gaps at the sides (user)
+    /// they sit top and bottom with the gaps at the sides (user). with the
+    /// pawn's entries, a timed status's arc keeps its start and loses a sixth
+    /// of its length per turn under 6 (ArcFraction)
     private static double ArcStart(int n) => n == 2 ? -180 : -90;
 
     /// the angle (degrees, 0 = right, clockwise) at the middle of arc i of n:
     /// where that status's turn timer sits. one status: the top right
     public static double ArcMiddle(int i, int n) => n <= 1 ? -45 : ArcStart(n) + (i + 0.5) * 360.0 / n;
 
-    public static List<(Geometry geo, PawnStatus st)> StatusArcs(Point center, double r, IReadOnlyList<PawnStatus> statuses, double gapDeg)
+    /// how much of its slice a status's arc fills: whole for 6 or more turns
+    /// left or permanent (-1), then a sixth less per turn, nothing at 0
+    public const int ArcFullTurns = 6;
+    public static double ArcFraction(int turns) =>
+        turns < 0 || turns >= ArcFullTurns ? 1 : turns / (double)ArcFullTurns;
+
+    public static List<(Geometry geo, PawnStatus st)> StatusArcs(Point center, double r, IReadOnlyList<PawnStatus> statuses, double gapDeg,
+        IReadOnlyList<PawnStatusEntry>? entries = null)
     {
         var res = new List<(Geometry, PawnStatus)>();
         int n = statuses.Count;
         if (n == 0) return res;
-        if (n == 1) { res.Add((new EllipseGeometry(new Rect(center.X - r, center.Y - r, r * 2, r * 2)), statuses[0])); return res; }
-        double slice = 360.0 / n, gap = Math.Min(Math.Max(0, gapDeg), slice * 0.5);
+        double Fraction(PawnStatus st) =>
+            entries?.FirstOrDefault(e => e.Name == st.Name) is { } e ? ArcFraction(e.Turns) : 1;
+        if (n == 1 && Fraction(statuses[0]) >= 1) { res.Add((new EllipseGeometry(new Rect(center.X - r, center.Y - r, r * 2, r * 2)), statuses[0])); return res; }
+        double slice = 360.0 / n, gap = n == 1 ? 0 : Math.Min(Math.Max(0, gapDeg), slice * 0.5);
         double start = ArcStart(n);
         Point At(double deg) => new(center.X + r * Math.Cos(deg * Math.PI / 180), center.Y + r * Math.Sin(deg * Math.PI / 180));
         for (int i = 0; i < n; i++)
         {
-            double a0 = start + i * slice + gap / 2, sweep = slice - gap;
+            double a0 = start + i * slice + gap / 2, sweep = (slice - gap) * Fraction(statuses[i]);
+            if (sweep <= 0.01) continue;
             var geo = new StreamGeometry();
             using (var g = geo.Open())
             {
@@ -1615,7 +1627,7 @@ public sealed partial class MapCanvas : Control
             var none = Presets.FindPawnStatus(CampaignPresets.NoStatus);
             if (none.Thickness > 0)
                 ctx.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromRgb((byte)none.R, (byte)none.G, (byte)none.B)), none.Thickness), center, outerR, outerR);
-            foreach (var (geo, st) in StatusArcs(center, outerR, RingStatuses(Presets, statuses), Settings.PawnStatusGap))
+            foreach (var (geo, st) in StatusArcs(center, outerR, RingStatuses(Presets, statuses), Settings.PawnStatusGap, statuses))
                 if (st.Thickness > 0)
                     ctx.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromRgb((byte)st.R, (byte)st.G, (byte)st.B)), st.Thickness), geo);
         }

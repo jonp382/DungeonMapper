@@ -68,7 +68,7 @@ public partial class MainWindow
         {
             double w = Math.Min(ring.Max(x => x.Thickness), size / 6);
             var arcs = new Canvas { Width = size, Height = size, IsHitTestVisible = false };
-            foreach (var (geo, ps) in MapCanvas.StatusArcs(new Point(size / 2, size / 2), size / 2 - w / 2, ring, _settings.PawnStatusGap))
+            foreach (var (geo, ps) in MapCanvas.StatusArcs(new Point(size / 2, size / 2), size / 2 - w / 2, ring, _settings.PawnStatusGap, statuses))
                 if (ps.Thickness > 0)
                     arcs.Children.Add(new Avalonia.Controls.Shapes.Path { Data = geo, Stroke = Rgb((ps.R, ps.G, ps.B)), StrokeThickness = Math.Min(ps.Thickness, size / 6) });
             g.Children.Add(arcs);

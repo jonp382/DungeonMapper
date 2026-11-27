@@ -6285,6 +6285,21 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(px.g > 180 && px.r < 100, "timers: and an infinity circle when it is on");
     var saved = AppSettings.ParseImport("{\"kind\":\"settings\",\"show_status_timers\":false,\"show_permanent_timers\":false}");
     Check(saved is { ShowStatusTimers: false, ShowPermanentTimers: false } && new AppSettings() is { ShowStatusTimers: true, ShowPermanentTimers: true }, "timers: both settings are saved, on by default");
+    // arcs run down with the turns: whole at 6+ or permanent, a sixth less per turn, start kept
+    Check(MapCanvas.ArcFraction(-1) == 1 && MapCanvas.ArcFraction(6) == 1 && MapCanvas.ArcFraction(20) == 1 && MapCanvas.ArcFraction(3) == 0.5
+        && Math.Abs(MapCanvas.ArcFraction(1) - 1 / 6.0) < 1e-9 && MapCanvas.ArcFraction(0) == 0, "arc length: full at 6+ or permanent, a sixth per turn below");
+    var two = new List<PawnStatus> { pre.FindPawnStatus("hasted"), pre.PawnStatuses.First(s => s.Name != CampaignPresets.NoStatus && s.Name != "hasted") };
+    var ents = new List<PawnStatusEntry> { new() { Name = two[0].Name, Turns = 3 }, new() { Name = two[1].Name, Turns = -1 } };
+    var fullArcs = MapCanvas.StatusArcs(new Point(0, 0), 10, two, 0);
+    var runArcs = MapCanvas.StatusArcs(new Point(0, 0), 10, two, 0, ents);
+    Check(runArcs.Count == 2 && Math.Abs(runArcs[0].geo.Bounds.Width - fullArcs[0].geo.Bounds.Width / 2) < 0.5 && runArcs[1].geo.Bounds == fullArcs[1].geo.Bounds,
+        "arc length: 3 turns is half the slice, permanent stays whole");
+    // two statuses: slot 0 runs from the left (-180) clockwise over the top; at half it is a quarter, its start stays on the left
+    Check(Math.Abs(runArcs[0].geo.Bounds.Left - fullArcs[0].geo.Bounds.Left) < 0.5, "arc length: the start stays, the end pulls back");
+    var single = MapCanvas.StatusArcs(new Point(0, 0), 10, two.Take(1).ToList(), 8, new List<PawnStatusEntry> { new() { Name = two[0].Name, Turns = 0 } });
+    Check(single.Count == 0, "arc length: no arc at 0 turns");
+    single = MapCanvas.StatusArcs(new Point(0, 0), 10, two.Take(1).ToList(), 8, new List<PawnStatusEntry> { new() { Name = two[0].Name, Turns = 5 } });
+    Check(single.Count == 1 && single[0].geo is not Avalonia.Media.EllipseGeometry, "arc length: one status under 6 turns is an open arc, not the whole circle");
     // distance: 0 on the ring, 50 touching it, 100 a timer radius clear (linear)
     var o = new Point(0, 0);
     double D(int pct) { var q = MapCanvas.TimerCenter(o, 40, 10, 0, 2, pct); return Math.Sqrt(q.X * q.X + q.Y * q.Y); }
