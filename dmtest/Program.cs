@@ -7028,6 +7028,44 @@ try { Directory.Delete(imgDir, true); } catch { }
             "context menu: a direction turns every connected stair");
         PickAt(new Point(4.5, 4.5), "delete (2 connected stairs)");
         Check(cdoc.Stairs.Count == 0, "context menu: delete takes the connected stairs");
+
+        // labels, objects, images
+        var otype = new ObjectType { Name = "statue" };
+        ((ObjectLibrary)t.GetProperty("ActiveObjects", flags)!.GetValue(w)!).Types.Add(otype);
+        var cobj = new MapObject { TypeId = otype.Id, X = 1, Y = 4, W = 1, H = 2, DmOnly = true };
+        cdoc.Objects.Add(cobj);
+        var clbl = new MapLabel { Cell = new CellKey(5, 1), W = 1, H = 1, Text = "hall" };
+        cdoc.Labels.Add(clbl);
+        var cim = new MapImage { Id = "cim", Path = "x.png", X = 3, Y = 5, W = 2, H = 1, PixelW = 200, PixelH = 100 };
+        cdoc.Images.Add(cim);
+        hist.Commit(cdoc);
+        Check(MenuAt(new Point(1.5, 4.5)).Select(H).SequenceEqual(new[] { "edit...", "change type...", "rotate", "use the type's look", "show to players", "copy", "delete" }),
+            "context menu: an object's menu lists its actions");
+        PickAt(new Point(1.5, 4.5), "rotate");
+        Check(cobj.W == 2 && cobj.H == 1, "context menu: rotate swaps the object's size");
+        PickAt(new Point(1.5, 4.5), "use the type's look");
+        Check(cobj.Look is not null, "context menu: unticking the type's look gives the object its own");
+        PickAt(new Point(1.5, 4.5), "show to players");
+        Check(!cobj.DmOnly, "context menu: show to players on an object");
+        Check(MenuAt(new Point(5.5, 1.5)).Select(H).SequenceEqual(new[] { "edit text", "edit...", "players can edit", "show to players", "copy", "delete" }),
+            "context menu: a label's menu lists its actions");
+        PickAt(new Point(5.5, 1.5), "players can edit");
+        Check(clbl.ClientEditable && clbl.Id.Length > 0, "context menu: players can edit hands the label over (with an id)");
+        PickAt(new Point(5.5, 1.5), "copy");
+        Check(canvas.HasClipboard, "context menu: copy puts the label on the clipboard");
+        PickAt(new Point(5.5, 1.5), "delete");
+        Check(!cdoc.Labels.Contains(clbl), "context menu: delete removes the label");
+        Check(MenuAt(new Point(3.5, 5.5)).Select(H).SequenceEqual(new[] { "edit...", "turn left", "turn right", "fit", "picture size", "show to players", "copy", "delete" }),
+            "context menu: an image's menu lists its actions");
+        PickAt(new Point(3.5, 5.5), "turn right");
+        Check(cim.Turns == 1 && cim.W == 1 && cim.H == 2, "context menu: turn right turns the image and swaps its box");
+        MenuAt(new Point(3.5, 5.5)).First(i => H(i) == "fit").Items.OfType<Avalonia.Controls.MenuItem>().First(i => H(i) == "stretch")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        Check(cim.Fit == ImageFit.Stretch, "context menu: the fit submenu sets how the picture fills");
+        PickAt(new Point(3.5, 5.5), "delete");
+        Check(!cdoc.Images.Contains(cim), "context menu: delete removes the image");
+        CallOn(w, "DoUndo");
+        Check(cdoc.Images.Any(i => i.Id == "cim"), "context menu: the image delete is one undo step");
     }
     catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();

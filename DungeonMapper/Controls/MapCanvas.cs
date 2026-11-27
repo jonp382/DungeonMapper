@@ -1323,7 +1323,7 @@ public sealed partial class MapCanvas : Control
     public MapLabel? EditingLabel { get; set; }
 
     /// the topmost label covering a cell
-    private MapLabel? LabelAt(CellKey c) => Document.Labels.LastOrDefault(l => l.Covers(c));
+    public MapLabel? LabelAt(CellKey c) => Document.Labels.LastOrDefault(l => l.Covers(c));
 
     private void DrawPreview(DrawingContext ctx)
     {
@@ -1937,6 +1937,21 @@ public sealed partial class MapCanvas : Control
 
     /// the straight wall under a world point, or null
     public EdgeKey? WallAt(Point world) => HitEdge(world) is { } e && Document.HasWall(e) ? e : null;
+
+    /// copies one label, object or image (their context menus)
+    public void CopyItem(MapLabel? label, MapObject? obj, MapImage? image)
+    {
+        var snap = new MapDocument.RegionSnapshot();
+        if (label is not null) { snap.OriginX = label.Cell.X; snap.OriginY = label.Cell.Y; snap.Labels.Add(label.CopyAt(label.Cell)); }
+        else if (obj is not null) { snap.OriginX = obj.X; snap.OriginY = obj.Y; snap.Objects.Add(obj.Copy()); }
+        else if (image is not null) { snap.OriginX = image.X; snap.OriginY = image.Y; snap.Images.Add(image.Copy()); }
+        else return;
+        _clipboard = snap;
+        _cutSource = null;
+        _rotTurns = 0;
+        Status("copied - ctrl+v pastes it in the select tool");
+        InvalidateVisual();
+    }
 
     /// copies just the pawn on a cell (the pawn's context menu)
     public void CopyPawn(CellKey cell)
