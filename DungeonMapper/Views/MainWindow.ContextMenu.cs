@@ -36,6 +36,9 @@ public partial class MainWindow
     /// the menu for what is at the point, top item first
     private List<Control> ContextItems(Point world, CellKey cell)
     {
+        // inside the selected region: the region's menu
+        if (Canvas.SelectionRect is var (x0, y0, x1, y1) && cell.X >= x0 && cell.X <= x1 && cell.Y >= y0 && cell.Y <= y1)
+            return RegionMenu(x0, y0, x1, y1);
         if (_doc.Pawns.TryGetValue(cell, out var pawn)) return PawnMenu(pawn);
         if (Canvas.DoorAt(world) is { } door) return DoorMenu(door);
         // labels and images draw over objects, so they come first
@@ -341,6 +344,49 @@ public partial class MainWindow
                 MenuCommit("image deleted");
                 RefreshImagePanel();
             }),
+        };
+    }
+
+    // ---------- selected region ----------
+
+    private List<Control> RegionMenu(int x0, int y0, int x1, int y1)
+    {
+        var floor = _doc.FloorCells().Where(c => c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1).ToList();
+        bool pawns = _doc.Pawns.Keys.Any(c => c.X >= x0 && c.X <= x1 && c.Y >= y0 && c.Y <= y1);
+        bool items = _doc.ItemsIn(x0, y0, x1, y1, RevealItems.All).Count > 0;
+        return new()
+        {
+            MenuAction("copy", () => { Canvas.CopySelection(); Canvas.Refresh(); FocusCanvas(); }),
+            MenuAction("cut", () => { Canvas.CutSelection(); Canvas.Refresh(); FocusCanvas(); }),
+            MenuAction("delete...", ShowDeleteRegion),
+            new Separator(),
+            MenuAction("reveal floor to players", () =>
+            {
+                int n = _doc.SetRevealed(floor, true);
+                MenuCommit(n == 0 ? "that floor was already revealed" : $"revealed {Plural(n, "cell")}");
+            }, floor.Count > 0),
+            MenuAction("hide floor from players", () =>
+            {
+                int n = _doc.SetRevealed(floor, false);
+                MenuCommit(n == 0 ? "that floor was already hidden" : $"hid {Plural(n, "cell")}");
+            }, floor.Count > 0),
+            MenuAction("show items to players", () =>
+            {
+                int n = _doc.SetDmOnly(x0, y0, x1, y1, RevealItems.All, false);
+                MenuCommit($"{Plural(n, "item")} shown to players");
+            }, items),
+            MenuAction("hide items from players", () =>
+            {
+                int n = _doc.SetDmOnly(x0, y0, x1, y1, RevealItems.All, true);
+                MenuCommit($"{Plural(n, "item")} hidden from players");
+            }, items),
+            new Separator(),
+            MenuAction("new formation from its pawns", () =>
+            {
+                SetTool(ToolMode.Pawn);
+                FormationFromArea(null, x0, y0, x1, y1);
+            }, pawns),
+            MenuAction("clear selection", () => { Canvas.ClearSelection(); FocusCanvas(); }),
         };
     }
 }

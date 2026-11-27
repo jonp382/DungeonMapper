@@ -278,7 +278,13 @@ public partial class MainWindow
         SetStatus(target is null
             ? "new formation: drag a box around the pawns on the map. esc cancels"
             : $"update {target.Name}: drag a box around the pawns on the map. esc cancels");
-        Canvas.BeginAreaPick((x0, y0, x1, y1) =>
+        Canvas.BeginAreaPick((x0, y0, x1, y1) => FormationFromArea(target, x0, y0, x1, y1));
+    }
+
+    /// saves the pawns in an area as a new formation (target null) or as
+    /// target's members (the area pick, the region's right-click menu)
+    private void FormationFromArea(Formation? target, int x0, int y0, int x1, int y1)
+    {
         {
             var pawns = PanelDoc.Pawns.Values.Where(p => p.Cell.X >= x0 && p.Cell.X <= x1 && p.Cell.Y >= y0 && p.Cell.Y <= y1)
                 .Where(p => !Joined || PlayerPawns.Controlled(PanelLibrary.Find(p.TemplateId))).ToList();
@@ -302,7 +308,7 @@ public partial class MainWindow
                 SetStatus($"updated {target.Name}: {Plural(members.Count, "pawn")}");
             }
             if (Canvas.Mode == ToolMode.Pawn) RefreshPawnPanel();
-        });
+        }
     }
 
     private void DeployFormation(Formation f)

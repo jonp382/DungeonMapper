@@ -7087,6 +7087,31 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(!cdoc.Images.Contains(cim), "context menu: delete removes the image");
         CallOn(w, "DoUndo");
         Check(cdoc.Images.Any(i => i.Id == "cim"), "context menu: the image delete is one undo step");
+
+        // a selected region
+        CallOn(w, "SetTool", ToolMode.Select);
+        typeof(MapCanvas).GetField("_selectStart", flags)!.SetValue(canvas, new CellKey(0, 0));
+        typeof(MapCanvas).GetField("_selectEnd", flags)!.SetValue(canvas, new CellKey(3, 3));
+        var rm = MenuAt(new Point(2.5, 2.5));
+        Check(rm.Select(H).SequenceEqual(new[] { "copy", "cut", "delete...", "reveal floor to players", "hide floor from players", "show items to players", "hide items from players", "new formation from its pawns", "clear selection" }),
+            "context menu: inside the selection (even on a pawn) the region's menu opens");
+        PickAt(new Point(2.5, 2.5), "reveal floor to players");
+        Check(cdoc.Revealed.Contains(new CellKey(1, 1)) && !cdoc.Revealed.Contains(new CellKey(5, 5)), "context menu: reveal floor reveals the selection's floor only");
+        PickAt(new Point(2.5, 2.5), "show items to players");
+        Check(!cdoc.Pawns[new CellKey(2, 2)].DmOnly, "context menu: show items marks the selection's items visible");
+        var flib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        int before = flib.Formations.Count;
+        PickAt(new Point(2.5, 2.5), "new formation from its pawns");
+        Check(flib.Formations.Count == before + 1 && flib.Formations[^1].Members.Count == 1 && canvas.Mode == ToolMode.Pawn,
+            "context menu: new formation saves the selection's pawns and opens the pawn tool to name it");
+        CallOn(w, "SetTool", ToolMode.Select);
+        typeof(MapCanvas).GetField("_selectStart", flags)!.SetValue(canvas, new CellKey(0, 0));
+        typeof(MapCanvas).GetField("_selectEnd", flags)!.SetValue(canvas, new CellKey(3, 3));
+        PickAt(new Point(2.5, 2.5), "delete...");
+        Check((string?)FieldOf(w, "_modalKind") == "delete-region", "context menu: delete... opens the delete menu");
+        CallOn(w, "CloseModals");
+        PickAt(new Point(2.5, 2.5), "clear selection");
+        Check(canvas.SelectionRect is null, "context menu: clear selection drops it");
     }
     catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();
