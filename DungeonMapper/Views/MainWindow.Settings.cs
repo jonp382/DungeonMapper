@@ -135,6 +135,12 @@ public partial class MainWindow
         // the box is a NumberSetting above, RefreshSettings moves the slider
         // to whatever the box applied.
         foreach (var (slider, number) in SliderSettings())
+        {
+            // the slider spans the setting's own limits
+            slider.Minimum = number.Min;
+            slider.Maximum = number.Max;
+        }
+        foreach (var (slider, number) in SliderSettings())
             slider.ValueChanged += (_, _) =>
             {
                 if (_settingsLoading) return;
@@ -246,6 +252,7 @@ public partial class MainWindow
             + (_settings.CpuRenderer != Program.CpuRendering ? ". changes after a restart" : "");
         SetShowPermanentTimers.IsChecked = _settings.ShowPermanentTimers;
         foreach (var (slider, number) in SliderSettings()) slider.Value = number.Get(_settings);
+        RefreshSettingPreviews();
         SetLabelText.Text = _settings.DefaultLabelText;
         SetLabelText.Classes.Remove("invalid");
         SetLabelTextError.IsVisible = false;
@@ -261,6 +268,10 @@ public partial class MainWindow
         foreach (var n in _numberSettings)
         {
             if (n.Box == SetFloorGridOpacity) yield return (SetFloorGridOpacitySlider, n);
+            else if (n.Box == SetWallThickness) yield return (SetWallThicknessSlider, n);
+            else if (n.Box == SetDoorWallGap) yield return (SetDoorWallGapSlider, n);
+            else if (n.Box == SetPawnStatusGap) yield return (SetPawnStatusGapSlider, n);
+            else if (n.Box == SetTimerDistance) yield return (SetTimerDistanceSlider, n);
             else if (n.Box == SetMeasureShade) yield return (SetMeasureShadeSlider, n);
             else if (n.Box == SetDimOpacity) yield return (SetDimOpacitySlider, n);
             else if (n.Box == SetSightOpacity) yield return (SetSightOpacitySlider, n);
@@ -299,6 +310,17 @@ public partial class MainWindow
     {
         Canvas.Refresh();
         MarkSetting();
+        RefreshSettingPreviews();
+    }
+
+    /// the small pawns beside status gap and timer distance follow the values
+    private void RefreshSettingPreviews()
+    {
+        SetPawnStatusGapPreview.Gap = _settings.PawnStatusGap;
+        SetTimerDistancePreview.Gap = _settings.PawnStatusGap;
+        SetTimerDistancePreview.Distance = _settings.TimerDistance;
+        SetPawnStatusGapPreview.InvalidateVisual();
+        SetTimerDistancePreview.InvalidateVisual();
     }
 
     private void ApplyNumber(NumberSetting n)

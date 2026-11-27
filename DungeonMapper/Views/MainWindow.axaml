@@ -294,34 +294,41 @@
                                             <ContentControl x:Name="SetWallColor" Grid.Column="1" />
                                             <Button x:Name="ResetWallColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
                                         </Grid>
-                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="wall thickness" />
                                                 <TextBlock x:Name="SetWallThicknessHint" Classes="hint" />
                                                 <TextBlock x:Name="SetWallThicknessError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
-                                            <TextBox x:Name="SetWallThickness" Grid.Column="1" Classes="field number" />
-                                            <Button x:Name="ResetWallThickness" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                            <Slider x:Name="SetWallThicknessSlider" Grid.Column="1" Width="110" SmallChange="1" LargeChange="5" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetWallThickness" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetWallThickness" Grid.Column="3" Classes="btn quiet" Content="reset" />
                                         </Grid>
-                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="door wall gap" />
                                                 <TextBlock Classes="hint" TextWrapping="Wrap"
                                                            Text="wall cleared past each end of a door, percent of a wall length, 0 to 50. 0 is no extra gap." />
                                                 <TextBlock x:Name="SetDoorWallGapError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
-                                            <TextBox x:Name="SetDoorWallGap" Grid.Column="1" Classes="field number" />
-                                            <Button x:Name="ResetDoorWallGap" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                            <Slider x:Name="SetDoorWallGapSlider" Grid.Column="1" Width="110" SmallChange="1" LargeChange="5" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetDoorWallGap" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetDoorWallGap" Grid.Column="3" Classes="btn quiet" Content="reset" />
                                         </Grid>
-                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="pawn status gap" />
                                                 <TextBlock Classes="hint" TextWrapping="Wrap"
                                                            Text="space between the status colors on a pawn's ring, degrees, 0 to 30." />
                                                 <TextBlock x:Name="SetPawnStatusGapError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
-                                            <TextBox x:Name="SetPawnStatusGap" Grid.Column="1" Classes="field number" />
-                                            <Button x:Name="ResetPawnStatusGap" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                            <views:SettingsPawnPreview x:Name="SetPawnStatusGapPreview" Grid.Column="1" Timers="False" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                            <Slider x:Name="SetPawnStatusGapSlider" Grid.Column="2" Width="110" SmallChange="1" LargeChange="5" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetPawnStatusGap" Grid.Column="3" Classes="field number" />
+                                            <Button x:Name="ResetPawnStatusGap" Grid.Column="4" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
@@ -339,15 +346,18 @@
                                             </StackPanel>
                                             <CheckBox x:Name="SetShowPermanentTimers" Grid.Column="1" Classes="toggle" Content="show ∞" Margin="0,0,10,0" />
                                         </Grid>
-                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
+                                        <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="timer distance" />
                                                 <TextBlock Classes="hint" TextWrapping="Wrap"
                                                            Text="how far out the turn timers sit, percent, 0 to 100. 0 is on the ring, 50 just touches it, 100 is clear of it." />
                                                 <TextBlock x:Name="SetTimerDistanceError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
-                                            <TextBox x:Name="SetTimerDistance" Grid.Column="1" Classes="field number" />
-                                            <Button x:Name="ResetTimerDistance" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                            <views:SettingsPawnPreview x:Name="SetTimerDistancePreview" Grid.Column="1" Timers="True" Margin="0,0,10,0" VerticalAlignment="Center" />
+                                            <Slider x:Name="SetTimerDistanceSlider" Grid.Column="2" Width="110" SmallChange="1" LargeChange="5" IsSnapToTickEnabled="True" TickFrequency="1"
+                                                    VerticalAlignment="Center" Margin="0,0,10,0" />
+                                            <TextBox x:Name="SetTimerDistance" Grid.Column="3" Classes="field number" />
+                                            <Button x:Name="ResetTimerDistance" Grid.Column="4" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <TextBlock Classes="body" Text="stairs" />

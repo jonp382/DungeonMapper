@@ -7211,5 +7211,36 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- settings sliders ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var settings = (AppSettings)FieldOf(w, "_settings")!;
+        t.GetMethods(flags).First(m => m.Name == "RefreshSettings" && m.GetParameters().Length == 0).Invoke(w, null);
+        Avalonia.Controls.Slider Sl(string n) => (Avalonia.Controls.Slider)FieldOf(w, n)!;
+        Check(Sl("SetWallThicknessSlider").Minimum == AppSettings.MinWallThickness && Sl("SetWallThicknessSlider").Maximum == AppSettings.MaxWallThickness
+            && Sl("SetDoorWallGapSlider").Maximum == AppSettings.MaxDoorWallGap && Sl("SetPawnStatusGapSlider").Maximum == AppSettings.MaxPawnStatusGap
+            && Sl("SetTimerDistanceSlider").Maximum == AppSettings.MaxTimerDistance,
+            "settings sliders: wall thickness, door wall gap, status gap and timer distance have sliders over their limits");
+        Sl("SetPawnStatusGapSlider").Value = 20;
+        var gapPreview = (DungeonMapper.Views.SettingsPawnPreview)FieldOf(w, "SetPawnStatusGapPreview")!;
+        Check(settings.PawnStatusGap == 20 && ((Avalonia.Controls.TextBox)FieldOf(w, "SetPawnStatusGap")!).Text == "20" && gapPreview.Gap == 20,
+            "settings sliders: moving the status gap slider sets it, the box and the pawn preview follow");
+        Sl("SetTimerDistanceSlider").Value = 80;
+        var timerPreview = (DungeonMapper.Views.SettingsPawnPreview)FieldOf(w, "SetTimerDistancePreview")!;
+        Check(settings.TimerDistance == 80 && timerPreview.Distance == 80 && timerPreview.Timers, "settings sliders: the timer distance preview draws timers at the new distance");
+        Sl("SetWallThicknessSlider").Value = AppSettings.MaxWallThickness;
+        Check(settings.WallThickness == AppSettings.MaxWallThickness, "settings sliders: the wall thickness slider sets it");
+        settings.PawnStatusGap = 8; settings.TimerDistance = 50; settings.WallThickness = new AppSettings().WallThickness;
+    }
+    catch (Exception ex) { Check(false, $"settings sliders: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
