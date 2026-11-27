@@ -267,6 +267,19 @@ public partial class MainWindow
                 MenuCommit("object rotated");
                 ObjectViewsChanged();
             }),
+            // objects draw in list order: the last one is on top (user)
+            MenuAction("bring to front", () =>
+            {
+                _doc.Objects.Remove(obj);
+                _doc.Objects.Add(obj);
+                MenuCommit("object brought to front");
+            }, _doc.Objects.Count > 1 && _doc.Objects[^1] != obj),
+            MenuAction("send to back", () =>
+            {
+                _doc.Objects.Remove(obj);
+                _doc.Objects.Insert(0, obj);
+                MenuCommit("object sent to back");
+            }, _doc.Objects.Count > 1 && _doc.Objects[0] != obj),
             MenuPick("use the type's look", obj.Look is null, () =>
             {
                 obj.Look = obj.Look is null ? (t?.Look ?? new ObjectLook()).Clone() : null;

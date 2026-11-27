@@ -7039,8 +7039,29 @@ try { Directory.Delete(imgDir, true); } catch { }
         var cim = new MapImage { Id = "cim", Path = "x.png", X = 3, Y = 5, W = 2, H = 1, PixelW = 200, PixelH = 100 };
         cdoc.Images.Add(cim);
         hist.Commit(cdoc);
-        Check(MenuAt(new Point(1.5, 4.5)).Select(H).SequenceEqual(new[] { "edit...", "change type...", "rotate", "use the type's look", "show to players", "copy", "delete" }),
+        Check(MenuAt(new Point(1.5, 4.5)).Select(H).SequenceEqual(new[] { "edit...", "change type...", "rotate", "bring to front", "send to back", "use the type's look", "show to players", "copy", "delete" }),
             "context menu: an object's menu lists its actions");
+        var under = new MapObject { TypeId = otype.Id, X = 1, Y = 4, W = 1, H = 1 };
+        cdoc.Objects.Add(under);
+        hist.Commit(cdoc);
+        var fronts = MenuAt(new Point(1.5, 4.5));
+        Check(!fronts.First(i => H(i) == "bring to front").IsEnabled && fronts.First(i => H(i) == "send to back").IsEnabled,
+            "context menu: the top object can only be sent back");
+        PickAt(new Point(1.5, 4.5), "send to back");
+        Check(cdoc.Objects[0] == under, "context menu: send to back draws it under the others");
+        // the other one (cobj) is on top now; send it back too, then bring the one under it forward
+        PickAt(new Point(1.5, 4.5), "send to back");
+        Check(cdoc.Objects[0] == cobj && cdoc.Objects[^1] == under, "context menu: send to back on the top object swaps the order");
+        cdoc.Objects.Remove(under); cdoc.Objects.Insert(0, under); // under at the back, cobj on top
+        var back = new MapObject { TypeId = otype.Id, X = 9, Y = 9, W = 1, H = 1 };
+        cdoc.Objects.Insert(0, back);
+        CallOn(w, "OnContextRequested", new Point(9.5, 9.5), new CellKey(9, 9));
+        ((Avalonia.Controls.MenuFlyout)FieldOf(w, "_contextMenu")!).Items.OfType<Avalonia.Controls.MenuItem>().First(i => H(i) == "bring to front")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        Check(cdoc.Objects[^1] == back, "context menu: bring to front draws the object over the others");
+        cdoc.Objects.Remove(back);
+        cdoc.Objects.Remove(under);
+        hist.Commit(cdoc);
         PickAt(new Point(1.5, 4.5), "rotate");
         Check(cobj.W == 2 && cobj.H == 1, "context menu: rotate swaps the object's size");
         PickAt(new Point(1.5, 4.5), "use the type's look");
