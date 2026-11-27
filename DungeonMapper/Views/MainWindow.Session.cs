@@ -710,7 +710,7 @@ public partial class MainWindow
     {
         var cell = pawn.Cell;
         var t = PanelLibrary.Find(pawn.TemplateId);
-        ToolPanel.Clear("pawn");
+        ToolPanel.ClearItem("pawn");
         _playerPawnInfoCell = cell;
         if (t is null) { ToolPanel.AddHint("this pawn's template is missing"); return; }
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*"), ColumnSpacing = 8, Margin = new Avalonia.Thickness(0, 0, 0, 4) };

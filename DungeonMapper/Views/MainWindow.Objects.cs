@@ -229,7 +229,7 @@ public partial class MainWindow
         Canvas.SelectedObjectId = id;
         Canvas.Refresh();
         var t = ActiveObjects.Find(obj.TypeId);
-        ToolPanel.Clear("object");
+        ToolPanel.ClearItem("object");
 
         var look = obj.EffectiveLook(ActiveObjects);
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*"), ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 4) };
@@ -313,7 +313,7 @@ public partial class MainWindow
     private void ShowChangeObjectType(MapObject obj)
     {
         string id = obj.Id;
-        ToolPanel.Clear("change type");
+        ToolPanel.ClearItem("change type");
         var search = SearchBox("search objects", "");
         ToolPanel.AddButtonRaw(search);
         var list = new StackPanel { Spacing = 1 };

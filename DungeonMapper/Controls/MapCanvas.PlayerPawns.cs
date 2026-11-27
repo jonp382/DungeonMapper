@@ -75,7 +75,7 @@ public sealed partial class MapCanvas
                 if (PlayerPawns.CheckPlace(_remote, Library, t.Id, cell) is { } why) Status(why, StatusKind.Error);
                 else PlayerPlaceRequested?.Invoke(t.Id, cell);
             }
-            else Status("select a pawn in the pawn menu first", StatusKind.Warning);
+            else { NothingClicked?.Invoke(); Status("select a pawn in the pawn menu first", StatusKind.Warning); }
             return true;
         }
         return false;
@@ -126,6 +126,7 @@ public sealed partial class MapCanvas
                 if (PlayerPawns.CheckPlace(doc, Library, t.Id, cell) is { } why) Status(why, StatusKind.Error);
                 else PlayerPlaceRequested?.Invoke(t.Id, cell);
             }
+            else NothingClicked?.Invoke();
             return;
         }
         var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);

@@ -6842,5 +6842,54 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- a click on nothing goes back to the tool view ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var ndoc = canvas.Document;
+        ndoc.AddRoom(0, 0, 3, 3);
+        ndoc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "gob" };
+        var panel = (DungeonMapper.Views.ToolPanel)FieldOf(w, "ToolPanel")!;
+        var raise = typeof(MapCanvas).GetField("NothingClicked", flags)!;
+        void Nothing() => ((Action?)raise.GetValue(canvas))?.Invoke();
+        CallOn(w, "SetTool", ToolMode.Select);
+        Check(!panel.ItemView, "tool view: a tool's own view is not an item view");
+        CallOn(w, "ShowPawnInfo", ndoc.Pawns[new CellKey(1, 1)]);
+        Check(panel.ItemView, "tool view: a pawn's view is an item view");
+        Nothing();
+        Check(!panel.ItemView, "tool view: a click on nothing goes back to the tool view");
+        CallOn(w, "SetTool", ToolMode.Door);
+        Nothing();
+        Check(!panel.ItemView, "tool view: and nothing happens when the tool view is already showing");
+    }
+    catch (Exception ex) { Check(false, $"tool view: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+
+    // the canvas raises it for an empty select click, a door tool click off the walls, and a pawn tool click with nothing armed
+    using var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 3, 3);
+    int n = 0;
+    h.Canvas.NothingClicked += () => n++;
+    h.Canvas.Mode = ToolMode.Select;
+    h.Click(2, 2);
+    Check(n == 1, "nothing clicked: an empty select tool click");
+    h.Canvas.Mode = ToolMode.Door;
+    h.Click(10, 10);
+    Check(n == 2, "nothing clicked: a door tool click away from any wall");
+    h.Canvas.Mode = ToolMode.Pawn;
+    h.Click(2, 2);
+    Check(n == 3, "nothing clicked: a pawn tool click with no pawn armed");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

@@ -177,7 +177,7 @@ public partial class MainWindow
         bool joined = _client is not null;
         Canvas.SelectedImageId = id;
         Canvas.Refresh();
-        ToolPanel.Clear("image");
+        ToolPanel.ClearItem("image");
         _imagePanelMarker = null;
 
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("56,*"), ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 4) };

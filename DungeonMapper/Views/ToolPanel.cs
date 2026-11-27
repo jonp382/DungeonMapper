@@ -61,8 +61,20 @@ public sealed class ToolPanel : Border
         }
     }
 
+    /// true while the panel shows one placed item (a door, a pawn...) rather
+    /// than its tool's own view
+    public bool ItemView { get; private set; }
+
+    /// starts a placed item's view (ClearItem) or a tool's view (Clear)
+    public void ClearItem(string title)
+    {
+        Clear(title);
+        ItemView = true;
+    }
+
     public void Clear(string title)
     {
+        ItemView = false;
         _title.Text = title;
         Target.Children.Clear();
         DeleteAction = null;

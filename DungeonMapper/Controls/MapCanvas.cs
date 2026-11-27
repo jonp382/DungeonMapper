@@ -1908,8 +1908,14 @@ public sealed partial class MapCanvas : Control
                 SelectedObjectId = obj.Id;
                 ObjectConfigRequested?.Invoke(obj);
             }
+            else NothingClicked?.Invoke();
         }
     }
+
+    /// a click that hit nothing to open (select tool, a door tool click off
+    /// the walls, a pawn tool click with nothing armed): an open item's view
+    /// goes back to the tool's view
+    public event Action? NothingClicked;
 
     /// The pawn tool's plain click on a cell with no pawn: places the armed pawn.
     private void PawnToolClick(CellKey cell)
@@ -1932,6 +1938,7 @@ public sealed partial class MapCanvas : Control
         }
         else
         {
+            NothingClicked?.Invoke();
             Status("select a pawn in the pawn menu first", StatusKind.Warning);
         }
     }
@@ -2075,7 +2082,7 @@ public sealed partial class MapCanvas : Control
                     }
                     break;
                 }
-                if (de is null) break;
+                if (de is null) { NothingClicked?.Invoke(); break; }
                 var doorEdge = de.Value;
                 var existing = Document.GetDoor(doorEdge);
                 if (existing is not null)

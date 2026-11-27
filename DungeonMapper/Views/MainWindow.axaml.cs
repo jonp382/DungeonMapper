@@ -280,6 +280,8 @@ public partial class MainWindow : Window
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
+        // a click on nothing: an open item's view goes back to the tool's
+        Canvas.NothingClicked += () => { if (ToolPanel.ItemView) BackToToolView(); };
         Canvas.FormationDeployed += () => { PawnViewsChanged(); RefreshMaps(); };
         Canvas.ObjectsChanged += () => { RefreshObjectPanel(); RefreshObjectManager(); };
         Canvas.ImageConfigRequested += im => ShowImageConfig(im);
