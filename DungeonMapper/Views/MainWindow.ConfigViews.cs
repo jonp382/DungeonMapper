@@ -67,6 +67,13 @@ public partial class MainWindow
             var go = onClick;
             b.Click += (_, _) => { ToolPanel.ButtonHook?.Invoke(); go(); };
             row.Children.Add(b);
+            if (label == "delete")
+            {
+                // an item view is open: the delete key deletes this item, and
+                // a region selection lets go so the key has one target
+                ToolPanel.DeleteAction = () => { ToolPanel.ButtonHook?.Invoke(); go(); FocusCanvas(); };
+                if (Canvas.HasSelection) Canvas.ClearSelection();
+            }
         }
         ToolPanel.AddButtonRaw(row);
     }

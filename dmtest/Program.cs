@@ -6754,5 +6754,106 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- delete key: item, region modal, shift+delete ---
+{
+    // counts and the filtered delete on the canvas
+    using (var ch = new CanvasHarness())
+    {
+        ch.Doc.AddRoom(0, 0, 4, 4);
+        ch.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "p", Name = "P" });
+        ch.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "p" };
+        ch.Doc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p" };
+        ch.Canvas.Mode = ToolMode.Select;
+        ch.Drag(0, 0, 3, 3);
+        Check(ch.Canvas.SelectionRect == (0, 0, 3, 3), "delete: a select drag gives a region");
+        var n = ch.Canvas.CountRegion(0, 0, 3, 3);
+        Check(n.Pawns == 2 && n.Cells == 16 && n.Walls == 8 && n.Objects == 0, "delete: the region counts its pawns, floor and walls");
+        var only = new EraseFilter { Cells = false, Walls = false, Stairs = false, Labels = false, Objects = false, Images = false };
+        Check(MapCanvas.DescribeCounts(n, only) == "2 pawns", "delete: the summary names what the ticks take");
+        int c0 = ch.CommitCount;
+        ch.Canvas.DeleteSelection(only, false);
+        Check(ch.Doc.Pawns.Count == 0 && ch.Doc.Cells.Count == 25 && ch.CommitCount == c0 + 1 && ch.LastStatus.Contains("deleted 2 pawns"),
+            "delete: only the ticked kinds go, one undo step, the status says what");
+        ch.Canvas.DeleteSelection(only, false);
+        Check(ch.CommitCount == c0 + 1 && ch.LastStatus.Contains("nothing to delete"), "delete: nothing of the ticked kinds, no undo step");
+        Check(ch.Canvas.EraseFilter.Pawns && ch.Canvas.EraseFilter.Cells, "delete: the eraser's own filters are not touched");
+    }
+
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var ddoc = canvas.Document;
+        ddoc.AddRoom(0, 0, 6, 6);
+        ddoc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "gob" };
+        ddoc.Pawns[new CellKey(2, 1)] = new Pawn { Cell = new CellKey(2, 1), TemplateId = "gob" };
+        var hist = (History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!;
+        hist.Commit(ddoc);
+        CallOn(w, "SetTool", ToolMode.Select);
+        void Select(int x0, int y0, int x1, int y1)
+        {
+            typeof(MapCanvas).GetField("_selectStart", flags)!.SetValue(canvas, new CellKey(x0, y0));
+            typeof(MapCanvas).GetField("_selectEnd", flags)!.SetValue(canvas, new CellKey(x1, y1));
+        }
+
+        // nothing selected, nothing open
+        CallOn(w, "DeleteKey", false);
+        Check(ddoc.Pawns.Count == 2, "delete key: nothing selected deletes nothing");
+
+        // an open item view: delete removes that item, one undo step
+        CallOn(w, "ShowPawnInfo", ddoc.Pawns[new CellKey(1, 1)]);
+        CallOn(w, "DeleteKey", false);
+        Check(!ddoc.Pawns.ContainsKey(new CellKey(1, 1)) && ddoc.Pawns.ContainsKey(new CellKey(2, 1)), "delete key: deletes the item whose view is open");
+        CallOn(w, "DoUndo");
+        Check(ddoc.Pawns.ContainsKey(new CellKey(1, 1)), "delete key: and undo brings it back");
+
+        // opening an item lets go of a region
+        Select(0, 0, 3, 3);
+        CallOn(w, "ShowPawnInfo", ddoc.Pawns[new CellKey(2, 1)]);
+        Check(canvas.SelectionRect is null, "delete key: opening an item lets go of the region");
+
+        // a region: the modal, its counts, untick pawns, confirm
+        Select(0, 0, 3, 3);
+        CallOn(w, "DeleteKey", false);
+        var overlay = (Avalonia.Controls.Control)FieldOf(w, "ModalOverlay")!;
+        Check(overlay.IsVisible && (string?)FieldOf(w, "_modalKind") == "delete-region", "delete key: a region opens the delete menu");
+        overlay.UpdateLayout();
+        var boxes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.CheckBox>().Where(c => c.Tag is string).ToDictionary(c => (string)c.Tag!);
+        Check(boxes["pawns"].IsChecked == true && boxes["cells"].IsChecked == true && boxes["stairs"].IsChecked == false && !boxes["stairs"].IsEnabled,
+            "delete key: every kind in the region starts ticked, kinds with none are greyed out");
+        boxes["pawns"].IsChecked = false;
+        boxes["walls"].IsChecked = false;
+        var confirm = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Button>().First(b => b.Content as string == "delete");
+        confirm.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(!overlay.IsVisible && ddoc.Pawns.Count == 2 && !ddoc.Cells.Contains(new CellKey(1, 1)) && ddoc.Cells.Contains(new CellKey(4, 4)),
+            "delete key: confirm deletes only the ticked kinds in the region");
+        CallOn(w, "DoUndo");
+        Check(ddoc.Cells.Contains(new CellKey(1, 1)), "delete key: the region delete is one undo step");
+
+        // cancel deletes nothing
+        Select(0, 0, 3, 3);
+        CallOn(w, "DeleteKey", false);
+        overlay.UpdateLayout();
+        Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Button>().First(b => b.Content as string == "cancel")
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(!overlay.IsVisible && ddoc.Pawns.Count == 2 && ddoc.Cells.Contains(new CellKey(1, 1)), "delete key: cancel deletes nothing");
+
+        // shift+delete: everything, no menu
+        CallOn(w, "DeleteKey", true);
+        Check(!overlay.IsVisible && ddoc.Pawns.Count == 0 && !ddoc.Cells.Contains(new CellKey(1, 1)) && ddoc.Cells.Contains(new CellKey(4, 4)),
+            "delete key: shift+delete deletes everything in the region without asking");
+    }
+    catch (Exception ex) { Check(false, $"delete key: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

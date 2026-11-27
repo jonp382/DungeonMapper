@@ -59,7 +59,12 @@ public sealed class ToolPanel : Border
     {
         _title.Text = title;
         Target.Children.Clear();
+        DeleteAction = null;
     }
+
+    /// the open item view's delete (the delete key runs it), null when the
+    /// panel shows no deletable item
+    public Action? DeleteAction { get; set; }
 
     public void AddHint(string text)
     {

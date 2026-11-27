@@ -49,7 +49,8 @@ You can change the tool letters, and the zoom to fit key, in the hotkeys menu.
 | Ctrl+C / Ctrl+X / Ctrl+V | Copy, cut, paste at the cursor |
 | R / Shift+R | Rotate what you are pasting or moving |
 | Ctrl+F | Search pawns |
-| Delete | Erase the selection |
+| Delete | Delete the item you clicked, or, with a region selected, choose what in it to delete |
+| Shift+Delete | Delete everything in the selected region, without asking |
 | Esc | Cancel what you are doing, or close a menu |
 
 ## Campaigns and maps

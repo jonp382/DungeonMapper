@@ -343,9 +343,9 @@ public partial class MainWindow : Window
         else if (e.Key == Key.Delete)
         {
             // hotkeys are disabled while a move is armed and not yet placed
-            if (Canvas.HotkeysDisabled) { e.Handled = true; return; }
-            // delete = erase the current selection with everything selected
-            Canvas.DeleteSelection(); Canvas.Refresh(); e.Handled = true; return;
+            if (Canvas.HotkeysDisabled || ModalOverlay.IsVisible) { e.Handled = true; return; }
+            DeleteKey((e.KeyModifiers & KeyModifiers.Shift) != 0);
+            e.Handled = true; return;
         }
         else if (e.Key == Key.Enter && Canvas.Mode == ToolMode.Polygon && !IsTyping())
         {
@@ -356,7 +356,7 @@ public partial class MainWindow : Window
         {
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
-            if (ModalOverlay.IsVisible && _modalKind is "close-doors" or "add-status") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind is "close-doors" or "add-status" or "delete-region") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind is "host" or "join") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "objects") { CloseManage(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }

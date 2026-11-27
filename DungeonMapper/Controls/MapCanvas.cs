@@ -422,11 +422,63 @@ public sealed partial class MapCanvas : Control
 
     /// Delete hotkey: erase the current selection region, honoring the Erase
     /// tool's category filters (cells, walls+doors, stairs, labels).
-    public void DeleteSelection()
+    /// the selected region (select tool box), null when there is none
+    public (int x0, int y0, int x1, int y1)? SelectionRect => HasSelection ? NormRect(_selectStart, _selectEnd) : null;
+
+    /// what a region delete would take, per erase filter kind
+    public sealed record RegionCounts(int Cells, int Walls, int Stairs, int Labels, int Pawns, int Objects, int Images)
     {
-        if (!HasSelection) { Status("nothing to delete - select a region first", StatusKind.Warning); return; }
-        var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
-        var f = EraseFilter;
+        public int Total(EraseFilter f) =>
+            (f.Cells ? Cells : 0) + (f.Walls ? Walls : 0) + (f.Stairs ? Stairs : 0) + (f.Labels ? Labels : 0)
+            + (f.Pawns ? Pawns : 0) + (f.Objects ? Objects : 0) + (f.Images ? Images : 0);
+    }
+
+    public RegionCounts CountRegion(int x0, int y0, int x1, int y1)
+    {
+        int cells = 0, stairs = 0, pawns = 0;
+        var walls = new HashSet<EdgeKey>();
+        for (int x = x0; x <= x1; x++)
+            for (int y = y0; y <= y1; y++)
+            {
+                var c = new CellKey(x, y);
+                if (Document.Cells.Contains(c)) cells++;
+                if (Document.Stairs.ContainsKey(c)) stairs++;
+                if (Document.Pawns.ContainsKey(c)) pawns++;
+                foreach (var side in new[] { Side.North, Side.East, Side.South, Side.West })
+                {
+                    var k = EdgeKey.Normalize(c, side);
+                    if (Document.Walls.ContainsKey(k)) walls.Add(k);
+                }
+            }
+        int angled = Document.AngledWalls.Count(w => MapDocument.AngledWallIntersectsRect(w, x0, y0, x1, y1));
+        int labels = Document.Labels.Count(l => Enumerable.Range(x0, x1 - x0 + 1).Any(x => Enumerable.Range(y0, y1 - y0 + 1).Any(y => l.Covers(new CellKey(x, y)))));
+        return new RegionCounts(cells, walls.Count + angled, stairs, labels, pawns,
+            Document.Objects.Count(o => o.Touches(x0, y0, x1, y1)), Document.Images.Count(o => o.Touches(x0, y0, x1, y1)));
+    }
+
+    /// "3 pawns, 14 walls, 1 object": what a delete with filter f takes
+    public static string DescribeCounts(RegionCounts n, EraseFilter f)
+    {
+        var parts = new List<string>();
+        void Add(bool on, int count, string one, string many) { if (on && count > 0) parts.Add($"{count} {(count == 1 ? one : many)}"); }
+        Add(f.Pawns, n.Pawns, "pawn", "pawns");
+        Add(f.Cells, n.Cells, "floor cell", "floor cells");
+        Add(f.Walls, n.Walls, "wall", "walls");
+        Add(f.Stairs, n.Stairs, "stair", "stairs");
+        Add(f.Labels, n.Labels, "label", "labels");
+        Add(f.Objects, n.Objects, "object", "objects");
+        Add(f.Images, n.Images, "image", "images");
+        return parts.Count == 0 ? "nothing" : string.Join(", ", parts);
+    }
+
+    /// deletes what filter f picks in the selected region, one undo step.
+    /// adjustWalls re-seals rooms on the new outer edge like the eraser's
+    /// option. the delete key's modal and shift+delete (everything) use it.
+    public void DeleteSelection(EraseFilter f, bool adjustWalls)
+    {
+        if (SelectionRect is not var (x0, y0, x1, y1)) { Status("nothing to delete - select a region first", StatusKind.Warning); return; }
+        var counts = CountRegion(x0, y0, x1, y1);
+        if (counts.Total(f) == 0) { Status("nothing to delete in that region", StatusKind.Warning); return; }
         for (int x = x0; x <= x1; x++)
             for (int y = y0; y <= y1; y++)
             {
@@ -448,8 +500,8 @@ public sealed partial class MapCanvas : Control
         }
         if (f.Objects && EraseObjects(x0, y0, x1, y1) > 0) ObjectsChanged?.Invoke();
         if (f.Images && EraseImages(x0, y0, x1, y1) > 0) ImagesChanged?.Invoke();
-        if (EraseAdjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
-        Status($"deleted {(x1 - x0 + 1) * (y1 - y0 + 1)} cells (erase filters applied)");
+        if (adjustWalls && f.Cells) Document.RebuildRoomBoundaryWalls(x0, y0, x1, y1);
+        Status($"deleted {DescribeCounts(counts, f)} (Ctrl+Z undoes)");
         Commit();
     }
 
@@ -2301,6 +2353,8 @@ public sealed partial class MapCanvas : Control
                     return;
                 }
             }
+            // a region drag lets go of the boxed object, label or image
+            if (!singleCell && Mode == ToolMode.Select) ClearBoxSelection();
             if (singleCell)
             {
                 // single cell: manage the element under the cursor. a pawn here
