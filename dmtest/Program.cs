@@ -6978,6 +6978,56 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(!cdoc.Pawns.ContainsKey(cell), "context menu: delete removes the pawn");
         CallOn(w, "DoUndo");
         Check(cdoc.Pawns.ContainsKey(cell), "context menu: and undo brings it back");
+
+        // doors, stairs and walls (menus picked at a world point)
+        List<Avalonia.Controls.MenuItem> MenuAt(Point p)
+        {
+            var at = new CellKey((int)Math.Floor(p.X), (int)Math.Floor(p.Y));
+            CallOn(w, "OnContextRequested", p, at);
+            var m = (Avalonia.Controls.MenuFlyout?)FieldOf(w, "_contextMenu");
+            var items = m is null ? new List<Avalonia.Controls.MenuItem>() : m.Items.OfType<Avalonia.Controls.MenuItem>().ToList();
+            m?.Hide();
+            t.GetField("_contextMenu", flags)!.SetValue(w, null);
+            return items;
+        }
+        string H(Avalonia.Controls.MenuItem i) => ((string)i.Header!).Trim().TrimStart('✓').Trim();
+        void PickAt(Point p, string header) => MenuAt(p).First(i => H(i) == header).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        var top = new EdgeKey(new CellKey(4, 0), Side.North);
+        var onDoor = new Point(4.5, 0.03);
+        cdoc.TryPlaceDoor(top, out var cmDoor);
+        hist.Commit(cdoc);
+        var dm = MenuAt(onDoor).Select(H).ToList();
+        Check(dm.Take(4).SequenceEqual(new[] { "open", "closed", "locked", "type" }) && dm.Contains("delete door (keep the wall)") && dm.Contains("delete door and wall"),
+            "context menu: a door's menu has its states, type, and both deletes");
+        Check(((string)MenuAt(onDoor).First(i => H(i) == "closed").Header!).StartsWith("✓"), "context menu: the door's current state is ticked");
+        PickAt(onDoor, "open");
+        Check(cmDoor.State == DoorState.Open, "context menu: picking a state changes the door");
+        var typeItem = MenuAt(onDoor).First(i => H(i) == "type");
+        var otherType = typeItem.Items.OfType<Avalonia.Controls.MenuItem>().Select(H).First(n => n != cmDoor.Type);
+        typeItem.Items.OfType<Avalonia.Controls.MenuItem>().First(i => H(i) == otherType).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        Check(cmDoor.Type == otherType, "context menu: the type submenu changes the door's type");
+        PickAt(onDoor, "delete door (keep the wall)");
+        Check(cdoc.GetDoor(top) is null && cdoc.HasWall(top), "context menu: delete door keeps the wall");
+        Check(MenuAt(onDoor).Select(H).SequenceEqual(new[] { "add door", "delete wall" }), "context menu: a bare wall offers add door and delete wall");
+        var addDoor = MenuAt(onDoor).First(i => H(i) == "add door");
+        var firstType = addDoor.Items.OfType<Avalonia.Controls.MenuItem>().First();
+        firstType.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        Check(cdoc.GetDoor(top) is { } added && added.Type == H(firstType), "context menu: add door puts a door of that type on the wall");
+        PickAt(onDoor, "delete door and wall");
+        Check(cdoc.GetDoor(top) is null && !cdoc.HasWall(top), "context menu: delete door and wall takes both");
+        cdoc.SetWall(top, true);
+        PickAt(onDoor, "delete wall");
+        Check(!cdoc.HasWall(top), "context menu: delete wall removes it");
+        cdoc.Stairs[new CellKey(4, 4)] = new Stair();
+        cdoc.Stairs[new CellKey(5, 4)] = new Stair();
+        hist.Commit(cdoc);
+        var sm = MenuAt(new Point(4.5, 4.5));
+        Check(sm.Select(H).SequenceEqual(new[] { "direction", "edit...", "delete (2 connected stairs)" }), "context menu: a stair's menu has direction, edit and delete for its group");
+        sm[0].Items.OfType<Avalonia.Controls.MenuItem>().First(i => H(i) == "up").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        Check(cdoc.Stairs[new CellKey(4, 4)].Direction == StairDirection.Up && cdoc.Stairs[new CellKey(5, 4)].Direction == StairDirection.Up,
+            "context menu: a direction turns every connected stair");
+        PickAt(new Point(4.5, 4.5), "delete (2 connected stairs)");
+        Check(cdoc.Stairs.Count == 0, "context menu: delete takes the connected stairs");
     }
     catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();

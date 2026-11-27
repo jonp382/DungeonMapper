@@ -1918,6 +1918,26 @@ public sealed partial class MapCanvas : Control
     public event Action<Point, CellKey>? ContextRequested;
     private Point? _rightPress;
 
+    /// the door under a world point, picked like a select tool click (angled,
+    /// then vertex or edge, whichever is nearer), or null
+    public IDoorConfig? DoorAt(Point world)
+    {
+        if (HitAngledWall(world) is var (wall, t))
+            return Document.GetAngledDoors(wall).FirstOrDefault(d => Math.Abs(d.T - t) < DoorLength);
+        var edge = HitEdge(world);
+        var vt = HitVertex(world);
+        if (vt is not null && (edge is null || MidDist(world, edge.Value) >= vt.Value.dist - 1e-9))
+        {
+            var vd = Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, true))
+                  ?? Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, false));
+            if (vd is not null) return vd;
+        }
+        return edge is not null ? Document.GetDoor(edge.Value) : null;
+    }
+
+    /// the straight wall under a world point, or null
+    public EdgeKey? WallAt(Point world) => HitEdge(world) is { } e && Document.HasWall(e) ? e : null;
+
     /// copies just the pawn on a cell (the pawn's context menu)
     public void CopyPawn(CellKey cell)
     {

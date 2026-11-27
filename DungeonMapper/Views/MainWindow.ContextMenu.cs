@@ -37,6 +37,9 @@ public partial class MainWindow
     private List<Control> ContextItems(Point world, CellKey cell)
     {
         if (_doc.Pawns.TryGetValue(cell, out var pawn)) return PawnMenu(pawn);
+        if (Canvas.DoorAt(world) is { } door) return DoorMenu(door);
+        if (_doc.Stairs.TryGetValue(cell, out var stair)) return StairMenu(cell, stair);
+        if (Canvas.WallAt(world) is { } wall) return WallMenu(wall);
         return new();
     }
 
@@ -116,5 +119,109 @@ public partial class MainWindow
             }
         }));
         return items;
+    }
+
+    /// a ticked item in a pick-one list (door state, type, stair direction)
+    private static MenuItem MenuPick(string header, bool current, Action onClick) =>
+        MenuAction((current ? "✓ " : "    ") + header, onClick);
+
+    // ---------- door ----------
+
+    private List<Control> DoorMenu(IDoorConfig door)
+    {
+        var spot = _doc.DoorSpotOf(door);
+        var items = new List<Control>();
+        foreach (var st in new[] { DoorState.Open, DoorState.Closed, DoorState.Locked })
+        {
+            var s = st;
+            items.Add(MenuPick(s.ToString().ToLowerInvariant(), door.State == s, () =>
+            {
+                if (door.State == s) return;
+                door.State = s;
+                MenuCommit($"door {s.ToString().ToLowerInvariant()}");
+            }));
+        }
+        var types = ActivePresets.DoorTypes.GroupBy(t => t.Name).Select(g => g.First()).ToList();
+        items.Add(SubMenu("type", types.Select(t =>
+        {
+            var name = t.Name;
+            return (Control)MenuPick(name, door.Type == name, () =>
+            {
+                if (door.Type == name) return;
+                door.Type = name;
+                MenuCommit($"door type {name}");
+            });
+        })));
+        items.Add(new Separator());
+        items.Add(VisibilityItem(door.DmOnly, v => door.DmOnly = v, "door"));
+        items.Add(MenuAction("edit...", () => ShowDoorConfig(door)));
+        items.Add(new Separator());
+        items.Add(MenuAction("delete door (keep the wall)", () =>
+        {
+            if (!_doc.RemoveDoorConfig(door)) return;
+            if (ToolPanel.ItemView) BackToToolView();
+            MenuCommit("door deleted");
+        }));
+        if (spot is EdgeKey edge)
+            items.Add(MenuAction("delete door and wall", () =>
+            {
+                _doc.SetWall(edge, false); // the door goes with its wall
+                if (ToolPanel.ItemView) BackToToolView();
+                MenuCommit("door and wall deleted");
+            }));
+        return items;
+    }
+
+    // ---------- stair ----------
+
+    private List<Control> StairMenu(CellKey cell, Stair stair)
+    {
+        var group = _doc.ConnectedStairs(cell);
+        var items = new List<Control>
+        {
+            SubMenu("direction", new[] { StairDirection.Up, StairDirection.Down, StairDirection.Left, StairDirection.Right }.Select(d =>
+                (Control)MenuPick(d.ToString().ToLowerInvariant(), stair.Direction == d, () =>
+                {
+                    // like the stair's view: the whole connected group turns
+                    if (group.All(s => s.Direction == d)) return;
+                    foreach (var s in group) s.Direction = d;
+                    MenuCommit($"stairs go {d.ToString().ToLowerInvariant()}");
+                }))),
+            MenuAction("edit...", () => ShowStairConfig(stair)),
+            new Separator(),
+            MenuAction(group.Count > 1 ? $"delete ({group.Count} connected stairs)" : "delete", () =>
+            {
+                int n = _doc.RemoveConnectedStairs(cell);
+                if (n == 0) return;
+                if (ToolPanel.ItemView) BackToToolView();
+                MenuCommit(n == 1 ? "stair deleted" : $"{n} stairs deleted");
+            }),
+        };
+        return items;
+    }
+
+    // ---------- wall ----------
+
+    private List<Control> WallMenu(EdgeKey wall)
+    {
+        var types = ActivePresets.DoorTypes.GroupBy(t => t.Name).Select(g => g.First()).ToList();
+        return new List<Control>
+        {
+            SubMenu("add door", types.Select(t =>
+            {
+                var name = t.Name;
+                return (Control)MenuAction(name, () =>
+                {
+                    if (!_doc.TryPlaceDoor(wall, name, Canvas.DefaultDoorState, out _)) { SetStatus("can't place a door here", StatusKind.Error); return; }
+                    MenuCommit($"{name} door added");
+                });
+            })),
+            new Separator(),
+            MenuAction("delete wall", () =>
+            {
+                _doc.SetWall(wall, false);
+                MenuCommit("wall deleted");
+            }),
+        };
     }
 }
