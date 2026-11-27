@@ -6,6 +6,8 @@ A desktop dungeon mapper for old-school tabletop games. Draw rooms, walls, doors
 
 ## Getting started
 
+For a full guide with a short video of every tool, open **Help → Help Article** in the app (it opens in your browser), or open [`help/index.html`](help/index.html) from this repository.
+
 Run the `DungeonMapper` program for your system (Windows or Linux). There is nothing to install, and the app keeps its maps and settings in folders next to the program.
 
 - **Pan:** right-click or middle-click and drag

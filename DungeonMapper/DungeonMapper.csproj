@@ -4,11 +4,31 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- a version passed in (release.yml: -p:InformationalVersion=<tag>) wins;
+         otherwise the build asks git for the latest tag (GitVersion below) -->
+    <DmVersionGiven Condition="'$(InformationalVersion)' != ''">true</DmVersionGiven>
   </PropertyGroup>
+
+  <!-- local builds (dotnet run, publish.sh): the latest git tag as the
+       version, so Help > About and the session version check say v1.5.1
+       rather than the sdk's 1.0.0. the sdk still appends +<commit>. no git,
+       or no tag: the default stays -->
+  <Target Name="GitVersion" BeforeTargets="AddSourceRevisionToInformationalVersion;GetAssemblyAttributes" Condition="'$(DmVersionGiven)' != 'true'">
+    <Exec Command="git describe --tags --abbrev=0" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low" StandardErrorImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="DmGitTag" />
+      <Output TaskParameter="ExitCode" PropertyName="DmGitExit" />
+    </Exec>
+    <PropertyGroup Condition="'$(DmGitExit)' == '0' and '$(DmGitTag)' != ''">
+      <InformationalVersion>$(DmGitTag)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
   <ItemGroup>
     <Folder Include="Models\" />
     <AvaloniaResource Include="Assets\**" />
+    <!-- the help article (help/ at the repo root) is built into the exe, which
+         stays a single file; Help > Help Article unpacks it to a temp folder -->
+    <EmbeddedResource Include="..\help\**" LogicalName="help/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

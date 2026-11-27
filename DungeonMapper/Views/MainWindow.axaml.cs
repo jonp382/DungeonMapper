@@ -281,6 +281,8 @@ public partial class MainWindow : Window
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
         InitContextMenus();
+        MenuHelpArticle.Click += async (_, _) => await OpenHelpArticle();
+        MenuAbout.Click += (_, _) => { CloseModals(); ShowAbout(); };
         ToggleBuildTools.Click += (_, _) => { _settings.BuildToolsFolded = !_settings.BuildToolsFolded; SettingChanged(); ShowBuildTools(); FocusCanvas(); };
         ShowBuildTools();
         // the item being edited is ringed on the map; any new view drops it
@@ -353,7 +355,7 @@ public partial class MainWindow : Window
         {
             // esc on the exit prompt is cancel, never no
             if (ModalOverlay.IsVisible && _modalKind == "exit") { CloseExitPrompt(); e.Handled = true; return; }
-            if (ModalOverlay.IsVisible && _modalKind is "close-doors" or "add-status" or "delete-region") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
+            if (ModalOverlay.IsVisible && _modalKind is "close-doors" or "add-status" or "delete-region" or "about") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind is "host" or "join") { CloseModals(); FocusCanvas(); e.Handled = true; return; }
             if (ModalOverlay.IsVisible && _modalKind == "objects") { CloseManage(); e.Handled = true; return; }
             if (DoorPresetsOverlay.IsVisible) { CloseDoorPresets(); e.Handled = true; return; }

@@ -90,6 +90,10 @@
                             <MenuItem x:Name="MenuDoorPresets" Header="_Door presets..." />
                             <MenuItem x:Name="MenuHotkeys" Header="_Hotkeys..." />
                         </MenuItem>
+                        <MenuItem x:Name="MenuHelp" Header="_Help">
+                            <MenuItem x:Name="MenuHelpArticle" Header="_Help Article" />
+                            <MenuItem x:Name="MenuAbout" Header="_About DungeonMapper" />
+                        </MenuItem>
                     </Menu>
                 </Border>
                 <!-- hotbar: icon only buttons, grouped, tooltips carry the names

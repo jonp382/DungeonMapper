@@ -7296,5 +7296,49 @@ try { Directory.Delete(imgDir, true); } catch { }
     ToolText.Use(file);
 }
 
+// --- help article and about ---
+{
+    _ = new CanvasHarness();
+    var files = DungeonMapper.Views.MainWindow.HelpFiles();
+    Check(files.Contains("index.html") && files.Count(f => f.StartsWith("videos/") && f.EndsWith(".mp4")) >= 20, "help: the page and its videos are built into the app");
+    var dir = Path.Combine(Path.GetTempPath(), "dmtest_help_" + Guid.NewGuid().ToString("N")[..8]);
+    try
+    {
+        var page = DungeonMapper.Views.MainWindow.UnpackHelp(dir);
+        Check(page is not null && File.Exists(page), "help: unpacking writes the page to a folder");
+        var html = File.ReadAllText(page!);
+        var srcs = System.Text.RegularExpressions.Regex.Matches(html, "<video src=\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToList();
+        Check(srcs.Count >= 20 && srcs.All(src => File.Exists(Path.Combine(dir, src))), "help: every video the page plays was unpacked next to it");
+        var ids = System.Text.RegularExpressions.Regex.Matches(html, "id=\"([^\"]+)\"").Select(m => m.Groups[1].Value).ToHashSet();
+        var links = System.Text.RegularExpressions.Regex.Matches(html, "href=\"#([^\"]+)\"").Select(m => m.Groups[1].Value).Distinct().ToList();
+        Check(links.All(ids.Contains), "help: every contents link points at a section");
+        var video = Path.Combine(dir, "videos", "door.mp4");
+        var stamp = File.GetLastWriteTimeUtc(video);
+        File.WriteAllText(page!, "stale");
+        DungeonMapper.Views.MainWindow.UnpackHelp(dir);
+        Check(File.GetLastWriteTimeUtc(video) == stamp && File.ReadAllText(page!) == html,
+            "help: opening it again rewrites the page (edits show) but not unchanged videos");
+    }
+    finally { try { Directory.Delete(dir, true); } catch { } }
+
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var help = (Avalonia.Controls.MenuItem)t.GetField("MenuHelp", flags)!.GetValue(w)!;
+        Check(help.Items.OfType<Avalonia.Controls.MenuItem>().Select(i => i.Header as string).SequenceEqual(new[] { "_Help Article", "_About DungeonMapper" }),
+            "help: the Help menu has Help Article and About DungeonMapper");
+        t.GetMethod("ShowAbout", flags)!.Invoke(w, null);
+        var overlay = (Avalonia.Controls.Control)t.GetField("ModalOverlay", flags)!.GetValue(w)!;
+        overlay.UpdateLayout();
+        var texts = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.TextBlock>().Select(b => b.Text ?? "").ToList();
+        Check(overlay.IsVisible && texts.Contains("Dungeon Mapper") && texts.Any(x => x.StartsWith("MIT License")) && texts.Contains("version"),
+            "help: About shows the app, its version and license");
+    }
+    catch (Exception ex) { Check(false, $"help: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

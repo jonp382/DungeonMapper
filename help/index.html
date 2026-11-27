@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dungeon Mapper Help</title>
+<style>
+  :root {
+    --bg: #14141a;
+    --panel: #1e1e26;
+    --row: #262632;
+    --line: #2f2f3b;
+    --text: #e6e6ee;
+    --muted: #9a9aaa;
+    --accent: #5a7fd0;
+    --accent-soft: #2b3758;
+    --key: #30303c;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  a { color: #8fb0f0; }
+  .layout { display: flex; max-width: 1280px; margin: 0 auto; }
+  nav {
+    position: sticky; top: 0; align-self: flex-start;
+    width: 250px; flex: none; height: 100vh; overflow-y: auto;
+    padding: 24px 16px 40px 20px; border-right: 1px solid var(--line);
+    font-size: 14px;
+  }
+  nav .title { font-weight: 700; font-size: 18px; margin-bottom: 14px; }
+  nav ol { list-style: none; padding: 0; margin: 0; }
+  nav li { margin: 0; }
+  nav a { display: block; padding: 3px 8px; border-radius: 4px; color: var(--muted); text-decoration: none; }
+  nav a:hover { background: var(--row); color: var(--text); }
+  nav .group { margin-top: 14px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: #6f6f80; padding: 0 8px; }
+  main { flex: 1; min-width: 0; padding: 32px 40px 120px; }
+  h1 { font-size: 32px; margin: 0 0 6px; }
+  h2 { font-size: 24px; margin: 56px 0 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+  h3 { font-size: 18px; margin: 28px 0 6px; }
+  .lead { color: var(--muted); font-size: 17px; margin-top: 0; }
+  video {
+    display: block; width: 100%; max-width: 880px; margin: 14px 0 6px;
+    border-radius: 8px; border: 1px solid var(--line); background: #000;
+  }
+  .caption { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  kbd {
+    display: inline-block; min-width: 1.6em; padding: 0 6px; text-align: center;
+    background: var(--key); border: 1px solid #44444f; border-bottom-width: 2px;
+    border-radius: 4px; font: 13px/1.6 ui-monospace, Consolas, monospace;
+  }
+  table { border-collapse: collapse; margin: 12px 0 18px; width: 100%; max-width: 880px; font-size: 15px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  .tip {
+    max-width: 880px; background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 10px 14px; border-radius: 4px; margin: 14px 0;
+  }
+  .tip b:first-child { color: #c9d8ff; }
+  ul, ol.steps { max-width: 880px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  p { max-width: 880px; }
+  .tools { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-width: 880px; margin: 12px 0; }
+  .tools a { display: block; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; text-decoration: none; color: var(--text); }
+  .tools a span { color: var(--muted); font-size: 13px; }
+  @media (max-width: 860px) {
+    nav { display: none; }
+    main { padding: 20px 16px 80px; }
+  }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <div class="title">Dungeon Mapper</div>
+  <ol>
+    <li><a href="#start">Getting started</a></li>
+    <li><a href="#screen">The screen</a></li>
+    <li><a href="#basics">Basic controls</a></li>
+    <li class="group">Building the map</li>
+    <li><a href="#room">Room</a></li>
+    <li><a href="#polygon">Polygon</a></li>
+    <li><a href="#floor">Floor</a></li>
+    <li><a href="#wall">Wall</a></li>
+    <li><a href="#door">Door</a></li>
+    <li><a href="#stair">Stair</a></li>
+    <li><a href="#erase">Erase</a></li>
+    <li class="group">Selecting and moving</li>
+    <li><a href="#select">Select</a></li>
+    <li><a href="#delete">Deleting things</a></li>
+    <li class="group">Placing things</li>
+    <li><a href="#pawn">Pawns</a></li>
+    <li><a href="#heroes">Heroes</a></li>
+    <li><a href="#statuses">Statuses and turn tracking</a></li>
+    <li><a href="#formations">Formations</a></li>
+    <li><a href="#object">Objects</a></li>
+    <li><a href="#label">Labels</a></li>
+    <li><a href="#image">Images</a></li>
+    <li class="group">Reading the map</li>
+    <li><a href="#measure">Measure</a></li>
+    <li><a href="#sight">Line of sight</a></li>
+    <li class="group">Playing together</li>
+    <li><a href="#reveal">Reveal and sessions</a></li>
+    <li class="group">Everything else</li>
+    <li><a href="#maps">Maps and campaigns</a></li>
+    <li><a href="#menus">Right-click menus</a></li>
+    <li><a href="#saving">Saving and undo</a></li>
+    <li><a href="#settings">Settings and hotkeys</a></li>
+    <li><a href="#keys">Keyboard reference</a></li>
+  </ol>
+</nav>
+
+<main>
+<h1>Dungeon Mapper Help</h1>
+<p class="lead">A guide to every tool, with a short video of each one in use. Click a video to play it; they loop and have no sound.</p>
+
+<!-- ================================================================ -->
+<h2 id="start">Getting started</h2>
+<p>Dungeon Mapper draws dungeon maps on a 5 foot grid and tracks what happens in them at the table: where everyone stands, who is poisoned or asleep, what a character can see, and what the players are allowed to see. Everything runs offline on your own computer. One person (usually the DM) runs the app on a laptop and shows the map on a TV, and players can optionally join over the local network to move their own pawns.</p>
+<p>A typical session looks like this:</p>
+<ol class="steps">
+  <li><b>Draw the map.</b> Use the <a href="#room">Room</a>, <a href="#polygon">Polygon</a> and <a href="#wall">Wall</a> tools to lay out the rooms, then add <a href="#door">doors</a>, <a href="#stair">stairs</a>, <a href="#object">objects</a> and <a href="#label">labels</a>.</li>
+  <li><b>Set up your pawns.</b> Create pawn types for the party and the monsters in pawn management, then place them with the <a href="#pawn">Pawn</a> tool.</li>
+  <li><b>Play.</b> Move pawns by dragging them, add <a href="#statuses">statuses</a> like "asleep", check distances with <a href="#measure">Measure</a> and what a character can see with <a href="#sight">Line of sight</a>.</li>
+  <li><b>Optionally, play together.</b> Use <a href="#reveal">Reveal</a> to choose what the players see, host a session, and let players join from their own computers.</li>
+</ol>
+<p>The app keeps its maps, backups and settings in folders next to the program, so it can be run from a USB stick or a shared folder without installing anything.</p>
+
+<!-- ================================================================ -->
+<h2 id="screen">The screen</h2>
+<p>The window has five parts:</p>
+<ul>
+  <li><b>The menu strip</b> at the top: File (save, open, import, export, settings), Edit (undo, redo), View (zoom to fit, player view preview), Session (host, join, leave), Manage (maps, pawns, objects, door presets, hotkeys) and Help.</li>
+  <li><b>The toolbar</b> under it. Hover any button to see its name and hotkey. The tools are grouped:
+    <ul>
+      <li><b>Select</b> on its own at the left.</li>
+      <li><b>Map building</b>: Room, Polygon, Floor, Wall, Door, Stair and Erase. The small arrow in front of this group folds it away, which is handy during play when you no longer draw rooms. Their hotkeys still work while folded, and the app remembers the choice.</li>
+      <li><b>Placing things</b>: Pawn, Object, Label and Image.</li>
+      <li><b>Reading the map</b>: Measure and Line of sight. These never change the map.</li>
+      <li><b>Reveal</b>, which chooses what players see.</li>
+    </ul>
+  </li>
+  <li><b>The map</b> fills the middle. It is an endless grid; cells only exist where you draw them.</li>
+  <li><b>The side panel</b> on the right. It shows either the current tool's settings (its title reads like "door tool") or one thing on the map that you clicked (its title reads like "door at 12,7", on a tinted band with a "← door tool" link back). The item you are editing also gets a dashed ring or box on the map, so you always know which one the panel changes. Clicking empty space goes back to the tool's settings.</li>
+  <li><b>The status bar</b> at the bottom. It shows a message for everything you do and briefly flashes a color: red when something failed or was refused, orange when nothing happened because a step is missing, green when a save, export or join worked, and pink for a player's change during a session. The bottom left also has the map list and the turn tracking buttons.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="basics">Basic controls</h2>
+<table>
+  <tr><th>To do this</th><th>Do this</th></tr>
+  <tr><td>Pan the map</td><td>Drag with the right or middle mouse button</td></tr>
+  <tr><td>Zoom</td><td>Mouse wheel (zooms toward the cursor)</td></tr>
+  <tr><td>Fit the whole map on screen</td><td><kbd>Z</kbd>, or View → Zoom to fit</td></tr>
+  <tr><td>Pick a tool</td><td>Click it in the toolbar, or press its letter</td></tr>
+  <tr><td>Open a menu of actions for something</td><td>Right-click it without dragging (see <a href="#menus">Right-click menus</a>)</td></tr>
+  <tr><td>Cancel what you are doing, or close a window</td><td><kbd>Esc</kbd></td></tr>
+  <tr><td>Undo / redo</td><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td></tr>
+  <tr><td>Save</td><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td></tr>
+</table>
+<div class="tip"><b>Tip:</b> almost everything you can click in the side panel is also in the right-click menu of the thing itself. Right-clicking is usually the fastest way to change a door's state or add a status to a pawn during play.</div>
+
+<!-- ================================================================ -->
+<h2 id="room">Room <kbd>R</kbd></h2>
+<video src="videos/room.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Drawing rooms, and drawing a room over another to merge them.</p>
+<p>The Room tool draws rectangular rooms. Press on one corner, drag to the opposite corner and release. Every cell inside becomes floor and the outer edges get walls automatically. Each cell is 5 feet, so a 20 by 30 foot room is 4 by 6 cells; the size shows above the cursor while you drag.</p>
+<p>Rooms are not stored as separate objects; a room is simply a group of floor cells surrounded by walls. That makes rooms easy to combine:</p>
+<ul>
+  <li><b>Drawing over an existing room merges the two.</b> The walls between them disappear and only the new outer edge is walled.</li>
+  <li><b>Starting a drag inside an existing room</b> makes the new area a passageway into that room: the edge you drag out of stays open, while any other room the new area happens to touch stays walled off.</li>
+</ul>
+<p>Two options in the side panel change this:</p>
+<ul>
+  <li><b>Strict outer walls</b>: every outer edge of the new room gets a wall, even where it touches or overlaps another room, and walls inside it are kept. Use it to draw a room inside a room, like a closet.</li>
+  <li><b>Merge adjacent walls</b>: a room drawn right next to another (touching, not overlapping) joins it, leaving the shared wall open.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="polygon">Polygon <kbd>N</kbd></h2>
+<video src="videos/polygon.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Outlining an odd-shaped room point by point.</p>
+<p>For rooms that are not rectangles, such as L shapes, angled walls or caves, use the Polygon tool. Click grid points (the corners where grid lines cross) one after another to trace the outline. Lines may run straight along the grid or at 45 degree and other angles. To finish, click the first point again or press <kbd>Enter</kbd>, which closes the shape for you.</p>
+<p>The area inside becomes floor with walls along the outline, including angled walls. Floor on an angled edge is drawn exactly, so half cells along a diagonal are half filled.</p>
+<p>The Polygon tool has the same <b>strict outer walls</b> and <b>merge adjacent walls</b> options as the Room tool, plus a <b>cancel current polygon</b> button (or press <kbd>Esc</kbd>) to throw away the points you have clicked so far.</p>
+
+<!-- ================================================================ -->
+<h2 id="floor">Floor <kbd>F</kbd></h2>
+<video src="videos/floor.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Painting floor and flood filling a room.</p>
+<p>The Floor tool adds floor without adding walls. It has two modes, chosen with the chips in the side panel:</p>
+<ul>
+  <li><b>Manual rectangle</b>: drag a rectangle and every cell in it becomes floor. Use it to fill in an area you walled by hand with the Wall tool.</li>
+  <li><b>Flood fill</b>: click inside an area enclosed by walls and the whole area fills, stopping at walls, doors and stairs. While you hover, the area that would fill is highlighted. If the area is not closed (it leaks out into the void), nothing is filled and the status bar says so.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="wall">Wall <kbd>W</kbd></h2>
+<video src="videos/wall.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Drawing wall lines between grid points.</p>
+<p>Walls sit on the edges between cells, like borders in a spreadsheet; they never take up a cell themselves. Press on one grid point and release on another to draw a wall line between them. Straight lines follow the grid edges; lines at an angle become angled walls.</p>
+<p>Most walls come from the Room and Polygon tools automatically, so the Wall tool is mainly for interior walls, splitting a room in two, or closing a gap. To remove walls, use the <a href="#erase">Erase</a> tool or right-click a wall and choose <b>delete wall</b>.</p>
+
+<!-- ================================================================ -->
+<h2 id="door">Door <kbd>D</kbd></h2>
+<video src="videos/door.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Placing doors, changing their type and state.</p>
+<p>Click a wall to put a door on it. A door always sits on a wall: it is drawn as a gap in the wall with the door symbol in it. Doors can go on straight walls, on angled walls, and centered on a grid point between two walls in a line.</p>
+<p>The side panel of the door tool sets what <b>new doors</b> get:</p>
+<ul>
+  <li><b>Type</b>: door types are named colors, like "standard", "secret", "portcullis" or "magical". You make and edit them in Manage → Door presets, and each campaign has its own list.</li>
+  <li><b>State</b>: open, closed or locked. Closed and locked doors block <a href="#sight">line of sight</a>; open doors do not.</li>
+</ul>
+<p>Click an existing door to open its own view, where you change that one door's type, state and whether players can see it. The view's title says "door at …" and the door gets a dashed ring on the map, so you can tell it apart from the defaults for new doors. During play, the quickest way to open or lock a door is to right-click it.</p>
+<p><b>Close open doors…</b> in the door tool's panel closes every open door of one type on the current map in one step (locked doors are left alone). It is useful after the party leaves an area.</p>
+<p>The <b>door wall gap</b> setting clears a little extra wall on either side of each door glyph, if you prefer doors that look like wider openings.</p>
+
+<!-- ================================================================ -->
+<h2 id="stair">Stair <kbd>T</kbd></h2>
+<video src="videos/stairs.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Placing stairs and setting their direction.</p>
+<p>Stairs are drawn on whole cells. Click a cell to place one stair, or drag across several cells to place a staircase; the direction of your drag sets which way the stairs go. Click a stair to change its direction (up, down, left or right). Stairs that touch each other form a group: changing the direction of one turns the whole group, and deleting a stair from its view deletes the whole group. To remove a single stair from a group, use the <a href="#erase">Erase</a> tool.</p>
+
+<!-- ================================================================ -->
+<h2 id="erase">Erase <kbd>E</kbd></h2>
+<video src="videos/eraser.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Erasing parts of a map, with filters.</p>
+<p>Drag a rectangle to erase everything in it. The checkboxes in the side panel choose what the eraser takes: cells and flooring, walls (and the doors on them), stairs, labels, pawns, objects and images. The <b>all</b> and <b>none</b> chips tick or untick everything at once, so you can quickly set it to, say, only pawns.</p>
+<p><b>Adjust walls</b> re-seals rooms after erasing: where you cut away part of a room, the new outer edge gets walls. Leave it off when you want to erase an open gap.</p>
+<div class="tip"><b>Tip:</b> the <kbd>Delete</kbd> key in the Select tool is often faster for one-off removals; see <a href="#delete">Deleting things</a>.</div>
+
+<!-- ================================================================ -->
+<h2 id="select">Select <kbd>S</kbd></h2>
+<video src="videos/select.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Selecting, moving, resizing, copying and pasting.</p>
+<p>The Select tool is the general purpose tool for working with what is already on the map.</p>
+<h3>Clicking things</h3>
+<p>Click anything (a door, stair, label, pawn, object or image) to open its view in the side panel. Clicking an object, label or image also shows its dashed box with resize handles: drag a handle to resize it, snapped to the grid. Double-click a label to edit its text right on the map.</p>
+<h3>Moving things</h3>
+<ul>
+  <li><b>Drag a pawn, object, label or image</b> to move it. A pawn dropped onto another pawn swaps places with it. A click without dragging just opens it.</li>
+  <li><b>Drag on empty space</b> to select an area. Then <b>drag from inside the selection</b> to move everything in it: the contents follow the cursor as a see-through ghost and land when you let go. While dragging, <kbd>R</kbd> or <kbd>Shift</kbd>+<kbd>R</kbd> turns the selection a quarter turn, and <kbd>Esc</kbd> cancels. After the move, the area stays selected so you can drag it again.</li>
+  <li><b>Shift+drag</b> starts a selection anywhere, even on top of a pawn or object, without moving it.</li>
+  <li>Tick <b>pawns only</b> in the side panel to make dragging a selection move only the pawns in it, leaving floor, walls and everything else in place. This is how you move a whole group of monsters at once.</li>
+</ul>
+<h3>Copy, cut and paste</h3>
+<p>With an area selected, <kbd>Ctrl</kbd>+<kbd>C</kbd> copies it and <kbd>Ctrl</kbd>+<kbd>X</kbd> cuts it. A see-through ghost of the clipboard then follows the cursor; <kbd>Ctrl</kbd>+<kbd>V</kbd> pastes it there. <kbd>R</kbd>, <kbd>Shift</kbd>+<kbd>R</kbd> or <kbd>Shift</kbd>+scroll turns it before pasting. Copy and paste works between maps too, which is how you move part of one map to another. <b>Clear clipboard</b> in the side panel gets rid of the ghost, and <b>show paste ghost</b> turns it off.</p>
+
+<!-- ================================================================ -->
+<h2 id="delete">Deleting things</h2>
+<p>The <kbd>Delete</kbd> key works on whatever you have selected:</p>
+<ul>
+  <li><b>If one item's view is open</b> (you clicked a pawn, door, stair, label, object or image), Delete removes that item.</li>
+  <li><b>If an area is selected</b>, Delete opens a small window listing what is in the area, with how many of each: floor cells, walls, stairs, labels, pawns, objects and images. Kinds that are in the area start ticked; untick what you want to keep, or use the <b>all</b> and <b>none</b> chips, then press <b>delete</b>. This is independent of the Erase tool's checkboxes.</li>
+  <li><b>Shift+Delete</b> on a selected area deletes everything in it without asking.</li>
+</ul>
+<p>Every delete is a single undo step, so <kbd>Ctrl</kbd>+<kbd>Z</kbd> brings it all back.</p>
+
+<!-- ================================================================ -->
+<h2 id="pawn">Pawns <kbd>P</kbd></h2>
+<video src="videos/pawn-generic.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Placing ordinary pawns from the pawn panel.</p>
+<p>Pawns are the tokens for characters and monsters. Each pawn type has a name, an affiliation and a look: either two colored rings (outer and inner) or a small picture. Affiliations are sides, such as Player, Ally, Enemy and Neutral; each has a color, and a pawn takes its affiliation's colors unless you give it its own.</p>
+<h3>Making pawn types</h3>
+<p>Open pawn management with the <b>manage</b> button in the pawn panel (or Manage → Pawns). The pawns tab lists every pawn type, grouped by affiliation under headers you can click to fold or unfold. The tick on a header selects that whole group for bulk export or delete, and the <b>all / favorites / on map / unused</b> chips filter the list. Select a pawn to edit its name, affiliation, colors and picture on the right. Pictures can be PNG, JPG, WEBP, GIF or BMP; they are shrunk to a small square and clipped to the pawn's circle. The other tabs edit the campaign's affiliations and status styles.</p>
+<h3>Placing pawns</h3>
+<p>Pick a pawn in the pawn panel (search it, or find it in its affiliation group, favorites or recently used), then click empty cells to place copies of it. The pawn stays picked so you can place several. Only one pawn fits on a cell.</p>
+<ul>
+  <li>Click a placed pawn to open it, where you can add statuses, change it to another pawn type, hide it from players or delete it.</li>
+  <li>Drag a placed pawn to move it. Dropping it on another pawn swaps the two.</li>
+  <li><b>Shift+drag</b> a box around several pawns to select them, then drag inside the box to move them all together. <kbd>R</kbd> turns the group while you drag.</li>
+  <li><b>Names on map</b> in the panel shows each pawn's name on it.</li>
+</ul>
+<p>New pawns of the Player affiliation start visible to players during a session; everything else starts hidden until you reveal it (see <a href="#reveal">Reveal</a>).</p>
+
+<!-- ================================================================ -->
+<h2 id="heroes">Heroes</h2>
+<video src="videos/pawn-hero.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">A hero can only be in one place: placing it again moves it.</p>
+<p>Some pawns should exist only once, like the player characters. Mark a pawn type as a <b>hero</b> in pawn management. A hero can only appear once in the whole campaign: placing it again moves it there instead of making a copy, even from another map, and it keeps its statuses. This means you never end up with two copies of a character after switching maps.</p>
+
+<!-- ================================================================ -->
+<h2 id="statuses">Statuses and turn tracking</h2>
+<video src="videos/turn-tracker.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Setting up status styles, adding statuses with turns, and passing turns until they wear off.</p>
+<h3>Statuses</h3>
+<p>A status is a condition on a pawn, such as poisoned, asleep, paralyzed or protection from evil. Each status draws a colored arc around the pawn. A pawn can have several; its ring splits into one arc per status, with a small gap between them (the <b>pawn status gap</b> setting).</p>
+<p>Status styles (name, color, ring thickness and default length) are set up in pawn management's <b>status styles</b> tab. Each campaign has its own list.</p>
+<p>To add a status, click a pawn and press <b>add status</b> (or right-click the pawn). A small window lists every status the pawn does not have yet, with a search box. Click one to add it; the window stays open so you can add several, and <b>done</b> or <kbd>Esc</kbd> closes it. In the pawn's view each status then has an ✕ to remove it.</p>
+<h3>How long a status lasts</h3>
+<p>Each status on a pawn is either <b>permanent</b> (a checkbox) or lasts a number of turns, shown in a box next to it. Adding a status fills in its default length from its status style; you can change it on the pawn at any time.</p>
+<p>As the turns run down, the status's arc shrinks: it is full at 6 or more turns left, then loses a sixth of its length each turn. Permanent statuses always show a full arc.</p>
+<p>When you zoom in close, each status also shows a small circle in its color with the turns left (or ∞ for a permanent one). The <b>status turn timers</b> setting shows these on every pawn, or with <b>hover only</b> just on the pawn under the mouse. <b>Timers for permanent statuses</b> turns the ∞ circles on or off, and <b>timer distance</b> sets how far from the ring they sit.</p>
+<h3>Turn tracking</h3>
+<p>Click <b>start combat</b> at the bottom left of the window to start counting turns on the current map. A turn counter appears with <b>pass turn</b> and <b>end combat</b>:</p>
+<ul>
+  <li><b>Pass turn</b> counts every timed status on the map down by one. When one reaches 0 it is removed and "&lt;status&gt; wore off!" floats up over the pawn. Heroes count down wherever they are, even on another map. You can give pass turn a hotkey in the hotkeys window.</li>
+  <li><b>End combat</b> removes every timed status (permanent ones stay) and hides the counter.</li>
+</ul>
+<p>Each of these is one undo step, so a turn passed by mistake can be undone.</p>
+
+<!-- ================================================================ -->
+<h2 id="formations">Formations</h2>
+<video src="videos/formations.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Saving the party's marching order and a monster group, then deploying them.</p>
+<p>A formation remembers where a group of pawns stand relative to each other, such as the party's marching order or a squad of soldiers. Formations are kept with the campaign.</p>
+<h3>Making a formation</h3>
+<p>In the pawn panel, press <b>+ new</b> under formations and drag a box around the pawns on the map, then type a name. (You can also right-click a selected area and choose <b>new formation from its pawns</b>.) Open a formation to <b>rename</b> it, <b>update from area</b> (capture a new arrangement) or <b>delete</b> it.</p>
+<h3>Deploying</h3>
+<p>Press <b>deploy</b> and the formation follows the cursor as a ghost. <kbd>R</kbd> or <kbd>Shift</kbd>+<kbd>R</kbd> turns it, and a click places everyone in one step. <kbd>Esc</kbd> cancels. <kbd>I</kbd> deploys the formation you used last.</p>
+<ul>
+  <li>Heroes in a formation move to their new place, from anywhere, even another map, and keep their statuses. Other pawns get a new copy each time, so deploying a monster formation twice gives you two groups.</li>
+  <li>If another pawn is in the way, that cell turns red and nothing is placed until you move the ghost. Landing outside a room is allowed, with a warning.</li>
+  <li>Inside an open formation, tick or untick members to leave someone out of the next deploy. The <b>all</b>, <b>none</b> and <b>heroes</b> chips, the skip-by-status chips (for example, leave out anyone asleep) and the affiliation groups help with big formations.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="object">Objects <kbd>O</kbd></h2>
+<video src="videos/object.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Making object types and placing them at different sizes.</p>
+<p>Objects are things in a room that take up space: statues, pillars, paintings, altars, traps. Like pawns, you make the types first (Manage → Objects), then place them. One type can be placed at any size, so one statue can be 5 by 5 feet and another 10 by 15.</p>
+<h3>Looks</h3>
+<p>Each object type has a look: a solid color, a gradient, a radial fade, stripes, a checker, an outline, or a picture. It can also have a border with its own color and thickness, and show its name or initials as a caption. A picture is stored once in the campaign file however many objects use it; transparent parts of a picture show the map through, unless you pick a color to go behind them.</p>
+<h3>Placing and editing</h3>
+<p>Pick a type in the object panel and drag out its size on the map. <kbd>Shift</kbd>+drag places one over another object. Click a placed object to open it: you can give it its own name, change its type, or untick <b>use the type's look</b> to give just this one its own look. Drag the object to move it, or drag its handles to resize it. When objects overlap, right-click one and choose <b>bring to front</b> or <b>send to back</b>.</p>
+<p>The object panel lists your types with how many of each are on the map, and a button that jumps to each one.</p>
+
+<!-- ================================================================ -->
+<h2 id="label">Labels <kbd>L</kbd></h2>
+<video src="videos/label.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Placing, editing, moving and resizing labels.</p>
+<p>Labels put text on the map: room names, numbers, notes. Click a cell to place a label there, or drag a box to make a label that spans an area; the text is centered in its box and sized to fit unless you set a size.</p>
+<p>Click a label to open it, where you can change its text, font size, alignment (left, center or right), color, and whether its text wraps in the box. Double-click a label to type straight onto the map. Drag a label to move it, or drag its handles to resize it.</p>
+<p>During a session, players can add their own labels. On any label, the DM can tick <b>players can edit</b> to let players change or delete it.</p>
+
+<!-- ================================================================ -->
+<h2 id="image">Images <kbd>B</kbd></h2>
+<video src="videos/image.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Placing pictures from the images folder.</p>
+<p>The Image tool puts pictures on the map: room art, a painted floor, a handout for the players. Pictures are never saved inside the map file. Instead the map remembers which file it is, in an <b>images folder</b> you choose in settings. Point it at a folder your group shares, such as a shared drive; each computer picks its own path to the same folder.</p>
+<ul>
+  <li><b>Placing:</b> choose a picture in the image panel (PNG, JPG, WEBP, GIF or BMP). A picture from outside the images folder can be copied into it, since other computers could not find it otherwise. A click places it at its own size (100 picture pixels per cell); a drag places it in the box you drag.</li>
+  <li><b>An image's view:</b> <b>fit</b> shows all of the picture, <b>fill</b> covers the box and crops what does not fit, and <b>stretch</b> fills the box exactly. <b>Keep shape while resizing</b> keeps the box close to the picture's proportions. You can also turn it left or right, set it back to its own size, replace the picture, or place more copies.</li>
+  <li><b>Missing pictures:</b> if a picture is renamed or moved inside the folder it is still found. A picture that cannot be found shows a dashed box with the file name, which you can still move or delete. <b>Reload pictures</b> in the panel picks up files that changed.</li>
+</ul>
+<p>In a session, players see every image that is not hidden, even off the revealed floor, so handouts placed beside the map work.</p>
+
+<!-- ================================================================ -->
+<h2 id="measure">Measure <kbd>G</kbd></h2>
+<video src="videos/measure.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Measuring distances, legs and a spell radius.</p>
+<p>The Measure tool only reads the map; it never changes anything. Distances are shown in cells and in feet (5 feet per cell).</p>
+<ul>
+  <li><b>Distance:</b> drag between two points. The readout shows the straight line distance and its horizontal and vertical parts.</li>
+  <li><b>Several legs:</b> <kbd>Ctrl</kbd>+click or <kbd>Ctrl</kbd>+drag adds another leg from the end of the line, for a path around corners. The readout shows the current leg and the total.</li>
+  <li><b>Radius:</b> <kbd>Shift</kbd>+drag from any point, a pawn included, for a spell's area. The radius snaps to whole cells and ignores walls. Cells whose center is inside the circle are shaded, the pawns in them get a ring, and the side panel lists them by side.</li>
+  <li><b>Pawn to pawn:</b> drag from one pawn onto another.</li>
+</ul>
+<p>Ends snap to cell centers; the <b>cell corners</b> chip snaps them to grid corners instead. A measurement stays on screen until you press <kbd>Esc</kbd>, switch tools, start a new one or press <b>clear</b>. You can also right-click a pawn and choose <b>measure from here</b>, then click where to measure to.</p>
+
+<!-- ================================================================ -->
+<h2 id="sight">Line of sight <kbd>K</kbd></h2>
+<video src="videos/sight.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">What a pawn can see, and dragging it to find a better spot.</p>
+<p>The Line of sight tool shows everything a pawn can see. It is for the DM only: players in a session can't use it and never see it.</p>
+<p>Click a pawn to see from it, or click an empty cell to see from there as if a pawn stood on it. Sight is from the center of the cell. Everything visible is tinted and everything else is dimmed. Walls, closed and locked doors, and the edge of the floor block sight; open doors and stairs do not. Objects are ignored, since some block and some do not, so judge those yourself.</p>
+<p>Drag the pawn with the tool to move it for real, and the sight follows as you drag, which makes it easy to find where a character needs to stand. Hover over any cell for a line to it, labelled clear, 1 pawn in the way, 2 pawns in the way, blocked or out of range.</p>
+<p>The <b>range</b> slider (or the box under it) sets how far the pawn can see, from 5 to 240 feet; <kbd>Shift</kbd>+scroll changes it too. Opening a door, moving a pawn or undoing updates the view straight away. <kbd>Esc</kbd> or switching tools clears it.</p>
+<h3>Pawns in the way</h3>
+<video src="videos/sight-obstruction.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Green is clear, orange is behind one pawn, red is behind two or more.</p>
+<p>Every pawn, whatever side it is on, casts a shadow. Cells the viewer sees clearly are <b>green</b>. Cells behind one pawn are <b>orange</b>, for example when shooting past an ally. Cells behind two or more pawns are <b>red</b>. A pawn's own cell takes the color of what lies between it and the viewer. The three colors, the tint strength and how dark the unseen area is are all in settings.</p>
+
+<!-- ================================================================ -->
+<h2 id="reveal">Reveal and sessions <kbd>H</kbd></h2>
+<video src="videos/reveal-multiplayer.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">The DM reveals rooms and items; the player's screen (right) shows only what was revealed.</p>
+<h3>Choosing what players see</h3>
+<p>The Reveal tool marks what players are allowed to see. Players only ever receive what you reveal; hidden rooms and hidden items never leave your computer, so nothing can be peeked at.</p>
+<ul>
+  <li><b>Cells</b> shows or hides floor. <b>Box</b> drags a rectangle (a click is one cell), <b>room</b> fills the room you click up to its walls (doors count as walls), and <b>circle</b> drags out from a center. <b>Reveal whole map</b> and <b>hide whole map</b> do every floor cell at once.</li>
+  <li><b>Items</b> marks labels, doors, objects, pawns and images visible or hidden with a box. Tick which kinds the box changes. A hidden item is never shown to players, even on revealed floor.</li>
+</ul>
+<p>Every item's view also has a badge by its title: pink <b>hidden</b> or grey <b>visible</b>. Click it to flip. New items start hidden, except Player pawns, which start visible. While the Reveal tool is selected, hidden floor is dimmed and hidden items have a dashed pink outline. Every reveal is saved with the map and can be undone.</p>
+<p><b>View → Player view preview</b> (or the button in the reveal panel) shows exactly what players would see. Nothing can be edited while it is on; <kbd>Esc</kbd> or picking a tool returns to editing.</p>
+<h3>Hosting a session</h3>
+<p>The DM can host a session for players on the same network (home wifi or a LAN). Session → Host a session: give it a name, an optional code players must type, and pick the <b>map shown to players</b>. That pick is separate from the map you have open, so you can prepare the next level while players stay on the current one. The window shows the address players join at and who has joined. Every reveal, door you open or pawn you move reaches players within a moment. The first time you host, your firewall may ask about Dungeon Mapper; allow it on private networks.</p>
+<h3>Joining as a player</h3>
+<p>Session → Join a session lists the sessions on your network; click one to join, or type the address and port the DM's window shows. Both computers need the same Dungeon Mapper version. While joined you see the DM's map read only, plus:</p>
+<ul>
+  <li><b>Your pawns:</b> players control pawns with the Player affiliation. The pawn tool places them on revealed floor, drags them, sets their statuses, and Shift+drag a box moves several at once. Every change goes to the DM's app, which checks it and applies it for everyone. Other sides' pawns are the DM's.</li>
+  <li><b>Formations, labels and images:</b> players can keep formations of their own pawns, add labels and edit labels the DM allows, and place images.</li>
+  <li><b>Measure</b> works as normal, and the menus offer what players are allowed to do.</li>
+  <li><b>Ping:</b> press <kbd>\</kbd> to ping the cell under the cursor. Everyone sees rings there and a note with a jump button.</li>
+</ul>
+<p>Your own campaign is untouched and comes back when you leave (Session → Leave session) or the DM stops hosting.</p>
+
+<!-- ================================================================ -->
+<h2 id="maps">Maps and campaigns</h2>
+<video src="videos/maps.mp4" controls muted loop playsinline preload="metadata"></video>
+<p class="caption">Adding maps, switching between them, and copying part of one map to another.</p>
+<p>A save file is a <b>campaign</b>. One campaign holds many <b>maps</b>, such as one per dungeon level, plus everything they share: pawn types, object types, formations, door types, status styles and affiliations.</p>
+<ul>
+  <li>Switch maps from the list at the bottom left of the window.</li>
+  <li>The maps window (the button next to the list, or Manage → Maps) adds, renames, reorders, exports and deletes maps, and imports maps from another file.</li>
+  <li>To move part of one map onto another, select it, cut or copy it (<kbd>Ctrl</kbd>+<kbd>X</kbd> / <kbd>Ctrl</kbd>+<kbd>C</kbd>), switch maps and paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>). A cut removes the original when you paste.</li>
+</ul>
+<p>Door types, status styles and affiliations can be exported from one campaign and imported into another. Importing only adds names you don't have yet; it never changes the ones you already made.</p>
+
+<!-- ================================================================ -->
+<h2 id="menus">Right-click menus</h2>
+<p>Right-click anything on the map (without dragging; a right-drag pans) for a menu of what you can do with it:</p>
+<table>
+  <tr><th>Right-click</th><th>Menu</th></tr>
+  <tr><td>A pawn</td><td>Add or remove statuses, open, change pawn, show or hide for players, sight from here, measure from here, copy, delete</td></tr>
+  <tr><td>A door</td><td>Open, closed or locked, its type, show or hide, edit, delete the door (keeping the wall) or delete the door and wall</td></tr>
+  <tr><td>A stair</td><td>Its direction, edit, delete</td></tr>
+  <tr><td>A wall</td><td>Add a door of any type, delete the wall</td></tr>
+  <tr><td>A label</td><td>Edit its text, edit, let players edit it, show or hide, copy, delete</td></tr>
+  <tr><td>An object</td><td>Edit, change type, rotate, bring to front, send to back, use the type's look, show or hide, copy, delete</td></tr>
+  <tr><td>An image</td><td>Edit, turn left or right, fit / fill / stretch, picture size, show or hide, copy, delete</td></tr>
+  <tr><td>Inside a selected area</td><td>Copy, cut, delete, reveal or hide its floor, show or hide its items, save its pawns as a formation, clear the selection</td></tr>
+  <tr><td>Empty map</td><td>Paste here, place the last pawn or deploy the last formation here, ping, sight from here, reveal or hide the room, zoom to fit, player view preview</td></tr>
+</table>
+<p>When things are stacked, such as a pawn standing on an object, the menu is for the top one, and the things under it are in a <b>below</b> submenu.</p>
+
+<!-- ================================================================ -->
+<h2 id="saving">Saving and undo</h2>
+<ul>
+  <li><b>Save:</b> <kbd>Ctrl</kbd>+<kbd>S</kbd> saves over the file you opened. A new campaign asks where to save it the first time.</li>
+  <li><b>Autosave:</b> the app saves a copy every few minutes (the interval is in settings) to <code>maps/autosaves</code>, next to the program. Nothing is written when nothing has changed.</li>
+  <li><b>Backups:</b> whenever you open a file, an untouched copy goes into <code>maps/backups</code> first.</li>
+  <li><b>Exiting</b> with unsaved changes asks whether to save first.</li>
+  <li><b>Undo:</b> <kbd>Ctrl</kbd>+<kbd>Z</kbd> and <kbd>Ctrl</kbd>+<kbd>Y</kbd> undo and redo changes to the map. Each map has its own undo history. Changes in the management windows (pawn types, object types, presets) and settings can't be undone yet.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 id="settings">Settings and hotkeys</h2>
+<p>File → Settings covers how the map looks and behaves: grid spacing and colors, how strong the grid lines inside rooms are, map colors, wall thickness, the door wall gap, pawn status gap and turn timers, the measure and sight colors, the dim color and darkness used for hidden floor and unseen areas, the default label text, the autosave interval and the images folder. Settings with a range have a slider beside the box and change the map as you drag; the status gap and timer distance show a small pawn so you can see the result.</p>
+<p>If the map goes blank on a computer with a weak graphics card, turn on <b>draw with the CPU</b> (it needs a restart).</p>
+<p>Settings belong to the computer, not the campaign. They can be exported to a file and imported on another computer.</p>
+<p>Manage → Hotkeys changes every tool's letter, plus the zoom to fit, deploy last formation, pass turn and ping keys. Hotkeys can be letters, digits or punctuation keys.</p>
+
+<!-- ================================================================ -->
+<h2 id="keys">Keyboard reference</h2>
+<p>These are the default keys; tool keys can be changed in the hotkeys window.</p>
+<table>
+  <tr><th>Key</th><th>Action</th></tr>
+  <tr><td><kbd>S</kbd></td><td>Select tool</td></tr>
+  <tr><td><kbd>R</kbd> <kbd>N</kbd> <kbd>F</kbd> <kbd>W</kbd></td><td>Room, Polygon, Floor, Wall tools</td></tr>
+  <tr><td><kbd>D</kbd> <kbd>T</kbd> <kbd>E</kbd></td><td>Door, Stair, Erase tools</td></tr>
+  <tr><td><kbd>P</kbd> <kbd>O</kbd> <kbd>L</kbd> <kbd>B</kbd></td><td>Pawn, Object, Label, Image tools</td></tr>
+  <tr><td><kbd>G</kbd> <kbd>K</kbd> <kbd>H</kbd></td><td>Measure, Line of sight, Reveal tools</td></tr>
+  <tr><td><kbd>Z</kbd></td><td>Zoom to fit</td></tr>
+  <tr><td><kbd>I</kbd></td><td>Deploy the last formation</td></tr>
+  <tr><td><kbd>\</kbd></td><td>Ping the cell under the cursor</td></tr>
+  <tr><td><kbd>R</kbd> / <kbd>Shift</kbd>+<kbd>R</kbd></td><td>Turn what you are moving, pasting or deploying</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / redo</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>X</kbd> / <kbd>V</kbd></td><td>Copy, cut, paste</td></tr>
+  <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Search pawns</td></tr>
+  <tr><td><kbd>Delete</kbd></td><td>Delete the open item, or choose what to delete in the selected area</td></tr>
+  <tr><td><kbd>Shift</kbd>+<kbd>Delete</kbd></td><td>Delete everything in the selected area</td></tr>
+  <tr><td><kbd>Enter</kbd></td><td>Finish a polygon</td></tr>
+  <tr><td><kbd>Esc</kbd></td><td>Cancel, or close a window</td></tr>
+</table>
+</main>
+</div>
+</body>
+</html>
