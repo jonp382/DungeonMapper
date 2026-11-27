@@ -5490,7 +5490,7 @@ try { Directory.Delete(imgDir, true); } catch { }
         CallOn(pl, "SetTool", ToolMode.Pawn);
         CallOn(pl, "ShowPawnManagement");
         var listHost = (Avalonia.Controls.StackPanel)FieldOf(pl, "_manageListHost")!;
-        Check(listHost.Children.Count == 1, "pawn manage window: the player's list has only Player pawns");
+        Check(listHost.Children.OfType<Avalonia.Controls.Border>().Count() == 1 && listHost.Children.OfType<Avalonia.Controls.Grid>().Count() == 1, "pawn manage window: the player's list has only Player pawns, under one group header");
         Check(!((Avalonia.Controls.Button)FieldOf(pl, "ManageTabAffiliations")!).IsVisible && !((Avalonia.Controls.Button)FieldOf(pl, "ManageTabStatuses")!).IsVisible,
             "pawn manage window: no affiliations or status styles tabs for players");
         t.GetField("_manageEditId", flags)!.SetValue(pl, "orc");
@@ -6687,6 +6687,70 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(!overlay.IsVisible, "add status: done closes the menu");
     }
     catch (Exception ex) { Check(false, $"add status: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
+// --- pawn management: affiliation groups ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "g1", Name = "Gob", Affiliation = "Enemy" });
+        wlib.Pawns.Add(new PawnTemplate { Id = "g2", Name = "Orc", Affiliation = "Enemy" });
+        wlib.Pawns.Add(new PawnTemplate { Id = "a1", Name = "Ana", Affiliation = "Player", Favorite = true });
+        wlib.Pawns.Add(new PawnTemplate { Id = "x1", Name = "Lost", Affiliation = "Pirates" });
+        CallOn(w, "ShowPawnManagement");
+        var host = (Avalonia.Controls.StackPanel)FieldOf(w, "_manageListHost")!;
+        var chips = (Avalonia.Controls.StackPanel)FieldOf(w, "_manageChipHost")!;
+        List<string> Heads() => host.Children.OfType<Avalonia.Controls.Grid>().Select(g => ((string)g.Tag!).Substring(6)).ToList();
+        int Rows() => host.Children.OfType<Avalonia.Controls.Border>().Count();
+        Check(Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(chips).OfType<Avalonia.Controls.Button>().Count() == 4,
+            "manage groups: only the all / favorites / on map / unused chips, no affiliation chips");
+        Check(Heads().SequenceEqual(new[] { "Player", "Enemy", "no affiliation" }) && Rows() == 4,
+            "manage groups: a header per affiliation with pawns (preset order), unknown ones under no affiliation, empty ones left out");
+        CallOn(w, "ToggleManageGroup", "Enemy");
+        Check(Rows() == 2 && Heads().Count == 3, "manage groups: clicking a header folds its group, the header stays");
+        CallOn(w, "ToggleManageGroup", "Enemy");
+        Check(Rows() == 4, "manage groups: and again unfolds it");
+        // the group tick selects the whole group, then clears it
+        var tick = host.Children.OfType<Avalonia.Controls.Grid>().First(g => (string)g.Tag! == "group:Enemy")
+            .Children.OfType<Avalonia.Controls.CheckBox>().First();
+        tick.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        var sel = (HashSet<string>)FieldOf(w, "_manageSelected")!;
+        Check(sel.SetEquals(new[] { "g1", "g2" }), "manage groups: the header tick selects every pawn in the group");
+        var tick2 = host.Children.OfType<Avalonia.Controls.Grid>().First(g => (string)g.Tag! == "group:Enemy")
+            .Children.OfType<Avalonia.Controls.CheckBox>().First();
+        Check(tick2.IsChecked == true, "manage groups: a fully selected group shows ticked");
+        sel.Remove("g2");
+        CallOn(w, "RefreshManageList");
+        tick2 = host.Children.OfType<Avalonia.Controls.Grid>().First(g => (string)g.Tag! == "group:Enemy").Children.OfType<Avalonia.Controls.CheckBox>().First();
+        Check(tick2.IsChecked is null, "manage groups: a partly selected group shows the mixed state");
+        tick2.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(sel.SetEquals(new[] { "g1", "g2" }), "manage groups: ticking a partly selected group selects all of it");
+        host.Children.OfType<Avalonia.Controls.Grid>().First(g => (string)g.Tag! == "group:Enemy").Children.OfType<Avalonia.Controls.CheckBox>().First()
+            .RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(sel.Count == 0, "manage groups: and ticking a full group clears it");
+        // view chips still filter, groups follow
+        t.GetField("_manageFilter", flags)!.SetValue(w, "favorites");
+        CallOn(w, "RefreshManageList");
+        Check(Heads().SequenceEqual(new[] { "Player" }) && Rows() == 1, "manage groups: the favorites chip leaves only the groups with favorites");
+        t.GetField("_manageFilter", flags)!.SetValue(w, "Enemy");
+        CallOn(w, "RefreshManageList");
+        Check((string)FieldOf(w, "_manageFilter")! == "all" && Rows() == 4, "manage groups: an old affiliation filter falls back to all");
+        // a folded group unfolds for a new pawn added into it
+        CallOn(w, "ToggleManageGroup", "Neutral");
+        Check(((HashSet<string>)FieldOf(w, "_manageCollapsed")!).Contains("Neutral"), "manage groups: an empty group can be folded ahead");
+        CallOn(w, "UnfoldManageGroup", new PawnTemplate { Affiliation = "Neutral" });
+        Check(!((HashSet<string>)FieldOf(w, "_manageCollapsed")!).Contains("Neutral"), "manage groups: a new or duplicated pawn unfolds its group");
+    }
+    catch (Exception ex) { Check(false, $"manage groups: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();
 }
 

@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using DungeonMapper.Controls;
 using DungeonMapper.Models;
 
@@ -339,7 +340,10 @@ public partial class MainWindow
     private string _manageTab = "pawns";
     private string _manageSearch = "";
     private string _manageSort = "name";
-    private string _manageFilter = "all";
+    private string _manageFilter = "all"; // "all", "favorites", "on map" or "unused"
+    // affiliation groups folded in the pawns tab (session only)
+    private readonly HashSet<string> _manageCollapsed = new();
+    private const string NoAffiliationGroup = "no affiliation";
     private readonly HashSet<string> _manageSelected = new();
     private string? _manageEditId;
     private StackPanel? _manageListHost;
@@ -349,7 +353,8 @@ public partial class MainWindow
     private TextBlock? _manageFooter;
     private CheckBox? _manageAllCheck;
 
-    private static readonly string[] ManageSorts = { "name", "affiliation", "on map", "campaign", "needs attention", "insertion" };
+    // no affiliation sort: the list is grouped by affiliation (user)
+    private static readonly string[] ManageSorts = { "name", "on map", "campaign", "needs attention", "insertion" };
 
     private void ShowPawnManagement()
     {
@@ -470,6 +475,7 @@ public partial class MainWindow
             PanelLibrary.Add(t);
             TemplateEdited(t, now: true);
             _manageEditId = t.Id;
+            UnfoldManageGroup(t);
             _manageSearch = "";
             search.Text = "";
             PawnsChanged();
@@ -568,12 +574,11 @@ public partial class MainWindow
                 "favorites" => t.Favorite,
                 "on map" => Get(map, t.Id) > 0,
                 "unused" => Get(camp, t.Id) == 0,
-                _ => PawnTemplate.NormalizeAffiliation(t.Affiliation) == _manageFilter,
+                _ => true,
             }).ToList();
         IOrderedEnumerable<PawnTemplate>? o = _manageSort switch
         {
             "name" => list.OrderBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase),
-            "affiliation" => list.OrderBy(t => PawnTemplate.NormalizeAffiliation(t.Affiliation), StringComparer.OrdinalIgnoreCase).ThenBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase),
             "on map" => list.OrderByDescending(t => Get(map, t.Id)).ThenBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase),
             "campaign" => list.OrderByDescending(t => Get(camp, t.Id)).ThenBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase),
             "needs attention" => list.OrderByDescending(t => IsInvalid(t)).ThenBy(t => PawnName(t), StringComparer.OrdinalIgnoreCase),
@@ -590,27 +595,21 @@ public partial class MainWindow
         var map = MapCounts(PanelDoc);
         _manageSelected.RemoveWhere(id => PanelLibrary.Find(id) is null);
         if (Joined) _manageSelected.Clear();
-        if (Joined && _manageFilter is not ("all" or "on map")) _manageFilter = "all";
+        var views = Joined ? new[] { "all", "on map" } : new[] { "all", "favorites", "on map", "unused" };
+        if (!views.Contains(_manageFilter)) _manageFilter = "all";
 
-        // view filters on the first line, affiliations on their own line so the
-        // row never wraps a single chip however many affiliations there are
+        // view filters as chips; affiliations are the list's collapsible groups
         _manageChipHost.Children.Clear();
-        var views = new WrapPanel();
-        var affs = new WrapPanel();
-        _manageChipHost.Children.Add(views);
-        _manageChipHost.Children.Add(affs);
-        foreach (var f in Joined ? new[] { "all", "on map" } : new[] { "all", "favorites", "on map", "unused" })
-            views.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
-        if (!Joined)
-        foreach (var ac in PanelPresets.AffiliationColors)
-        {
-            var n = ac.Name;
-            affs.Children.Add(Chip(n, _manageFilter == n, AffDot(ac, 10), () => { _manageFilter = n; RefreshManageList(); }));
-        }
+        var chips = new WrapPanel();
+        _manageChipHost.Children.Add(chips);
+        foreach (var f in views)
+            chips.Children.Add(Chip(f, _manageFilter == f, null, () => { _manageFilter = f; RefreshManageList(); }));
 
         var shown = ManageShown(camp, map);
         _manageListHost.Children.Clear();
-        foreach (var t in shown) _manageListHost.Children.Add(ManageRow(t, Get(map, t.Id), Get(camp, t.Id)));
+        foreach (var ac in PanelPresets.AffiliationColors)
+            AddManageGroup(ac.Name, AffDot(ac, 10), shown.Where(t => ManageGroupOf(t) == ac.Name).ToList(), map, camp);
+        AddManageGroup(NoAffiliationGroup, null, shown.Where(t => ManageGroupOf(t) == NoAffiliationGroup).ToList(), map, camp);
         if (shown.Count == 0)
             {
             var none = Tx(PanelLibrary.Pawns.Count == 0 ? "no pawns yet. add one or import a file." : "no pawns match", "muted");
@@ -642,6 +641,70 @@ public partial class MainWindow
             AddCell(bar, clr, 3);
             _manageBulkBar.Child = bar;
         }
+    }
+
+    /// the pawns tab group a pawn sits in: its affiliation, or "no
+    /// affiliation" when that affiliation no longer exists
+    private string ManageGroupOf(PawnTemplate t)
+    {
+        var aff = PawnTemplate.NormalizeAffiliation(t.Affiliation);
+        return PanelPresets.AffiliationColors.Any(a => a.Name == aff) ? aff : NoAffiliationGroup;
+    }
+
+    /// a pawn being edited shows: its group unfolds (added, duplicated)
+    private void UnfoldManageGroup(PawnTemplate t) => _manageCollapsed.Remove(ManageGroupOf(t));
+
+    /// one affiliation group in the pawns tab: a header (tick for the whole
+    /// group, fold arrow, dot, name, count, on map and campaign totals) that
+    /// folds the group on click, then its rows. empty groups are left out.
+    private void AddManageGroup(string name, Control? dot, List<PawnTemplate> pawns, Dictionary<string, int> map, Dictionary<string, int> camp)
+    {
+        if (pawns.Count == 0 || _manageListHost is null) return;
+        bool collapsed = _manageCollapsed.Contains(name);
+        var g = ManageRowGrid();
+        g.Classes.Add("grouphead");
+        g.Tag = "group:" + name;
+        int picked = pawns.Count(t => _manageSelected.Contains(t.Id));
+        var tick = new CheckBox
+        {
+            IsChecked = picked == 0 ? false : picked == pawns.Count ? true : null,
+            MinWidth = 0, Padding = new Thickness(0), IsVisible = !Joined, Tag = "grouptick:" + name,
+        };
+        ToolTip.SetTip(tick, $"select every {name} pawn shown");
+        tick.Click += (_, e) =>
+        {
+            e.Handled = true;
+            if (picked == pawns.Count) foreach (var t in pawns) _manageSelected.Remove(t.Id);
+            else foreach (var t in pawns) _manageSelected.Add(t.Id);
+            RefreshManageList();
+        };
+        g.Children.Add(tick);
+        var arrow = Tx(collapsed ? "▸" : "▾", "small");
+        arrow.VerticalAlignment = VerticalAlignment.Center;
+        AddCell(g, arrow, 1);
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
+        if (dot is not null) { dot.VerticalAlignment = VerticalAlignment.Center; title.Children.Add(dot); }
+        title.Children.Add(Tx(name, "body", "strong"));
+        title.Children.Add(Tx($"{pawns.Count}", "colhead"));
+        Grid.SetColumnSpan(title, 2);
+        AddCell(g, title, 2);
+        int onMap = pawns.Sum(t => Get(map, t.Id)), inCamp = pawns.Sum(t => Get(camp, t.Id));
+        var m = Tx($"×{onMap}", "count"); m.Classes.Set("zero", onMap == 0); m.HorizontalAlignment = HorizontalAlignment.Right; AddCell(g, m, 4);
+        var c = Tx($"×{inCamp}", "count"); c.Classes.Set("zero", inCamp == 0); c.HorizontalAlignment = HorizontalAlignment.Right; c.IsVisible = !Joined; AddCell(g, c, 5);
+        g.PointerPressed += (_, e) =>
+        {
+            if (e.Source is Visual v && (v == tick || v.GetVisualAncestors().Contains(tick))) return;
+            ToggleManageGroup(name);
+        };
+        _manageListHost.Children.Add(g);
+        if (collapsed) return;
+        foreach (var t in pawns) _manageListHost.Children.Add(ManageRow(t, Get(map, t.Id), Get(camp, t.Id)));
+    }
+
+    private void ToggleManageGroup(string name)
+    {
+        if (!_manageCollapsed.Add(name)) _manageCollapsed.Remove(name);
+        RefreshManageList();
     }
 
     private Control ManageRow(PawnTemplate t, int onMap, int inCampaign)
@@ -930,6 +993,7 @@ public partial class MainWindow
             PanelLibrary.Add(c);
             TemplateEdited(c, now: true);
             _manageEditId = c.Id;
+            UnfoldManageGroup(c);
             PawnsChanged();
             RefreshManageEditor();
             SetStatus($"duplicated {PawnName(t)}");
@@ -1024,7 +1088,7 @@ public partial class MainWindow
                 if (PawnTemplate.NormalizeAffiliation(t.Affiliation) == ac.Name) t.Affiliation = nn;
             _pawnCollapsed.Remove(ac.Name);
             if (_pawnFilter == ac.Name) _pawnFilter = nn;
-            if (_manageFilter == ac.Name) _manageFilter = nn;
+            if (_manageCollapsed.Remove(ac.Name)) _manageCollapsed.Add(nn);
             ac.Name = nn;
             PawnsChanged();
         };

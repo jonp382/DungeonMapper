@@ -68,7 +68,7 @@ Any of these can be exported, and they can be imported from another campaign or 
 
 ## Pawns
 
-Pawns are tokens for characters and monsters. Each one can have a name, a picture and an affiliation color. Statuses belong to each pawn on the map, not to the pawn type: click a placed pawn and use **add status** to pick from a searchable menu (as many as you like; each click adds one and the menu stays open), and new pawns start with none. The ✕ beside a status removes it. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
+Pawns are tokens for characters and monsters. Each one can have a name, a picture and an affiliation color. Statuses belong to each pawn on the map, not to the pawn type: click a placed pawn and use **add status** to pick from a searchable menu (as many as you like; each click adds one and the menu stays open), and new pawns start with none. The ✕ beside a status removes it. Your pawn library lets you search, sort, mark favorites and quickly reach recently used pawns. In pawn management (Manage, Pawns) the list is grouped by affiliation under headers you can click to fold or unfold; the tick on a header selects that whole group, and the **all / favorites / on map / unused** chips filter the list. A pawn marked as a hero can only appear once in the campaign, and placing it again moves it. The library can be exported and imported too.
 
 ![pawns](./images/pawns.png)
 
