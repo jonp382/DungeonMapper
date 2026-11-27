@@ -6870,6 +6870,14 @@ try { Directory.Delete(imgDir, true); } catch { }
         Nothing();
         Check(!panel.ItemView, "tool view: a click on nothing goes back to the tool view");
         Check(panel.Title == "select tool" && panel.BackText is null, "tool view: the tool's view is titled as the tool, with no back link");
+        CallOn(w, "ShowPawnInfo", ndoc.Pawns[new CellKey(1, 1)]);
+        Check(canvas.HighlightCell == new CellKey(1, 1) && canvas.HighlightPawn, "highlight: the pawn being edited is ringed on the map");
+        ndoc.TryPlaceDoor(new EdgeKey(new CellKey(1, 0), Side.North), out var hdoor);
+        CallOn(w, "ShowDoorConfig", hdoor);
+        Check(canvas.HighlightDoor == hdoor && canvas.HighlightCell is null && canvas.HighlightDoorCenter() == new Point(1.5, 0),
+            "highlight: opening a door moves the ring to the middle of that door's edge");
+        CallOn(w, "BackToToolView");
+        Check(canvas.HighlightDoor is null && canvas.HighlightCell is null, "highlight: back at the tool view nothing is ringed");
         CallOn(w, "SetTool", ToolMode.Door);
         Nothing();
         Check(!panel.ItemView, "tool view: and nothing happens when the tool view is already showing");

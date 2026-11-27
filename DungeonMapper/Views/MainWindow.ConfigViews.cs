@@ -117,6 +117,8 @@ public partial class MainWindow
             VertexDoorKey v => $"door at {v.X},{v.Y}",
             _ => "door on an angled wall",
         });
+        Canvas.HighlightDoor = door;
+        Canvas.Refresh();
         TextBlock? info = null;
         void ShowInfo() { if (info is not null) info.Text = DoorConfigInfo(door.Type, _doc, _project.Maps.Select(m => m.Doc)); }
 
@@ -181,6 +183,9 @@ public partial class MainWindow
     {
         var cell = _doc.Stairs.FirstOrDefault(kv => ReferenceEquals(kv.Value, stair)).Key;
         ToolPanel.ClearItem($"stair at {cell.X},{cell.Y}");
+        Canvas.HighlightCell = cell;
+        Canvas.HighlightPawn = false;
+        Canvas.Refresh();
         // picking a direction sets every connected stair to it, so a group
         // that drifted out of sync re-syncs on one choice
         ToolPanel.AddChips(new[] { "up", "down", "left", "right" }, stair.Direction.ToString().ToLowerInvariant(), v =>
@@ -432,6 +437,9 @@ public partial class MainWindow
         var cell = pawn.Cell;
         var t = ActiveLibrary.Find(pawn.TemplateId);
         ToolPanel.ClearItem($"pawn at {cell.X},{cell.Y}");
+        Canvas.HighlightCell = cell;
+        Canvas.HighlightPawn = true;
+        Canvas.Refresh();
 
         if (t is null)
         {

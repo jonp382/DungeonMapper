@@ -103,8 +103,12 @@ public sealed class ToolPanel : Border
     /// the back link's text, null when the view has none (tests)
     public string? BackText => _back.IsVisible ? _back.Content as string : null;
 
+    /// the panel changed views (the map's item highlight goes)
+    public event Action? Cleared;
+
     public void Clear(string title)
     {
+        Cleared?.Invoke();
         ItemView = false;
         _band.Background = null;
         _band.Padding = new Thickness(0);

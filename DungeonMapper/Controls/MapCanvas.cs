@@ -1210,6 +1210,7 @@ public sealed partial class MapCanvas : Control
         DrawObjectOverlay(ctx);
         DrawImageOverlay(ctx);
         DrawLabelHandles(ctx);
+        DrawHighlight(ctx);
         DrawFormationOverlay(ctx);
         DrawMeasureOverlay(ctx);
         DrawSightLine(ctx);
