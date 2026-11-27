@@ -32,9 +32,9 @@ public partial class MainWindow
                 (int?)pawn.Statuses.First(e => e.Name == s.Name).Turns));
         ToolPanel.AddRemovableList("statuses", items,
             name => Avalonia.Threading.Dispatcher.UIThread.Post(() => RemovePawnStatus(cell, name)),
-            v => v == -1 || (v >= 1 && v <= TurnTracker.MaxTurns) ? null : $"-1 (permanent) or 1 to {TurnTracker.MaxTurns}",
+            v => v >= 1 && v <= TurnTracker.MaxTurns ? null : $"1 to {TurnTracker.MaxTurns} turns",
             (name, v) => SetPawnStatusTurns(cell, name, v),
-            "turns left. -1 is permanent", "no statuses");
+            "turns left", "no statuses");
         ToolPanel.AddButton("add status", () => ShowAddStatus(cell));
     }
 

@@ -116,9 +116,11 @@ public sealed class ToolPanel : Border
     }
 
     // a list of named rows under a label (the pawn view's statuses): an
-    // optional dot, the name, an optional number box (a status's turns left,
-    // applied on enter or leaving the box, a bad one shows a red line) and an
-    // x that removes the row (onRemove gets the name). empty shows emptyText.
+    // optional dot, the name and an x that removes the row (onRemove gets the
+    // name). an item with a number gets a second line: a "permanent" checkbox
+    // (the number -1) and the number box (a status's turns left, applied on
+    // enter or leaving the box, a bad one shows a red line). empty shows
+    // emptyText.
     public StackPanel AddRemovableList(string label, IEnumerable<(string name, Control? dot, int? number)> items, Action<string> onRemove,
         Func<int, string?>? checkNumber = null, Action<string, int>? onNumber = null, string? numberTip = null, string emptyText = "none")
     {
@@ -127,7 +129,7 @@ public sealed class ToolPanel : Border
         foreach (var (name, dot, number) in items)
         {
             var n = name;
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto,Auto"), ColumnSpacing = 4 };
+            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4 };
             var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
             if (dot is not null) { dot.VerticalAlignment = VerticalAlignment.Center; content.Children.Add(dot); }
             content.Children.Add(new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -135,27 +137,42 @@ public sealed class ToolPanel : Border
             var remove = new Button { Content = "✕", Classes = { "btn", "quiet" }, Tag = "remove:" + name, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(6, 2) };
             ToolTip.SetTip(remove, $"remove {name}");
             remove.Click += (_, _) => { ButtonHook?.Invoke(); onRemove(n); };
-            Grid.SetColumn(remove, 2);
+            Grid.SetColumn(remove, 1);
             row.Children.Add(remove);
             var wrap = new StackPanel { Spacing = 0 };
             wrap.Children.Add(row);
             if (number is int start && onNumber is not null)
             {
-                var box = new TextBox { Text = start.ToString(), Classes = { "field", "number" }, Tag = name, Width = 56, VerticalAlignment = VerticalAlignment.Center };
-                if (numberTip is not null) ToolTip.SetTip(box, numberTip);
-                Grid.SetColumn(box, 1);
-                row.Children.Add(box);
-                var refusal = RefusalLine();
+                bool perm = start < 0;
                 int last = start;
+                // the turns a permanent one gets when unticked: the last count
+                int count = perm ? 3 : start;
+                var box = new TextBox { Text = count.ToString(), Classes = { "field", "number" }, Tag = name, Width = 56, VerticalAlignment = VerticalAlignment.Center, IsVisible = !perm };
+                if (numberTip is not null) ToolTip.SetTip(box, numberTip);
+                var permBox = new CheckBox { Content = "permanent", IsChecked = perm, Tag = "permanent:" + name, VerticalAlignment = VerticalAlignment.Center };
+                var second = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(15, 0, 0, 0) };
+                second.Children.Add(permBox);
+                second.Children.Add(box);
+                var refusal = RefusalLine();
+                permBox.IsCheckedChanged += (_, _) =>
+                {
+                    bool on = permBox.IsChecked == true;
+                    box.IsVisible = !on;
+                    SetRefusal(refusal, null);
+                    int v = on ? -1 : (int.TryParse(box.Text, out int typed) && checkNumber?.Invoke(typed) is null ? typed : count);
+                    if (!on) box.Text = v.ToString();
+                    if (v != last) { last = v; onNumber(n, v); }
+                };
                 void Apply()
                 {
                     string? why = int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number";
                     SetRefusal(refusal, why);
-                    if (why is null && v != last) { last = v; onNumber(n, v); }
+                    if (why is null && v != last) { last = v; count = v; onNumber(n, v); }
                 }
                 box.TextChanged += (_, _) => SetRefusal(refusal, int.TryParse(box.Text, out int v) ? checkNumber?.Invoke(v) : "a whole number");
                 box.KeyDown += (_, e) => { if (e.Key == Avalonia.Input.Key.Enter) { Apply(); e.Handled = true; } };
                 box.LostFocus += (_, _) => Apply();
+                wrap.Children.Add(second);
                 wrap.Children.Add(refusal);
             }
             list.Children.Add(wrap);

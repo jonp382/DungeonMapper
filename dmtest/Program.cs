@@ -5779,8 +5779,8 @@ try { Directory.Delete(imgDir, true); } catch { }
     panel.UpdateLayout();
     var removes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.Button>()
         .Where(c => c.Tag is string tg && tg.StartsWith("remove:")).ToList();
-    Check(removes.Count == 1 && (string)removes[0].Tag! == "remove:" + st && !Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Any(c => c.Tag is string),
-        "status list: the pawn view lists only the pawn's statuses, each with a remove button, no checkboxes");
+    Check(removes.Count == 1 && (string)removes[0].Tag! == "remove:" + st && !Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Any(c => c.Tag is string tg && !tg.StartsWith("permanent:")),
+        "status list: the pawn view lists only the pawn's statuses, each with a remove button, no status checkboxes");
     removes[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
     Avalonia.Threading.Dispatcher.UIThread.RunJobs();
     Check(hdoc.Pawns[gp.Cell].Statuses.Count == 0, "status list: the x removes it, leaving none");
@@ -6800,6 +6800,46 @@ try { Directory.Delete(imgDir, true); } catch { }
     h.Release(16, 0);
     var sel = h.Canvas.SelectionRect;
     Check(sel is var (sx0, sy0, sx1, sy1) && sx1 - sx0 == 1 && sy1 - sy0 == 4, "drag move: R mid drag turns the region, the new selection is turned too");
+}
+
+// --- permanent checkbox for status turns ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var pdoc = canvas.Document;
+        var cell = new CellKey(1, 1);
+        pdoc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = "gob", Statuses = new() { new PawnStatusEntry { Name = "fear", Turns = -1 } } };
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(pdoc);
+        var panel = (Avalonia.Controls.Control)FieldOf(w, "ToolPanel")!;
+        Avalonia.Controls.CheckBox Perm() { panel.UpdateLayout(); return Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.CheckBox>().First(c => (c.Tag as string) == "permanent:fear"); }
+        Avalonia.Controls.TextBox Box() => Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(panel).OfType<Avalonia.Controls.TextBox>().First(b => (b.Tag as string) == "fear");
+        CallOn(w, "ShowPawnInfo", pdoc.Pawns[cell]);
+        Check(Perm().IsChecked == true && !Box().IsVisible, "permanent: a permanent status shows the box ticked and no turns box");
+        Perm().IsChecked = false;
+        Check(pdoc.Pawns[cell].Statuses[0].Turns == 3 && Box().IsVisible && Box().Text == "3", "permanent: unticking it gives it turns (3) and shows the box");
+        Box().Text = "5";
+        Box().RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+        Check(pdoc.Pawns[cell].Statuses[0].Turns == 5, "permanent: the turns box sets the turns");
+        Box().Text = "-1";
+        Box().RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+        Check(pdoc.Pawns[cell].Statuses[0].Turns == 5, "permanent: typing -1 is refused, the checkbox is the way");
+        Perm().IsChecked = true;
+        Check(pdoc.Pawns[cell].Statuses[0].Turns == -1, "permanent: ticking it makes the status permanent");
+        Perm().IsChecked = false;
+        Check(pdoc.Pawns[cell].Statuses[0].Turns == 5, "permanent: unticking it again brings back the last turns");
+    }
+    catch (Exception ex) { Check(false, $"permanent: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

@@ -1110,7 +1110,7 @@ public partial class MainWindow
 
     // ---------- status styles tab ----------
 
-    private const string StatusCols = "40,*,140,104,104,70";
+    private const string StatusCols = "40,*,140,104,196,70";
 
     private Control BuildStatusesTab()
     {
@@ -1179,18 +1179,31 @@ public partial class MainWindow
             AddCell(g, thick, 3);
             if (!isNone)
             {
-                // how long it lasts when ticked on a pawn: -1 permanent, else turns
-                var turns = new NumericUpDown { Value = st.DefaultTurns, Minimum = -1, Maximum = TurnTracker.MaxTurns, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Classes = { "compact" } };
-                ToolTip.SetTip(turns, "turns it lasts when ticked on a pawn. -1 is permanent");
+                // how long it lasts when added to a pawn: permanent (stored as
+                // -1), or a number of turns (user: a checkbox, not typing -1)
+                bool perm = st.DefaultTurns < 0;
+                int lastTurns = perm ? 3 : st.DefaultTurns;
+                var turns = new NumericUpDown { Value = lastTurns, Minimum = 1, Maximum = TurnTracker.MaxTurns, Increment = 1, FormatString = "0", FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Classes = { "compact" }, IsVisible = !perm, Width = 88 };
+                ToolTip.SetTip(turns, "turns it lasts when added to a pawn");
                 turns.ValueChanged += (_, _) =>
                 {
-                    int v = (int)(turns.Value ?? -1);
-                    // 0 is not a duration: stepping down from 1 goes to permanent
-                    if (v == 0) { turns.Value = st.DefaultTurns == -1 ? 1 : -1; return; }
+                    int v = (int)(turns.Value ?? 1);
+                    lastTurns = v;
                     st.DefaultTurns = TurnTracker.CleanTurns(v);
                     PawnsChanged();
                 };
-                AddCell(g, turns, 4);
+                var permBox = new CheckBox { Content = "permanent", IsChecked = perm, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Tag = "permanent:" + st.Name };
+                permBox.IsCheckedChanged += (_, _) =>
+                {
+                    bool on = permBox.IsChecked == true;
+                    turns.IsVisible = !on;
+                    st.DefaultTurns = on ? -1 : lastTurns;
+                    PawnsChanged();
+                };
+                var dur = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+                dur.Children.Add(permBox);
+                dur.Children.Add(turns);
+                AddCell(g, dur, 4);
                 var del = Btn("delete", danger: true);
                 del.Click += (_, _) => DeleteStatusWithWarning(st, del);
                 AddCell(g, del, 5);
