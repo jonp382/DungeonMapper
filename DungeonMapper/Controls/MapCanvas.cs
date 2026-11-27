@@ -1873,6 +1873,10 @@ public sealed partial class MapCanvas : Control
         e.Pointer.Capture(this);
     }
 
+    /// whether a new pawn starts DM only: Player pawns start visible to the
+    /// players (user), every other new pawn hidden
+    public bool NewPawnHidden(string templateId) => !(Library.Find(templateId) is { } t && PlayerPawns.Controlled(t));
+
     /// The pawn tool's plain click on a cell with no pawn: places the armed pawn.
     private void PawnToolClick(CellKey cell)
     {
@@ -1881,7 +1885,7 @@ public sealed partial class MapCanvas : Control
         {
             // place a pawn that hard-references the armed library template.
             // a hero moves instead: the old copy goes and keeps its status.
-            var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id };
+            var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id, DmOnly = NewPawnHidden(ArmedPawn.Id) };
             Document.PlacePawn(placed);
             if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
             {

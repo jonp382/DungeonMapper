@@ -168,7 +168,7 @@ The reveal tool marks what players are allowed to see. It is the groundwork for 
 
 - **Cells** shows or hides floor. **Box** drags a rectangle (a click is one cell), **room** fills the room you click up to its walls (doors count as walls), and **circle** drags out from a center. **Reveal whole map** and **hide whole map** do every floor cell at once.
 - **Items** marks labels, doors, objects, pawns and images **visible** or **DM only** with a box. Tick which kinds the box changes. A DM only item is never shown to players, even on revealed floor.
-- New items start DM only. Maps made before this tool load with every item visible and nothing revealed.
+- New items start DM only, except pawns with the **Player** affiliation, which start visible. Maps made before this tool load with every item visible and nothing revealed.
 - Each door, label, pawn, object and image view also has a **DM only** checkbox.
 - While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
 - **View > Player view preview** (or the button in the reveal panel) shows exactly what players would be sent: revealed floor, the walls and doors around it, and the visible items on it. Nothing can be edited while it is on; panning, zooming, saving, undo and redo still work. Esc or picking a tool returns to editing.

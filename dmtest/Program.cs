@@ -6855,5 +6855,24 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- player pawns start visible ---
+{
+    using var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 8, 8);
+    var hero = new PawnTemplate { Id = "pl", Name = "Ana", Affiliation = "Player" };
+    var foe = new PawnTemplate { Id = "en", Name = "Orc", Affiliation = "Enemy" };
+    h.Canvas.Library.Pawns.Add(hero);
+    h.Canvas.Library.Pawns.Add(foe);
+    h.Canvas.Mode = ToolMode.Pawn;
+    h.Canvas.ArmedPawn = hero;
+    h.Click(1, 1);
+    h.Canvas.ArmedPawn = foe;
+    h.Click(2, 1);
+    Check(h.Doc.Pawns[new CellKey(1, 1)].DmOnly == false && h.Doc.Pawns[new CellKey(2, 1)].DmOnly == true,
+        "player pawns: a new Player pawn starts visible to players, other pawns start DM only");
+    Check(!h.Canvas.NewPawnHidden("pl") && h.Canvas.NewPawnHidden("en") && h.Canvas.NewPawnHidden("missing"),
+        "player pawns: only Player affiliation templates start visible");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

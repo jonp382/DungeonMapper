@@ -141,7 +141,7 @@ public sealed partial class MapCanvas
         int outside = 0;
         foreach (var (id, cell) in targets)
         {
-            Document.PlacePawn(new Pawn { Cell = cell, TemplateId = id, Statuses = statuses.GetValueOrDefault(id) ?? new(), DmOnly = hidden.GetValueOrDefault(id, true) });
+            Document.PlacePawn(new Pawn { Cell = cell, TemplateId = id, Statuses = statuses.GetValueOrDefault(id) ?? new(), DmOnly = hidden.TryGetValue(id, out var h) ? h : NewPawnHidden(id) });
             if (!Document.FloorAt(cell.X + 0.5, cell.Y + 0.5)) outside++;
         }
         string name = _formationName;
