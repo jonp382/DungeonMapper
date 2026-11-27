@@ -111,7 +111,12 @@ public partial class MainWindow
     private void ShowDoorConfig(IDoorConfig door)
     {
         var spot = _doc.DoorSpotOf(door);
-        ToolPanel.ClearItem("door");
+        ToolPanel.ClearItem(spot switch
+        {
+            EdgeKey e => $"door at {e.Cell.X},{e.Cell.Y}",
+            VertexDoorKey v => $"door at {v.X},{v.Y}",
+            _ => "door on an angled wall",
+        });
         TextBlock? info = null;
         void ShowInfo() { if (info is not null) info.Text = DoorConfigInfo(door.Type, _doc, _project.Maps.Select(m => m.Doc)); }
 
@@ -175,7 +180,7 @@ public partial class MainWindow
     private void ShowStairConfig(Stair stair)
     {
         var cell = _doc.Stairs.FirstOrDefault(kv => ReferenceEquals(kv.Value, stair)).Key;
-        ToolPanel.ClearItem("stair");
+        ToolPanel.ClearItem($"stair at {cell.X},{cell.Y}");
         // picking a direction sets every connected stair to it, so a group
         // that drifted out of sync re-syncs on one choice
         ToolPanel.AddChips(new[] { "up", "down", "left", "right" }, stair.Direction.ToString().ToLowerInvariant(), v =>
@@ -217,7 +222,7 @@ public partial class MainWindow
         int index = LabelDoc.Labels.IndexOf(label);
         int count = LabelDoc.Labels.Count;
         var cell = label.Cell;
-        ToolPanel.ClearItem("label");
+        ToolPanel.ClearItem($"label at {cell.X},{cell.Y}");
         // the label tool shows resize handles on this label
         Canvas.SelectedLabel = label;
         Canvas.Refresh();
@@ -426,7 +431,7 @@ public partial class MainWindow
         if (Joined) { ShowPlayerPawnInfo(pawn); return; }
         var cell = pawn.Cell;
         var t = ActiveLibrary.Find(pawn.TemplateId);
-        ToolPanel.ClearItem("pawn");
+        ToolPanel.ClearItem($"pawn at {cell.X},{cell.Y}");
 
         if (t is null)
         {

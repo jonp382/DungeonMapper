@@ -146,7 +146,7 @@ public partial class MainWindow
 
     private void BuildPawnPanel()
     {
-        ToolPanel.Clear("pawn");
+        ToolPanel.Clear("pawn tool");
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4 };
         _pawnSearchBox = SearchBox("search pawns (ctrl+f)", _pawnSearch);
         _pawnSearchBox.TextChanged += (_, _) => { _pawnSearch = _pawnSearchBox.Text ?? ""; RefreshPawnList(); };

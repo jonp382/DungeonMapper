@@ -18,7 +18,7 @@ public partial class MainWindow
 
     private void BuildRevealPanel()
     {
-        ToolPanel.Clear("reveal");
+        ToolPanel.Clear("reveal tool");
         bool cells = Canvas.RevealTarget == RevealTarget.Cells;
         ToolPanel.AddHint(cells
             ? "choose what players see. revealed floor shows to players, the rest stays hidden. while this tool is selected, hidden floor is dimmed."

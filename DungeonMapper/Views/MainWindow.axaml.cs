@@ -280,6 +280,8 @@ public partial class MainWindow : Window
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
+        // an item's view links back to the tool's view ("← door tool")
+        ToolPanel.BackLink = () => ($"{Canvas.Mode.ToString().ToLowerInvariant()} tool", () => { BackToToolView(); FocusCanvas(); });
         // a click on nothing: an open item's view goes back to the tool's
         Canvas.NothingClicked += () => { if (ToolPanel.ItemView) BackToToolView(); };
         Canvas.FormationDeployed += () => { PawnViewsChanged(); RefreshMaps(); };

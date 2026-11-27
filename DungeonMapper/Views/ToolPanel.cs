@@ -16,6 +16,18 @@ public sealed class ToolPanel : Border
 {
     // side panel titles are 14, a step below the modal titles
     private readonly TextBlock _title = new() { Classes = { "title" }, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly Border _band = new() { CornerRadius = new CornerRadius(4) };
+    private readonly Button _back = new()
+    {
+        Classes = { "btn", "quiet" }, Padding = new Thickness(4, 0), FontSize = 11, IsVisible = false,
+        HorizontalAlignment = HorizontalAlignment.Left,
+    };
+    // the item views' tint (the accent, dimmed)
+    private static readonly IBrush ItemBand = new SolidColorBrush(Color.FromRgb(0x2b, 0x37, 0x58));
+
+    /// where an item's back link goes: the tool's name and how to get there
+    public Func<(string label, Action go)>? BackLink { get; set; }
+
     // right of the title: the open item's hidden / visible badge
     private readonly ContentControl _badge = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _content = new() { Spacing = 6 };
@@ -43,7 +55,14 @@ public sealed class ToolPanel : Border
         head.Children.Add(_title);
         Grid.SetColumn(_badge, 1);
         head.Children.Add(_badge);
-        root.Children.Add(head);
+        // an item's view: a tinted band with the way back to the tool's view
+        // over the title, so it never looks like the tool's own settings
+        _back.Click += (_, _) => BackLink?.Invoke().go();
+        var band = new StackPanel { Spacing = 2 };
+        band.Children.Add(_back);
+        band.Children.Add(head);
+        _band.Child = band;
+        root.Children.Add(_band);
         root.Children.Add(_scroll);
         Child = root;
     }
@@ -70,11 +89,26 @@ public sealed class ToolPanel : Border
     {
         Clear(title);
         ItemView = true;
+        _band.Background = ItemBand;
+        _band.Padding = new Thickness(6, 4, 6, 6);
+        if (BackLink?.Invoke() is var (label, _))
+        {
+            _back.Content = "← " + label;
+            _back.IsVisible = true;
+        }
     }
+
+    public string Title => _title.Text ?? "";
+
+    /// the back link's text, null when the view has none (tests)
+    public string? BackText => _back.IsVisible ? _back.Content as string : null;
 
     public void Clear(string title)
     {
         ItemView = false;
+        _band.Background = null;
+        _band.Padding = new Thickness(0);
+        _back.IsVisible = false;
         _title.Text = title;
         Target.Children.Clear();
         DeleteAction = null;

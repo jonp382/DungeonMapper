@@ -109,7 +109,7 @@ public partial class MainWindow
 
     private void BuildObjectPanel()
     {
-        ToolPanel.Clear("object");
+        ToolPanel.Clear("object tool");
         var top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 4 };
         var search = SearchBox("search objects", _objectSearch);
         search.TextChanged += (_, _) => { _objectSearch = search.Text ?? ""; RefreshObjectList(); };
@@ -229,7 +229,7 @@ public partial class MainWindow
         Canvas.SelectedObjectId = id;
         Canvas.Refresh();
         var t = ActiveObjects.Find(obj.TypeId);
-        ToolPanel.ClearItem("object");
+        ToolPanel.ClearItem($"object at {obj.X},{obj.Y}");
 
         var look = obj.EffectiveLook(ActiveObjects);
         var head = new Grid { ColumnDefinitions = new ColumnDefinitions("40,*"), ColumnSpacing = 8, Margin = new Thickness(0, 0, 0, 4) };

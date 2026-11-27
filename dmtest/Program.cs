@@ -6866,8 +6866,10 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(!panel.ItemView, "tool view: a tool's own view is not an item view");
         CallOn(w, "ShowPawnInfo", ndoc.Pawns[new CellKey(1, 1)]);
         Check(panel.ItemView, "tool view: a pawn's view is an item view");
+        Check(panel.Title == "pawn at 1,1" && panel.BackText == "← select tool", "tool view: an item's view is titled with where it is and links back to the tool");
         Nothing();
         Check(!panel.ItemView, "tool view: a click on nothing goes back to the tool view");
+        Check(panel.Title == "select tool" && panel.BackText is null, "tool view: the tool's view is titled as the tool, with no back link");
         CallOn(w, "SetTool", ToolMode.Door);
         Nothing();
         Check(!panel.ItemView, "tool view: and nothing happens when the tool view is already showing");
