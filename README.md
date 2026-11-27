@@ -17,7 +17,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 
 | Tool | Key | What it does |
 | --- | --- | --- |
-| Select | S | Click something to edit it. Drag a pawn, object, label or image to move it (a pawn landing on another swaps them). A clicked object, label or image gets the same handles as in its own tool: drag a handle to resize. Drag on empty space, or Shift+drag from anywhere, to select an area, then copy, cut or paste it. The clear clipboard button drops the clipboard and the paste ghost. |
+| Select | S | Click something to edit it. Drag a pawn, object, label or image to move it (a pawn landing on another swaps them). A clicked object, label or image gets the same handles as in its own tool: drag a handle to resize. Drag on empty space, or Shift+drag from anywhere, to select an area. Drag inside the selection to move it (R or Shift+R turns it while you drag, Esc cancels), or copy, cut or paste it. **Pawns only** makes the drag move just the pawns. The clear clipboard button drops the clipboard and the paste ghost. |
 | Move | M | Drag around an area, then click where it should go. Drag a single pawn to move just that pawn. Shift+drag a box to move only the pawns in it (from anywhere, even with "move pawns only" off). |
 | Room | R | Drag a rectangle to make a walled room. Drawing over an existing room merges the two. |
 | Polygon | N | Click grid points to outline an odd-shaped room. Click the first point again, or press Enter, to finish. |

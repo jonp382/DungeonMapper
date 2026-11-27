@@ -6807,5 +6807,61 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(openedDoor == door, "body drag: a click on a door edge over an object still opens the door");
 }
 
+// --- select tool: drag and drop a region ---
+{
+    using var h = new CanvasHarness();
+    h.Doc.AddRoom(0, 0, 3, 3);
+    h.Doc.AddRoom(10, 0, 14, 4);
+    h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "p", Name = "P" });
+    h.Doc.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "p" };
+    h.Canvas.Mode = ToolMode.Select;
+    h.Drag(0, 0, 3, 3);
+    Check(h.Canvas.SelectionRect == (0, 0, 3, 3) && !h.Canvas.MoveArmed, "drag move: a box only selects");
+    int c0 = h.CommitCount;
+    // press inside the selection (on the pawn, even) and drag: everything moves
+    h.Press(1, 1);
+    Check(h.Canvas.DragMoving, "drag move: a press inside the selection picks it up");
+    h.MoveTo(6, 2);
+    h.Release(6, 2);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(6, 2)) && h.Doc.Cells.Contains(new CellKey(5, 1)) && !h.Doc.Cells.Contains(new CellKey(0, 0))
+        && h.CommitCount == c0 + 1 && !h.Canvas.MoveArmed, "drag move: release drops the region where it was dragged, one undo step");
+    Check(h.Canvas.SelectionRect == (5, 1, 8, 4), "drag move: the moved region stays selected");
+    Check(!h.Canvas.HasClipboard, "drag move: the clipboard is left as it was (empty)");
+
+    // the clipboard survives a drag move
+    h.Canvas.CopySelection();
+    h.Press(5, 1); h.MoveTo(5, 6); h.Release(5, 6);
+    Check(h.Doc.Cells.Contains(new CellKey(5, 6)) && h.Canvas.HasClipboard, "drag move: what was copied is still on the clipboard after a move");
+    h.Canvas.ClearClipboard();
+
+    // a click inside the selection is a plain click: nothing moves
+    var before = h.CommitCount;
+    h.Click(6, 7);
+    Check(h.CommitCount == before && h.Doc.Pawns.ContainsKey(new CellKey(6, 7)) && !h.Canvas.MoveArmed, "drag move: a click inside the selection moves nothing");
+
+    // esc mid drag (the window calls CancelMove) puts it back
+    h.Drag(5, 6, 8, 9);
+    h.Press(6, 7); h.MoveTo(7, 9);
+    h.Canvas.CancelMove();
+    h.Release(7, 9);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(6, 7)) && h.CommitCount == before, "drag move: cancelling mid drag moves nothing");
+
+    // pawns only: the checkbox moves just the pawns
+    h.Canvas.SelectPawnsOnly = true;
+    h.Drag(5, 6, 8, 9);
+    h.Press(5, 6); h.MoveTo(5, 4); h.Release(5, 4);
+    Check(h.Doc.Pawns.ContainsKey(new CellKey(6, 5)) && h.Doc.Cells.Contains(new CellKey(5, 6)), "drag move: pawns only moves the pawns and leaves the floor");
+    h.Canvas.SelectPawnsOnly = false;
+
+    // rotating mid drag turns what lands
+    h.Canvas.ClearSelection();
+    h.Drag(10, 0, 14, 1);
+    h.Press(10, 0); h.MoveTo(16, 0);
+    h.Canvas.RotateRegion(1);
+    h.Release(16, 0);
+    var sel = h.Canvas.SelectionRect;
+    Check(sel is var (sx0, sy0, sx1, sy1) && sx1 - sx0 == 1 && sy1 - sy0 == 4, "drag move: R mid drag turns the region, the new selection is turned too");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

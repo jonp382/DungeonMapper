@@ -399,6 +399,9 @@ public sealed partial class MapCanvas : Control
     {
         if (!_moveArmed) return;
         _moveArmed = false;
+        _dragMoving = false;
+        // a drag move borrowed the clipboard: what was copied comes back
+        if (_clipboardSaved) { _clipboard = _clipboardBeforeMove; _clipboardBeforeMove = null; _clipboardSaved = false; }
         _armedPawnsOnly = false;
         _movePlaced = false;
         _rotTurns = 0;
@@ -1521,7 +1524,7 @@ public sealed partial class MapCanvas : Control
         // the old HasSelection check killed the ghost after the first move).
         bool ghostMode = Mode == ToolMode.Select
             || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed && !_dragging);
-        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && GhostEnabled)
+        if (_clipboard is not null && !_clipboard.Empty && _pasteCursor is Point pc && ghostMode && (GhostEnabled || _dragMoving))
         {
             var origin = new CellKey((int)Math.Floor(pc.X), (int)Math.Floor(pc.Y));
             int dx = origin.X - _clipboard.OriginX, dy = origin.Y - _clipboard.OriginY;
@@ -1989,6 +1992,8 @@ public sealed partial class MapCanvas : Control
                     MoveAt(cell);
                     break;
                 }
+                // inside the selected region: drag to move what is in it
+                if (Mode == ToolMode.Select && !Shifted(e) && BeginDragMove(e, cell)) break;
                 // the open object, label or image: its handles resize, its
                 // dashed edge moves it (select tool)
                 if (Mode == ToolMode.Select && SelectBoxPressed(e)) break;
@@ -2213,6 +2218,7 @@ public sealed partial class MapCanvas : Control
         if (RevealMoved(world)) return;
         if (PlayerPawnMoved(world)) return;
         if (LabelResizeMoved(world)) return;
+        if (DragMoveMoved(world)) return;
         _polyCursor = world; // polygon closing preview follows the cursor
         _pasteCursor = world; // paste ghost follows the cursor
         if (!_selectDragging && !_dragging && !_panning)
@@ -2310,6 +2316,7 @@ public sealed partial class MapCanvas : Control
         if (RevealReleased(e)) return;
         if (PlayerPawnReleased(e)) return;
         if (LabelResizeReleased(e)) return;
+        if (DragMoveReleased(e)) return;
 
         if (_pawnDragging)
         {
