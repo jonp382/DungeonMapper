@@ -20,9 +20,7 @@ public partial class MainWindow
     {
         ToolPanel.Clear("reveal tool");
         bool cells = Canvas.RevealTarget == RevealTarget.Cells;
-        ToolPanel.AddHint(cells
-            ? "choose what players see. revealed floor shows to players, the rest stays hidden. while this tool is selected, hidden floor is dimmed."
-            : "items marked DM only are never shown to players, even on revealed floor. new items start DM only. they have a dashed pink outline while this tool is selected.");
+        AddToolHint(ToolMode.Reveal, cells ? null : "hint_items");
         ToolPanel.AddChips(new[] { "cells", "items" }, cells ? "cells" : "items",
             v => { Canvas.RevealTarget = v == "cells" ? RevealTarget.Cells : RevealTarget.Items; Canvas.ResetReveal(); BuildRevealPanel(); Canvas.Refresh(); FocusCanvas(); },
             "changes");

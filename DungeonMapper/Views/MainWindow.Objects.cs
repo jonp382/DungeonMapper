@@ -121,7 +121,7 @@ public partial class MainWindow
         top.Children.Add(manage);
         ToolPanel.Target.Children.Add(top);
 
-        ToolPanel.AddHint("pick a type, then drag on the map to place it. click an object to configure it and drag its handles to resize. shift+drag places over another object.");
+        AddToolHint(ToolMode.Object);
 
         _objectChipHost = new WrapPanel();
         ToolPanel.Target.Children.Add(_objectChipHost);

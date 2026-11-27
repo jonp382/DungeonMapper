@@ -31,7 +31,7 @@ public partial class MainWindow
         {
             case ToolMode.Erase:
                 ToolPanel.Clear("erase tool");
-                ToolPanel.AddHint("choose what the eraser removes");
+                AddToolHint(ToolMode.Erase);
                 BuildEraseFilters();
                 ToolPanel.AddCheck("adjust walls", Canvas.EraseAdjustWalls, v => { Canvas.EraseAdjustWalls = v; FocusCanvas(); },
                     "re-seals rooms: the new outer edge gets walls after erasing");
@@ -39,7 +39,7 @@ public partial class MainWindow
 
             case ToolMode.Select:
                 ToolPanel.Clear("select tool");
-                ToolPanel.AddHint("click an element to configure it, drag a region to select. drag inside the selection to move it (r / shift+r turns it, esc cancels). drag a pawn, object, label or image to move it, shift+drag to start a selection on one. ctrl+c and ctrl+v copy and paste, the paste ghost follows the cursor. r, shift+r or shift+scroll rotates the clipboard.");
+                AddToolHint(ToolMode.Select);
                 ToolPanel.AddCheck("pawns only", Canvas.SelectPawnsOnly, v => { Canvas.SelectPawnsOnly = v; FocusCanvas(); },
                     "dragging the selection moves only its pawns");
                 ToolPanel.AddCheck("show paste ghost", Canvas.GhostEnabled, v => { Canvas.GhostEnabled = v; Canvas.Refresh(); FocusCanvas(); });
@@ -48,7 +48,7 @@ public partial class MainWindow
 
             case ToolMode.Room:
                 ToolPanel.Clear("room tool");
-                ToolPanel.AddHint("drag a rectangle, its edges get walls. drawing over an existing room merges them.");
+                AddToolHint(ToolMode.Room);
                 ToolPanel.AddCheck("strict outer walls", Canvas.RoomStrict, v => { Canvas.RoomStrict = v; FocusCanvas(); });
                 ToolPanel.AddCheck("merge adjacent walls", Canvas.RoomMergeNearby, v => { Canvas.RoomMergeNearby = v; FocusCanvas(); });
                 _toolInfo = ToolPanel.AddInfo("");
@@ -58,7 +58,7 @@ public partial class MainWindow
                 // placement defaults only, the type editor is the door presets modal.
                 // placed doors take these (MapCanvas.DefaultDoorType/State, reset each start)
                 ToolPanel.Clear("door tool");
-                ToolPanel.AddHint("click a wall edge to place a door, click a door to configure it. the defaults apply to every door you place next.");
+                AddToolHint(ToolMode.Door);
                 var types = ActivePresets.DoorTypes.GroupBy(t => t.Name).ToDictionary(g => g.Key, g => g.First());
                 var names = ActivePresets.DoorTypes.Select(t => t.Name).ToArray();
                 ToolPanel.AddChips(names, Canvas.DefaultDoorType,
@@ -77,18 +77,18 @@ public partial class MainWindow
 
             case ToolMode.Stair:
                 ToolPanel.Clear("stair tool");
-                ToolPanel.AddHint("click a cell to place a stair, drag for a region. click a stair to configure it.");
+                AddToolHint(ToolMode.Stair);
                 _toolInfo = ToolPanel.AddInfo("");
                 break;
 
             case ToolMode.Label when _client is not null:
                 ToolPanel.Clear("label tool");
-                ToolPanel.AddHint("click a cell to add a label, drag a range for a label that spans it. it goes on the DM's map for everyone. click a label players can edit to change or delete it; the others are the DM's.");
+                AddToolHint(ToolMode.Label, "hint_player");
                 break;
 
             case ToolMode.Label:
                 ToolPanel.Clear("label tool");
-                ToolPanel.AddHint("click a cell to place a label, drag a range for a label that spans it. click a label to edit it.");
+                AddToolHint(ToolMode.Label);
                 _toolInfo = ToolPanel.AddInfo("");
                 break;
 
@@ -117,7 +117,7 @@ public partial class MainWindow
 
             case ToolMode.Polygon:
                 ToolPanel.Clear("polygon tool");
-                ToolPanel.AddHint("click grid points to add vertices. click the first point again to complete the polygon, or press enter to auto-complete.");
+                AddToolHint(ToolMode.Polygon);
                 ToolPanel.AddCheck("strict outer walls", Canvas.PolygonStrict, v => { Canvas.PolygonStrict = v; FocusCanvas(); });
                 ToolPanel.AddCheck("merge adjacent walls", Canvas.PolygonMergeNearby, v => { Canvas.PolygonMergeNearby = v; FocusCanvas(); });
                 ToolPanel.AddButton("cancel current polygon", () => { Canvas.CancelPolygon(); Canvas.Refresh(); FocusCanvas(); });
@@ -125,7 +125,7 @@ public partial class MainWindow
 
             case ToolMode.Floor:
                 ToolPanel.Clear("floor tool");
-                ToolPanel.AddHint("manual: drag a rectangle. flood fill: click a cell to fill the room it is in, bounded by walls, doors and stairs.");
+                AddToolHint(ToolMode.Floor);
                 ToolPanel.AddChips(new[] { "manual rectangle", "flood fill" },
                     Canvas.FloorFloodFill ? "flood fill" : "manual rectangle",
                     v => { Canvas.FloorFloodFill = v == "flood fill"; FocusCanvas(); },
@@ -135,7 +135,7 @@ public partial class MainWindow
 
             case ToolMode.Wall:
                 ToolPanel.Clear("wall tool");
-                ToolPanel.AddHint("press on your starting grid point and release on your end point to draw a line.");
+                AddToolHint(ToolMode.Wall);
                 break;
 
             default:

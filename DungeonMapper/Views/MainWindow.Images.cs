@@ -34,9 +34,7 @@ public partial class MainWindow
     {
         _imageViewId = null;
         ToolPanel.Clear("image tool");
-        ToolPanel.AddHint(_client is not null
-            ? "choose a picture from your images folder, then click a cell to place it at its own size or drag a box. it goes on the DM's map for everyone. click an image to change it."
-            : "choose a picture from the images folder, then click a cell to place it at its own size or drag a box. click an image to change it, drag its handles to resize. shift+drag places over an image.");
+        AddToolHint(ToolMode.Image, _client is not null ? "hint_player" : null);
         _imagePanelMarker = ToolPanel.Target.Children.FirstOrDefault();
 
         if (!ImageStore.FolderOk)

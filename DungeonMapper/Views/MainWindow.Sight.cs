@@ -25,7 +25,7 @@ public partial class MainWindow
     private void BuildSightPanel()
     {
         ToolPanel.Clear("sight tool");
-        ToolPanel.AddHint("click a pawn or a cell to see what it can see. green is clear, orange is behind one pawn, red behind two or more. walls, closed doors and the floor's edge block, objects are ignored. drag a pawn to move it and watch it change, hover a cell for the line to it. esc clears.");
+        AddToolHint(ToolMode.Sight);
         _sightSlider = ToolPanel.AddSlider("range", Sight.StepFeet, Sight.MaxFeet, Sight.StepFeet, Canvas.SightFeet, v =>
         {
             if (_sightSyncing) return;

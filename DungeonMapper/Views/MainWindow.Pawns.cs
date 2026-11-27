@@ -157,7 +157,7 @@ public partial class MainWindow
         manage.Click += (_, _) => { CloseModals(); ShowPawnManagement(); };
         Grid.SetColumn(manage, 1);
         top.Children.Add(manage);
-        if (Joined) ToolPanel.AddHint("your party's pawns. click one, then a revealed cell to place it; click a placed one to set its status, drag it to move it, shift+drag a box to move several. it goes on the DM's map for everyone.");
+        AddToolHint(ToolMode.Pawn, Joined ? "hint_player" : null);
         ToolPanel.Target.Children.Add(top);
 
         _pawnChipHost = new WrapPanel();

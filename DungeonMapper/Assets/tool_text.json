@@ -1,0 +1,100 @@
+// the text of each tool: its toolbar tooltip, the hint at the top of its side panel,
+// and the status bar line when the tool is picked. edit freely, then rebuild.
+//  - a value is a string, or a list of strings for several lines
+//  - {key} is the tool's current hotkey ("Door ({key})" reads "Door (D)", or just "Door" with no hotkey)
+//  - an empty or missing hint shows no hint; a missing tooltip shows the tool's name
+//  - hint_player: the hint a joined player sees instead (label, image, pawn)
+//  - hint_items: the reveal tool's hint while it changes items instead of cells
+{
+  "select": {
+    "tooltip": "Select ({key})",
+    "hint": "click an item to configure it, or select a region via click + drag",
+    "status": "select tool selected"
+  },
+  "room": {
+    "tooltip": "Room ({key})",
+    "hint": "click + drag to create a rectangle, its edges get walls. starting your region in an existing room merges the new region.",
+    "status": "room tool selected"
+  },
+  "polygon": {
+    "tooltip": "Polygon ({key})",
+    "hint": "click grid points to add vertices. click the first point again to complete the polygon, or press enter to auto-complete.",
+    "status": "polygon tool selected"
+  },
+  "floor": {
+    "tooltip": "Floor ({key})",
+    "hint": [
+      "manual: drag a rectangle.",
+      "flood fill: click a cell to fill the room it is in, bounded by walls, doors and stairs."
+    ],
+    "status": "floor tool selected"
+  },
+  "wall": {
+    "tooltip": "Wall ({key})",
+    "hint": "press on your starting grid point and release on your end point to draw a line.",
+    "status": "wall tool selected"
+  },
+  "door": {
+    "tooltip": "Door ({key})",
+    "hint": "click a wall edge to place a door, click a door to configure it. the defaults apply to every door you place next.",
+    "status": "door tool selected"
+  },
+  "stair": {
+    "tooltip": "Stair ({key})",
+    "hint": "click a cell to place a stair, drag for a region. click a stair to configure it.",
+    "status": "stair tool selected"
+  },
+  "erase": {
+    "tooltip": "Erase ({key})",
+    "hint": "choose what the eraser removes",
+    "status": "erase tool selected"
+  },
+  "pawn": {
+    "tooltip": "Pawn ({key})",
+    "hint": "click 'manage' to add or configure pawns",
+    "status": "pawn tool selected: click 'manage' in the side menu to add, remove and configure pawns, or click one of the pawns in the side menu to place it",
+    "hint_player": "your party's pawns. click one, then a revealed cell to place it; click a placed one to set its status, drag it to move it, shift+drag a box to move several. it goes on the DM's map for everyone."
+  },
+  "object": {
+    "tooltip": "Object ({key})",
+    "hint": "click 'manage' to add or configure objects.",
+    "status": "object tool selected: click 'manage' in the side menu to add, remove and configure objects, or click one of the objects in the side menu to place it"
+  },
+  "label": {
+    "tooltip": "Label ({key})",
+    "hint": "click a cell to place a label, drag a range for a label that spans it. click a label to edit it.",
+    "status": "label tool selected",
+    "hint_player": "click a cell to add a label, drag a range for a label that spans it. it goes on the DM's map for everyone. click a label players can edit to change or delete it; the others are the DM's."
+  },
+  "image": {
+    "tooltip": "Image ({key})",
+    "hint": [
+      "choose a picture from the images folder, then click + drag to place it.",
+      "shift + drag places over an existing image."
+    ],
+    "status": "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag it to move it, its handles to resize",
+    "hint_player": "choose a picture from your images folder, then click a cell to place it at its own size or drag a box. it goes on the DM's map for everyone. click an image to change it."
+  },
+  "measure": {
+    "tooltip": "Measure ({key})",
+    "hint": [
+      "drag for a distance, ctrl+click or ctrl+drag adds a leg from the end.",
+      "shift+drag for a radius. esc clears."
+    ],
+    "status": "measure tool selected"
+  },
+  "sight": {
+    "tooltip": "Sight ({key})",
+    "hint": [
+      "click a pawn or a cell to see what it can see.",
+      "green is clear, orange is behind one pawn, red behind two or more."
+    ],
+    "status": "line of sight tool selected"
+  },
+  "reveal": {
+    "tooltip": "Reveal ({key})",
+    "hint": "choose what connected players see. revealed floors and items are shown to players, the rest stays hidden.",
+    "status": "reveal tool selected. this tool is only effective when networking with connected clients, it does nothing in a local file",
+    "hint_items": "items marked DM only are never shown to players, even on revealed floor. new items start DM only. they have a dashed pink outline while this tool is selected."
+  }
+}

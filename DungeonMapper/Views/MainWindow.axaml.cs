@@ -443,8 +443,24 @@ public partial class MainWindow : Window
     // "Tool (K)" tooltip from the configurable hotkey table
     private void LabelTool(Button b, string modeName)
     {
-        string key = _settings.ToolHotkeys.TryGetValue(modeName, out var k) ? AppSettings.HotkeyLabel(k) : "";
-        ToolTip.SetTip(b, string.IsNullOrEmpty(key) ? modeName : $"{modeName} ({key})");
+        // the wording lives in Assets/tool_text.json; the tool's name if it has none
+        var tip = ToolText.Get(modeName.ToLowerInvariant(), "tooltip", ToolHotkeyLabel(modeName));
+        ToolTip.SetTip(b, tip.Length > 0 ? tip : modeName);
+    }
+
+    /// a tool's hotkey as shown to people ("D", "\\"), "" when it has none
+    private string ToolHotkeyLabel(string modeName) =>
+        _settings.ToolHotkeys.TryGetValue(modeName, out var k) && k.Length > 0 ? AppSettings.HotkeyLabel(k) : "";
+
+    /// a tool's side panel hint from Assets/tool_text.json (variant: a
+    /// joined player's or another mode's, falling back to the plain hint);
+    /// nothing when the file has none
+    private void AddToolHint(ToolMode mode, string? variant = null)
+    {
+        string tool = mode.ToString().ToLowerInvariant();
+        string field = variant is not null && ToolText.Has(tool, variant) ? variant : "hint";
+        var text = ToolText.Get(tool, field, ToolHotkeyLabel(mode.ToString()));
+        if (text.Length > 0) ToolPanel.AddHint(text);
     }
 
     // re-tooltip all tool buttons, also after a hotkey edit
@@ -556,24 +572,7 @@ public partial class MainWindow : Window
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
         Canvas.ClearSight(); // line of sight lasts until a tool switch
         Canvas.ResetReveal();
-        SetStatus(mode switch
-        {
-            ToolMode.Select => "select: click an element to configure, drag a pawn, object, label or image to move it (objects, labels and images get resize handles), drag empty space to select a region, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
-            ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
-            ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
-            ToolMode.Door => "door: click a wall edge to place, click a door to configure",
-            ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
-            ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit, drag it to move it, its handles to resize",
-            ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
-            ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure, drag a pawn to move it, shift+drag a box to move several. one pawn per cell",
-            ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag it to move it, its handles to resize",
-            ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag it to move it, its handles to resize",
-            ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
-            ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. shift+drag for a radius. esc clears",
-            ToolMode.Sight => "sight: click a pawn or a cell to see what it can see, drag a pawn to move it and watch. hover a cell for the line to it. shift+scroll changes the range, esc clears",
-            ToolMode.Reveal => "reveal: choose cells or items and show or hide, then drag a box (room: click inside a room, circle: drag out from a center)",
-            _ => "",
-        });
+        SetStatus(ToolText.Get(mode.ToString().ToLowerInvariant(), "status", ToolHotkeyLabel(mode.ToString())));
         PopulatePanel(mode);
         Canvas.Refresh();
         FocusCanvas(); // restore hotkey focus after the tool button click

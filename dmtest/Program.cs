@@ -7251,5 +7251,50 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- tool text file ---
+{
+    _ = new CanvasHarness();
+    // the real file: every tool has a tooltip and a status line, the panel tools a hint
+    string ttJson;
+    using (var st = Avalonia.Platform.AssetLoader.Open(new Uri(ToolText.AssetUri)))
+    using (var rd = new StreamReader(st)) ttJson = rd.ReadToEnd();
+    var file = ToolText.Parse(ttJson);
+    var tools = Enum.GetNames<ToolMode>().Select(n => n.ToLowerInvariant()).ToList();
+    Check(tools.All(file.ContainsKey) && tools.All(t => file[t].GetValueOrDefault("tooltip", "").Length > 0),
+        "tool text: the file has every tool, each with a tooltip");
+    Check(tools.Where(t => t != "pawn").All(t => file[t].GetValueOrDefault("hint", "").Length > 0)
+        && file["label"].ContainsKey("hint_player") && file["image"].ContainsKey("hint_player") && file["pawn"].ContainsKey("hint_player") && file["reveal"].ContainsKey("hint_items"),
+        "tool text: hints for the tools' panels, with the player and reveal items variants");
+    // the format: comments, lists of lines, {key}
+    var parsed = ToolText.Parse("// a comment\n{ \"door\": { \"hint\": [\"line one\", \"line two\"], \"tooltip\": \"Door ({key})\", }, }");
+    Check(parsed["door"]["hint"] == "line one\nline two", "tool text: a list of strings is several lines (comments and trailing commas allowed)");
+    Check(ToolText.Fill("Door ({key})", "D") == "Door (D)" && ToolText.Fill("Door ({key})", "") == "Door" && ToolText.Fill("press {key} or {other}", "D", new Dictionary<string, string> { ["other"] = "x" }) == "press D or x",
+        "tool text: {key} is the hotkey, gone cleanly with no hotkey, other names filled in");
+
+    // the window reads it: tooltip, status line and panel hint
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    ToolText.Use(ToolText.Parse("{ \"door\": { \"tooltip\": \"Doors! ({key})\", \"hint\": [\"place doors\", \"press {key}\"], \"status\": \"door time\" } }"));
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        t.GetMethods(flags).First(m => m.Name == "SetTool").Invoke(w, new object[] { ToolMode.Door });
+        var doorBtn = (Avalonia.Controls.Button)t.GetField("ToolDoor", flags)!.GetValue(w)!;
+        var roomBtn = (Avalonia.Controls.Button)t.GetField("ToolRoom", flags)!.GetValue(w)!;
+        Check(Avalonia.Controls.ToolTip.GetTip(doorBtn) as string == "Doors! (D)" && Avalonia.Controls.ToolTip.GetTip(roomBtn) as string == "Room",
+            "tool text: the toolbar tooltip comes from the file, the tool's name when the file has none");
+        Check(((Avalonia.Controls.TextBlock)t.GetField("StatusText", flags)!.GetValue(w)!).Text == "door time", "tool text: the status line on picking the tool comes from the file");
+        var panel = (Avalonia.Controls.Control)t.GetField("ToolPanel", flags)!.GetValue(w)!;
+        Check(Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(panel).OfType<Avalonia.Controls.TextBlock>().Any(b => b.Text == "place doors\npress D"),
+            "tool text: the panel hint comes from the file, several lines, hotkey filled in");
+        t.GetMethods(flags).First(m => m.Name == "SetTool").Invoke(w, new object[] { ToolMode.Room });
+        Check(!Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(panel).OfType<Avalonia.Controls.TextBlock>().Any(b => b.Classes.Contains("body") && b.Text is { Length: > 40 }),
+            "tool text: a tool the file has no hint for shows none");
+    }
+    catch (Exception ex) { Check(false, $"tool text: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+    ToolText.Use(file);
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;
