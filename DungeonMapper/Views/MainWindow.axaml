@@ -366,23 +366,23 @@
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
-                                                <TextBlock Classes="body" Text="fog" />
-                                                <TextBlock Classes="hint" Text="the fog tool's dim outside the vision radius." />
+                                                <TextBlock Classes="body" Text="dim color" />
+                                                <TextBlock Classes="hint" Text="hidden floor in the reveal tool, and everything the sight tool can not see." />
                                             </StackPanel>
-                                            <ContentControl x:Name="SetFogColor" Grid.Column="1" />
-                                            <Button x:Name="ResetFogColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
+                                            <ContentControl x:Name="SetDimColor" Grid.Column="1" />
+                                            <Button x:Name="ResetDimColor" Grid.Column="2" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
-                                                <TextBlock Classes="body" Text="fog dimming" />
-                                                <TextBlock Classes="hint" Text="how dark the fog is, percent 0 to 100." />
-                                                <TextBlock x:Name="SetFogOpacityError" Classes="refusal" IsVisible="False" />
+                                                <TextBlock Classes="body" Text="dim darkness" />
+                                                <TextBlock Classes="hint" Text="how dark hidden floor is in the reveal tool, percent 0 to 100." />
+                                                <TextBlock x:Name="SetDimOpacityError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
-                                            <Slider x:Name="SetFogOpacitySlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"
+                                            <Slider x:Name="SetDimOpacitySlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"
                                                     SmallChange="1" LargeChange="10" IsSnapToTickEnabled="True" TickFrequency="1"
                                                     VerticalAlignment="Center" Margin="0,0,10,0" />
-                                            <TextBox x:Name="SetFogOpacity" Grid.Column="2" Classes="field number" />
-                                            <Button x:Name="ResetFogOpacity" Grid.Column="3" Classes="btn quiet" Content="reset" />
+                                            <TextBox x:Name="SetDimOpacity" Grid.Column="2" Classes="field number" />
+                                            <Button x:Name="ResetDimOpacity" Grid.Column="3" Classes="btn quiet" Content="reset" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
@@ -423,7 +423,7 @@
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,Auto,58">
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="sight dimming" />
-                                                <TextBlock Classes="hint" Text="how dark everything the sight tool can not see is, percent 0 to 100. uses the fog color." />
+                                                <TextBlock Classes="hint" Text="how dark everything the sight tool can not see is, percent 0 to 100. uses the dim color." />
                                                 <TextBlock x:Name="SetSightDimError" Classes="refusal" IsVisible="False" />
                                             </StackPanel>
                                             <Slider x:Name="SetSightDimSlider" Grid.Column="1" Width="110" Minimum="0" Maximum="100"

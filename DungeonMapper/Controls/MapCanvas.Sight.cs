@@ -264,7 +264,7 @@ public sealed partial class MapCanvas
         }
     }
 
-    // everything outside the region dimmed (fog color, sight dim setting),
+    // everything outside the region dimmed (dim color, sight dim setting),
     // over the whole map, plus a thin range ring and the viewer's dot
     private void DrawSightDim(DrawingContext ctx)
     {

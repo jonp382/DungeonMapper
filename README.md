@@ -146,7 +146,7 @@ The sight tool shows everything a pawn can see. It is for the DM only: players i
 - Drag a pawn with the tool to move it (one undo step, like the move tool). The sight follows the pawn while you drag, so you can find where it needs to stand.
 - The **range** slider runs from 5 to 240 ft in 5 ft steps, starting at 120 ft. Type any value from 1 to 240 in the box under it. Shift+scroll changes it too. It is kept until you close the app.
 - Opening a door, moving a pawn or undoing updates it straight away. Esc or a tool switch clears it. Nothing is saved.
-- The three colors, how strong the tint is (30 percent by default) and how dark the dimming is (40 percent by default, in the fog color) are in settings.
+- The three colors, how strong the tint is (30 percent by default) and how dark the dimming is (40 percent by default, in the dim color) are in settings.
 
 ## Reveal
 
@@ -156,7 +156,7 @@ The reveal tool marks what players are allowed to see. It is the groundwork for 
 - **Items** marks labels, doors, objects, pawns and images **visible** or **DM only** with a box. Tick which kinds the box changes. A DM only item is never shown to players, even on revealed floor.
 - New items start DM only, except pawns with the **Player** affiliation, which start visible. Maps made before this tool load with every item visible and nothing revealed.
 - Each door, label, pawn, object and image view shows a badge by its title: pink **hidden** (DM only) or grey **visible**. Click it to flip.
-- While the tool is selected, hidden floor is dimmed (using the fog color and darkness from settings) and DM only items have a dashed pink outline.
+- While the tool is selected, hidden floor is dimmed (using the dim color and darkness from settings) and DM only items have a dashed pink outline.
 - **View > Player view preview** (or the button in the reveal panel) shows exactly what players would be sent: revealed floor, the walls and doors around it, and the visible items on it. Nothing can be edited while it is on; panning, zooming, saving, undo and redo still work. Esc or picking a tool returns to editing.
 
 ## Playing together (sessions)

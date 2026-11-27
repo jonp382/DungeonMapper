@@ -6347,7 +6347,7 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(AppSettings.Parse(mine.ToJson())!.CpuRenderer, "renderer: saved in settings.json");
     var other = AppSettings.ParseImport("{\"kind\":\"settings\",\"cpu_renderer\":false,\"fog_opacity\":20}")!;
     mine.CopyAppWideFrom(other);
-    Check(mine.CpuRenderer && mine.FogOpacity == 20, "renderer: an import keeps this computer's choice");
+    Check(mine.CpuRenderer && mine.DimOpacity == 20, "renderer: an import keeps this computer's choice");
 
     _ = new CanvasHarness();
     try
@@ -6742,6 +6742,9 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(!Enum.GetNames<ToolMode>().Contains("Fog") && !AppSettings.Default().ToolHotkeys.ContainsKey("Fog"), "fog tool: gone from the tools and the hotkeys");
     var old = AppSettings.Default(); old.ToolHotkeys["Fog"] = "V";
     var fogLoaded = AppSettings.Parse(old.ToJson());
+    var dimOld = AppSettings.ParseImport("{\"kind\":\"settings\",\"fog_r\":10,\"fog_g\":20,\"fog_b\":30,\"fog_opacity\":55}");
+    Check(dimOld is { DimR: 10, DimG: 20, DimB: 30, DimOpacity: 55 } && AppSettings.Default().ToJson().Contains("\"fog_opacity\""),
+        "dim settings: an old file's fog color and darkness load as the dim settings, same keys");
     Check(fogLoaded is not null && !fogLoaded.ToolHotkeys.ContainsKey("Fog") && fogLoaded.ToolHotkeys.ContainsKey("Sight"), "fog tool: an old settings file loses its fog hotkey");
 }
 

@@ -19,7 +19,7 @@ public enum RevealShape { Box, Room, Circle }
 //  - items: a box marks labels, doors, objects and pawns (filtered by kind)
 //    DM-only or visible
 // every change is one undo step. while the tool is selected, unrevealed floor
-// is dimmed (fog color and opacity) and DM-only items get a dashed outline.
+// is dimmed (dim color and darkness) and DM-only items get a dashed outline.
 public sealed partial class MapCanvas
 {
     public RevealTarget RevealTarget { get; set; } = RevealTarget.Cells;
@@ -193,11 +193,11 @@ public sealed partial class MapCanvas
     {
         if (Mode != ToolMode.Reveal) return;
 
-        // unrevealed floor, dimmed with the fog settings
+        // unrevealed floor, dimmed with the dim settings
         var hidden = Document.FloorCells().Where(c => !Document.Revealed.Contains(c));
-        byte alpha = (byte)Math.Clamp(Settings.FogOpacity * 255 / 100, 0, 255);
-        var fog = DimColor;
-        if (alpha > 0) FillCellRuns(ctx, hidden, new SolidColorBrush(Color.FromArgb(alpha, fog.R, fog.G, fog.B)));
+        byte alpha = (byte)Math.Clamp(Settings.DimOpacity * 255 / 100, 0, 255);
+        var dim = DimColor;
+        if (alpha > 0) FillCellRuns(ctx, hidden, new SolidColorBrush(Color.FromArgb(alpha, dim.R, dim.G, dim.B)));
 
         // DM-only items: a dashed outline
         var pen = new Pen(new SolidColorBrush(DmOnlyColor), 2, new DashStyle(new double[] { 3, 2 }, 0));
@@ -259,7 +259,7 @@ public sealed partial class MapCanvas
     }
 
     /// the dim over hidden floor (reveal tool) and outside the sight region
-    private Color DimColor => Color.FromRgb((byte)Settings.FogR, (byte)Settings.FogG, (byte)Settings.FogB);
+    private Color DimColor => Color.FromRgb((byte)Settings.DimR, (byte)Settings.DimG, (byte)Settings.DimB);
 
     /// the closest cell center or cell corner, or the pawn on that cell (the
     /// reveal circle's center)

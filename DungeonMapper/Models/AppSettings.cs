@@ -212,15 +212,16 @@ public sealed class AppSettings
     [JsonPropertyName("measure_b")] public int MeasureB { get; set; } = 40;
     [JsonPropertyName("measure_shade_opacity")] public int MeasureShadeOpacity { get; set; } = 35;
     public const int MaxMeasureShadeOpacity = 100;
-    // fog tool: the dim over everything outside the vision radius (percent, 0 to 100)
-    [JsonPropertyName("fog_r")] public int FogR { get; set; } = 0;
-    [JsonPropertyName("fog_g")] public int FogG { get; set; } = 0;
-    [JsonPropertyName("fog_b")] public int FogB { get; set; } = 0;
-    [JsonPropertyName("fog_opacity")] public int FogOpacity { get; set; } = 30;
-    public const int MaxFogOpacity = 100;
+    // the dim over hidden floor in the reveal tool (percent, 0 to 100), and the
+    // dim color, which the sight tool uses too. json keys kept from the fog tool
+    [JsonPropertyName("fog_r")] public int DimR { get; set; } = 0;
+    [JsonPropertyName("fog_g")] public int DimG { get; set; } = 0;
+    [JsonPropertyName("fog_b")] public int DimB { get; set; } = 0;
+    [JsonPropertyName("fog_opacity")] public int DimOpacity { get; set; } = 30;
+    public const int MaxDimOpacity = 100;
     // sight tool: the tint colors (clear, behind one pawn, behind two or
     // more), how see-through the tint is and how dim everything outside the
-    // visible region is (percent, 0 to 100; the dim uses the fog color)
+    // visible region is (percent, 0 to 100; the dim uses the dim color)
     [JsonPropertyName("sight_clear_r")] public int SightClearR { get; set; } = 60;
     [JsonPropertyName("sight_clear_g")] public int SightClearG { get; set; } = 200;
     [JsonPropertyName("sight_clear_b")] public int SightClearB { get; set; } = 90;
@@ -457,7 +458,7 @@ public sealed class AppSettings
         s.PawnStatusGap = Math.Clamp(s.PawnStatusGap, 0, MaxPawnStatusGap);
         s.TimerDistance = Math.Clamp(s.TimerDistance, 0, MaxTimerDistance);
         s.MeasureShadeOpacity = Math.Clamp(s.MeasureShadeOpacity, 0, MaxMeasureShadeOpacity);
-        s.FogOpacity = Math.Clamp(s.FogOpacity, 0, MaxFogOpacity);
+        s.DimOpacity = Math.Clamp(s.DimOpacity, 0, MaxDimOpacity);
         s.SightOpacity = Math.Clamp(s.SightOpacity, 0, MaxSightOpacity);
         s.SightDim = Math.Clamp(s.SightDim, 0, MaxSightDim);
         if (string.IsNullOrWhiteSpace(s.DefaultLabelText)) s.DefaultLabelText = defaults.DefaultLabelText;

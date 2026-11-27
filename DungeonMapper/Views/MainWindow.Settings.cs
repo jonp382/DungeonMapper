@@ -54,8 +54,8 @@ public partial class MainWindow
                 (s, c) => (s.LabelR, s.LabelG, s.LabelB) = c),
             new(SetMeasureColor, ResetMeasureColor, s => (s.MeasureR, s.MeasureG, s.MeasureB),
                 (s, c) => (s.MeasureR, s.MeasureG, s.MeasureB) = c),
-            new(SetFogColor, ResetFogColor, s => (s.FogR, s.FogG, s.FogB),
-                (s, c) => (s.FogR, s.FogG, s.FogB) = c),
+            new(SetDimColor, ResetDimColor, s => (s.DimR, s.DimG, s.DimB),
+                (s, c) => (s.DimR, s.DimG, s.DimB) = c),
             new(SetSightClearColor, ResetSightClearColor, s => (s.SightClearR, s.SightClearG, s.SightClearB),
                 (s, c) => (s.SightClearR, s.SightClearG, s.SightClearB) = c),
             new(SetSightOneColor, ResetSightOneColor, s => (s.SightOneR, s.SightOneG, s.SightOneB),
@@ -82,8 +82,8 @@ public partial class MainWindow
                 s => s.TimerDistance, (s, v) => s.TimerDistance = v),
             new(SetMeasureShade, SetMeasureShadeError, ResetMeasureShade, 0, AppSettings.MaxMeasureShadeOpacity,
                 s => s.MeasureShadeOpacity, (s, v) => s.MeasureShadeOpacity = v),
-            new(SetFogOpacity, SetFogOpacityError, ResetFogOpacity, 0, AppSettings.MaxFogOpacity,
-                s => s.FogOpacity, (s, v) => s.FogOpacity = v),
+            new(SetDimOpacity, SetDimOpacityError, ResetDimOpacity, 0, AppSettings.MaxDimOpacity,
+                s => s.DimOpacity, (s, v) => s.DimOpacity = v),
             new(SetSightOpacity, SetSightOpacityError, ResetSightOpacity, 0, AppSettings.MaxSightOpacity,
                 s => s.SightOpacity, (s, v) => s.SightOpacity = v),
             new(SetSightDim, SetSightDimError, ResetSightDim, 0, AppSettings.MaxSightDim,
@@ -262,7 +262,7 @@ public partial class MainWindow
         {
             if (n.Box == SetFloorGridOpacity) yield return (SetFloorGridOpacitySlider, n);
             else if (n.Box == SetMeasureShade) yield return (SetMeasureShadeSlider, n);
-            else if (n.Box == SetFogOpacity) yield return (SetFogOpacitySlider, n);
+            else if (n.Box == SetDimOpacity) yield return (SetDimOpacitySlider, n);
             else if (n.Box == SetSightOpacity) yield return (SetSightOpacitySlider, n);
             else if (n.Box == SetSightDim) yield return (SetSightDimSlider, n);
         }
