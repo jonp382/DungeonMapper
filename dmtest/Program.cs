@@ -6901,5 +6901,87 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(n == 3, "nothing clicked: a pawn tool click with no pawn armed");
 }
 
+// --- right click menus ---
+{
+    using (var ch = new CanvasHarness())
+    {
+        var got = new List<CellKey>();
+        ch.Canvas.ContextRequested += (_, c) => got.Add(c);
+        ch.PanDrag(ch.ScreenOf(3, 2), ch.ScreenOf(3, 2), Avalonia.Input.MouseButton.Right);
+        Check(got.Count == 1 && got[0] == new CellKey(3, 2), "context menu: a right click without a drag asks for a menu at that cell");
+        ch.PanDrag(ch.ScreenOf(3, 2), ch.ScreenOf(6, 2), Avalonia.Input.MouseButton.Right);
+        Check(got.Count == 1, "context menu: a right drag pans and opens no menu");
+        ch.PanDrag(ch.ScreenOf(3, 2), ch.ScreenOf(3, 2), Avalonia.Input.MouseButton.Middle);
+        Check(got.Count == 1, "context menu: a middle click opens no menu");
+    }
+    // (a fresh canvas: the right drag above panned the view)
+    using (var mh = new CanvasHarness())
+    {
+        mh.Canvas.Mode = ToolMode.Measure;
+        mh.Canvas.MeasureFrom(new Point(1.5, 1.5));
+        mh.MoveTo(5, 1);
+        Check(mh.Canvas.MeasurePoints[^1] == new Point(5.5, 1.5), "measure from here: the line's end follows the cursor");
+        mh.Click(6, 1);
+        mh.MoveTo(9, 9);
+        Check(mh.Canvas.MeasurePoints.Count == 2 && mh.Canvas.MeasurePoints[0] == new Point(1.5, 1.5) && mh.Canvas.MeasurePoints[^1] == new Point(6.5, 1.5),
+            "measure from here: a click ends it there and it stays");
+    }
+
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var cdoc = canvas.Document;
+        cdoc.AddRoom(0, 0, 6, 6);
+        var cell = new CellKey(2, 2);
+        cdoc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = "gob", DmOnly = true, Statuses = new() { new PawnStatusEntry { Name = "fear", Turns = 2 } } };
+        var hist = (History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!;
+        hist.Commit(cdoc);
+        CallOn(w, "SetTool", ToolMode.Select);
+        List<Avalonia.Controls.MenuItem> Menu(CellKey at)
+        {
+            CallOn(w, "OnContextRequested", new Point(at.X + 0.5, at.Y + 0.5), at);
+            var m = (Avalonia.Controls.MenuFlyout?)FieldOf(w, "_contextMenu");
+            var items = m is null ? new List<Avalonia.Controls.MenuItem>() : m.Items.OfType<Avalonia.Controls.MenuItem>().ToList();
+            m?.Hide();
+            t.GetField("_contextMenu", flags)!.SetValue(w, null);
+            return items;
+        }
+        void Pick(List<Avalonia.Controls.MenuItem> items, string header) =>
+            items.First(i => (string)i.Header! == header).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.MenuItem.ClickEvent));
+        var pm = Menu(cell);
+        var heads = pm.Select(i => (string)i.Header!).ToList();
+        Check(heads.SequenceEqual(new[] { "add status...", "remove fear", "open", "change pawn...", "show to players", "sight from here", "measure from here", "copy", "delete" }),
+            "context menu: a pawn's menu lists its actions");
+        Check(Menu(new CellKey(5, 5)).Count == 0, "context menu: empty floor has no pawn menu");
+        Pick(pm, "remove fear");
+        Check(cdoc.Pawns[cell].Statuses.Count == 0, "context menu: remove takes the status off");
+        Pick(Menu(cell), "show to players");
+        Check(!cdoc.Pawns[cell].DmOnly, "context menu: show to players flips the pawn visible");
+        CallOn(w, "DoUndo");
+        Check(cdoc.Pawns[cell].DmOnly, "context menu: and it is one undo step");
+        Pick(Menu(cell), "sight from here");
+        Check(canvas.Mode == ToolMode.Sight && canvas.SightCell == cell, "context menu: sight from here shows the pawn's sight");
+        Pick(Menu(cell), "measure from here");
+        Check(canvas.Mode == ToolMode.Measure && canvas.HasMeasure && canvas.MeasurePoints[0] == new Point(2.5, 2.5), "context menu: measure from here starts a line at the pawn");
+        Pick(Menu(cell), "copy");
+        Check(canvas.HasClipboard, "context menu: copy puts the pawn on the clipboard");
+        Pick(Menu(cell), "delete");
+        Check(!cdoc.Pawns.ContainsKey(cell), "context menu: delete removes the pawn");
+        CallOn(w, "DoUndo");
+        Check(cdoc.Pawns.ContainsKey(cell), "context menu: and undo brings it back");
+    }
+    catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

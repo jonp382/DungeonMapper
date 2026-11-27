@@ -280,6 +280,7 @@ public partial class MainWindow : Window
         Canvas.ViewChanged += PlaceLabelEditor;
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
+        InitContextMenus();
         // the item being edited is ringed on the map; any new view drops it
         ToolPanel.Cleared += () => Canvas.ClearHighlight();
         // an item's view links back to the tool's view ("← door tool")

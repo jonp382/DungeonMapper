@@ -1913,6 +1913,22 @@ public sealed partial class MapCanvas : Control
         }
     }
 
+    /// a right click without a drag (world point and its cell): the window
+    /// opens the context menu for what is there
+    public event Action<Point, CellKey>? ContextRequested;
+    private Point? _rightPress;
+
+    /// copies just the pawn on a cell (the pawn's context menu)
+    public void CopyPawn(CellKey cell)
+    {
+        if (!Document.Pawns.ContainsKey(cell)) return;
+        _clipboard = PawnsOnlySnapshot(Document.CaptureRegion(cell.X, cell.Y, cell.X, cell.Y), out _);
+        _cutSource = null;
+        _rotTurns = 0;
+        Status("pawn copied - ctrl+v pastes it in the select tool");
+        InvalidateVisual();
+    }
+
     /// a click that hit nothing to open (select tool, a door tool click off
     /// the walls, a pawn tool click with nothing armed): an open item's view
     /// goes back to the tool's view
@@ -1954,6 +1970,8 @@ public sealed partial class MapCanvas : Control
 
         if (props.IsRightButtonPressed || props.IsMiddleButtonPressed)
         {
+            // a right click that does not drag opens the context menu
+            _rightPress = props.IsRightButtonPressed ? e.GetPosition(this) : null;
             _panning = true;
             _panStartScreen = e.GetPosition(this);
             _panStartOffset = _offset;
@@ -2291,6 +2309,13 @@ public sealed partial class MapCanvas : Control
         {
             _panning = false;
             e.Pointer.Capture(null);
+            var at = e.GetPosition(this);
+            if (_rightPress is Point rp && Dist(rp, at) < 4)
+            {
+                var w = ScreenToWorld(at);
+                ContextRequested?.Invoke(w, new CellKey((int)Math.Floor(w.X), (int)Math.Floor(w.Y)));
+            }
+            _rightPress = null;
             return;
         }
         if (FormationReleased(e)) return;

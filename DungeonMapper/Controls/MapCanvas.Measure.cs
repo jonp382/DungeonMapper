@@ -44,6 +44,7 @@ public sealed partial class MapCanvas
 
     public void ClearMeasure()
     {
+        _measureFollow = false;
         bool had = HasMeasure;
         _measureKind = MeasureKind.None;
         _measurePts.Clear();
@@ -139,9 +140,36 @@ public sealed partial class MapCanvas
 
     // ---- pointer ----
 
+    // "measure from here" (context menu): a line from a point whose end
+    // follows the cursor until the next click
+    private bool _measureFollow;
+
+    public void MeasureFrom(Point world)
+    {
+        _measureKind = MeasureKind.Line;
+        _measurePts.Clear();
+        var p = MeasureSnap(world);
+        _measurePts.Add(p);
+        _measurePts.Add(p);
+        _measuring = true;
+        _measureFollow = true;
+        MeasureChanged?.Invoke();
+        InvalidateVisual();
+    }
+
     private bool MeasurePressed(PointerPressedEventArgs e, Point world, CellKey cell)
     {
         if (Mode != ToolMode.Measure) return false;
+        if (_measureFollow)
+        {
+            // the click ends the line started from the menu
+            _measurePts[^1] = MeasureSnap(world);
+            _measureFollow = false;
+            _measuring = false;
+            MeasureChanged?.Invoke();
+            InvalidateVisual();
+            return true;
+        }
         var mods = e.KeyModifiers;
         if (mods.HasFlag(KeyModifiers.Control) && _measureKind == MeasureKind.Line && _measurePts.Count >= 2)
         {
