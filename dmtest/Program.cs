@@ -7136,6 +7136,44 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(canvas.PlayerPreview && MenuAt(new Point(5.5, 5.5)).Select(H).SequenceEqual(new[] { "leave player view preview" }), "context menu: in the preview the menu only leaves it");
         PickAt(new Point(5.5, 5.5), "leave player view preview");
         Check(!canvas.PlayerPreview, "context menu: and leaving works");
+
+        // stacked: a pawn on an object, the object under it
+        cdoc.Objects.Add(new MapObject { TypeId = otype.Id, X = 5, Y = 5, W = 1, H = 1 });
+        var stacked = MenuAt(new Point(5.5, 5.5));
+        var below = stacked.FirstOrDefault(i => H(i) == "below");
+        Check(H(stacked[0]) == "add status..." && below is not null
+            && below.Items.OfType<Avalonia.Controls.MenuItem>().Select(H).SequenceEqual(new[] { "object" })
+            && below.Items.OfType<Avalonia.Controls.MenuItem>().First().Items.OfType<Avalonia.Controls.MenuItem>().Any(i => H(i) == "rotate"),
+            "context menu: the top item's menu, with the object under it in below > object");
+
+        // a joined player's menus (the session itself is not needed to build them)
+        var remote = new MapDocument();
+        remote.AddRoom(0, 0, 6, 6);
+        var plib = new PawnLibrary();
+        plib.Pawns.Add(new PawnTemplate { Id = "ana", Name = "Ana", Affiliation = "Player" });
+        plib.Pawns.Add(new PawnTemplate { Id = "orc", Name = "Orc", Affiliation = "Enemy" });
+        remote.Pawns[new CellKey(1, 1)] = new Pawn { Cell = new CellKey(1, 1), TemplateId = "ana", DmOnly = false };
+        remote.Pawns[new CellKey(2, 1)] = new Pawn { Cell = new CellKey(2, 1), TemplateId = "orc", DmOnly = false };
+        remote.Labels.Add(new MapLabel { Cell = new CellKey(4, 1), Text = "ours", ClientEditable = true, Id = "l1", DmOnly = false });
+        remote.Labels.Add(new MapLabel { Cell = new CellKey(4, 3), Text = "dm's", DmOnly = false });
+        var savedLib = canvas.Library;
+        canvas.Library = plib;
+        canvas.RemoteDocument = remote;
+        var clientField = t.GetField("_client", flags)!;
+        clientField.SetValue(w, System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(DungeonMapper.Net.SessionClient)));
+        try
+        {
+            Check(MenuAt(new Point(1.5, 1.5)).Select(H).SequenceEqual(new[] { "add status...", "open", "measure from here" }), "player menu: their own pawn: statuses, open, measure");
+            Check(MenuAt(new Point(2.5, 1.5)).Select(H).SequenceEqual(new[] { "ping here", "zoom to fit" }), "player menu: an enemy has no menu, the map's shows instead");
+            Check(MenuAt(new Point(4.5, 1.5)).Select(H).SequenceEqual(new[] { "edit text", "edit...", "delete" }), "player menu: a label players can edit");
+            Check(MenuAt(new Point(4.5, 3.5)).Select(H).SequenceEqual(new[] { "ping here", "zoom to fit" }), "player menu: the DM's label has no menu");
+        }
+        finally
+        {
+            clientField.SetValue(w, null);
+            canvas.RemoteDocument = null;
+            canvas.Library = savedLib;
+        }
     }
     catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();

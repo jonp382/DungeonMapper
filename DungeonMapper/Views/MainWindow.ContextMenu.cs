@@ -23,7 +23,6 @@ public partial class MainWindow
 
     private void OnContextRequested(Point world, CellKey cell)
     {
-        if (Joined) return;
         // the preview edits nothing: its menu only leaves it
         var items = Canvas.PlayerPreview
             ? new List<Control> { MenuAction("leave player view preview", () => SetPlayerPreview(false)) }
@@ -36,21 +35,47 @@ public partial class MainWindow
         menu.ShowAt(Canvas, true);
     }
 
-    /// the menu for what is at the point, top item first
+    /// the menu for what is at the point: the top item's menu, with the
+    /// items under it in a "below" submenu
     private List<Control> ContextItems(Point world, CellKey cell)
     {
         // inside the selected region: the region's menu
-        if (Canvas.SelectionRect is var (x0, y0, x1, y1) && cell.X >= x0 && cell.X <= x1 && cell.Y >= y0 && cell.Y <= y1)
+        if (!Joined && Canvas.SelectionRect is var (x0, y0, x1, y1) && cell.X >= x0 && cell.X <= x1 && cell.Y >= y0 && cell.Y <= y1)
             return RegionMenu(x0, y0, x1, y1);
-        if (_doc.Pawns.TryGetValue(cell, out var pawn)) return PawnMenu(pawn);
-        if (Canvas.DoorAt(world) is { } door) return DoorMenu(door);
-        // labels and images draw over objects, so they come first
-        if (Canvas.LabelAt(cell) is { } label) return LabelMenu(label);
-        if (_doc.ImageAt(cell) is { } image) return ImageMenu(image);
-        if (_doc.ObjectAt(cell) is { } obj) return ObjectMenu(obj);
-        if (_doc.Stairs.TryGetValue(cell, out var stair)) return StairMenu(cell, stair);
-        if (Canvas.WallAt(world) is { } wall) return WallMenu(wall);
-        return MapMenu(cell);
+        var stack = StackAt(world, cell);
+        if (stack.Count == 0) return Joined ? PlayerMapMenu(cell) : MapMenu(cell);
+        var items = stack[0].menu();
+        if (stack.Count > 1)
+        {
+            items.Add(new Separator());
+            items.Add(SubMenu("below", stack.Skip(1).Select(s => (Control)SubMenu(s.name, s.menu()))));
+        }
+        return items;
+    }
+
+    /// everything under the point that has a menu, top first. a joined
+    /// player gets only what players may change
+    private List<(string name, Func<List<Control>> menu)> StackAt(Point world, CellKey cell)
+    {
+        var list = new List<(string, Func<List<Control>>)>();
+        var doc = Canvas.Document;
+        if (Joined)
+        {
+            if (doc.Pawns.TryGetValue(cell, out var p) && PlayerPawns.Controlled(Canvas.Library.Find(p.TemplateId)))
+                list.Add(("pawn", () => PlayerPawnMenu(p)));
+            if (Canvas.LabelAt(cell) is { } l && PlayerLabels.Editable(l)) list.Add(("label", () => LabelMenu(l)));
+            if (doc.ImageAt(cell) is { } i && PlayerImages.Editable(i)) list.Add(("image", () => ImageMenu(i)));
+            return list;
+        }
+        if (_doc.Pawns.TryGetValue(cell, out var pawn)) list.Add(("pawn", () => PawnMenu(pawn)));
+        if (Canvas.DoorAt(world) is { } door) list.Add(("door", () => DoorMenu(door)));
+        // labels and images draw over objects
+        if (Canvas.LabelAt(cell) is { } label) list.Add(("label", () => LabelMenu(label)));
+        if (_doc.ImageAt(cell) is { } image) list.Add(("image", () => ImageMenu(image)));
+        if (_doc.ObjectAt(cell) is { } obj) list.Add(("object", () => ObjectMenu(obj)));
+        if (_doc.Stairs.TryGetValue(cell, out var stair)) list.Add(("stair", () => StairMenu(cell, stair)));
+        if (Canvas.WallAt(world) is { } wall) list.Add(("wall", () => WallMenu(wall)));
+        return list;
     }
 
     private static MenuItem MenuAction(string header, Action onClick, bool enabled = true)
@@ -237,7 +262,14 @@ public partial class MainWindow
 
     // ---------- label ----------
 
-    private List<Control> LabelMenu(MapLabel label) => new()
+    private List<Control> LabelMenu(MapLabel label) => Joined ? new()
+    {
+        // a player: what the label's view lets them do, sent to the DM
+        MenuAction("edit text", () => BeginLabelEdit(label)),
+        MenuAction("edit...", () => ShowLabelConfig(label)),
+        new Separator(),
+        MenuAction("delete", () => { ShowLabelConfig(label); ToolPanel.DeleteAction?.Invoke(); }),
+    } : new()
     {
         MenuAction("edit text", () => BeginLabelEdit(label)),
         MenuAction("edit...", () => ShowLabelConfig(label)),
@@ -318,7 +350,7 @@ public partial class MainWindow
             SetStatus(status);
             FocusCanvas();
         }
-        return new()
+        return new List<Control>
         {
             MenuAction("edit...", () => ShowImageConfig(im)),
             MenuAction("turn left", () => { im.Turns -= 1; (im.W, im.H) = (im.H, im.W); Changed("image turned left"); }),
@@ -336,18 +368,27 @@ public partial class MainWindow
                 (im.W, im.H) = MapImage.NaturalCells(im.PixelW, im.PixelH, im.Turns);
                 Changed($"back to the picture's size ({im.W * 5}x{im.H * 5} ft)");
             }, im.PixelW > 0),
-            VisibilityItem(im.DmOnly, v => im.DmOnly = v, "image"),
-            new Separator(),
-            MenuAction("copy", () => { Canvas.CopyItem(null, null, im); FocusCanvas(); }),
-            MenuAction("delete", () =>
+        }.Concat(Joined
+            ? new Control[]
             {
-                if (!_doc.Images.Remove(im)) return;
-                if (Canvas.SelectedImageId == im.Id) Canvas.SelectedImageId = null;
-                if (ToolPanel.ItemView) BackToToolView();
-                MenuCommit("image deleted");
-                RefreshImagePanel();
-            }),
-        };
+                // a player: the image view's own delete (sent to the DM)
+                new Separator(),
+                MenuAction("delete", () => { ShowImageConfig(im); ToolPanel.DeleteAction?.Invoke(); }),
+            }
+            : new Control[]
+            {
+                VisibilityItem(im.DmOnly, v => im.DmOnly = v, "image"),
+                new Separator(),
+                MenuAction("copy", () => { Canvas.CopyItem(null, null, im); FocusCanvas(); }),
+                MenuAction("delete", () =>
+                {
+                    if (!_doc.Images.Remove(im)) return;
+                    if (Canvas.SelectedImageId == im.Id) Canvas.SelectedImageId = null;
+                    if (ToolPanel.ItemView) BackToToolView();
+                    MenuCommit("image deleted");
+                    RefreshImagePanel();
+                }),
+            }).ToList();
     }
 
     // ---------- selected region ----------
@@ -434,4 +475,34 @@ public partial class MainWindow
             MenuAction(Canvas.PlayerPreview ? "leave player view preview" : "player view preview", () => SetPlayerPreview(!Canvas.PlayerPreview)),
         };
     }
+
+    // ---------- a joined player ----------
+
+    /// a Player pawn: statuses (sent to the DM), open it, measure from it
+    private List<Control> PlayerPawnMenu(Pawn pawn)
+    {
+        var cell = pawn.Cell;
+        var items = new List<Control> { MenuAction("add status...", () => { ShowPawnInfo(pawn); ShowAddStatus(cell); }) };
+        foreach (var e in pawn.Statuses)
+        {
+            var status = e.Name;
+            items.Add(MenuAction($"remove {status}", () => RemovePawnStatus(cell, status)));
+        }
+        items.Add(new Separator());
+        items.Add(MenuAction("open", () => ShowPawnInfo(pawn)));
+        items.Add(MenuAction("measure from here", () =>
+        {
+            SetTool(ToolMode.Measure);
+            Canvas.MeasureFrom(new Point(cell.X + 0.5, cell.Y + 0.5));
+            SetStatus("click where to measure to");
+            FocusCanvas();
+        }));
+        return items;
+    }
+
+    private List<Control> PlayerMapMenu(CellKey cell) => new()
+    {
+        MenuAction("ping here", () => DoPingAt(cell)),
+        MenuAction("zoom to fit", () => { Canvas.AutoFit(); FocusCanvas(); }),
+    };
 }
