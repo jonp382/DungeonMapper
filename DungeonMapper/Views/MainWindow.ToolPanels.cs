@@ -122,9 +122,6 @@ public partial class MainWindow
             case ToolMode.Sight:
                 BuildSightPanel();
                 break;
-            case ToolMode.Fog:
-                BuildFogPanel();
-                break;
 
             case ToolMode.Polygon:
                 ToolPanel.Clear("polygon");

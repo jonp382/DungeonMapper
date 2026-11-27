@@ -28,7 +28,6 @@ public sealed class PlayerPackage
 ///  - stairs and pawns: on revealed cells, pawns not DM only
 ///  - labels and objects: not DM only and covering at least one revealed cell.
 ///    labels players made go wherever they are (the players placed them)
-///  - the players' light (the DM's anchored fog circle), when set
 public static class PlayerView
 {
     public static MapDocument Build(MapDocument doc)
@@ -36,7 +35,6 @@ public static class PlayerView
         var shown = new HashSet<CellKey>(doc.Revealed.Where(doc.IsFloorCell));
         var v = new MapDocument();
         foreach (var c in shown) v.Revealed.Add(c);
-        v.PlayerLight = doc.PlayerLight;
         v.CombatTurn = doc.CombatTurn; // players see the turn number
 
         foreach (var c in doc.Cells) if (shown.Contains(c)) v.Cells.Add(c);

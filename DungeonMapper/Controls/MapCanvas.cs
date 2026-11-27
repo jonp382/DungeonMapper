@@ -11,7 +11,7 @@ using DungeonMapper.Models;
 
 namespace DungeonMapper.Controls;
 
-public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Fog, Reveal, Image, Sight }
+public enum ToolMode { Select, Move, Room, Floor, Wall, Door, Stair, Label, Erase, Pawn, Polygon, Object, Measure, Reveal, Image, Sight }
 
 /// Which element categories the Erase tool removes. Doors follow walls (a door
 /// implies a wall), so a door is removed when its wall is erased.
@@ -1211,10 +1211,8 @@ public sealed partial class MapCanvas : Control
             ctx.DrawEllipse(null, new Pen(new SolidColorBrush(Color.FromArgb(a, 255, 204, 51)), 3), center, r, r);
         }
 
-        DrawFog(ctx); // under the tool overlays, over the whole map
-        DrawSightDim(ctx);
+        DrawSightDim(ctx); // under the tool overlays, over the whole map
         DrawRevealOverlay(ctx);
-        DrawUnlit(ctx);
         DrawPreview(ctx);
         DrawObjectOverlay(ctx);
         DrawImageOverlay(ctx);
@@ -1928,7 +1926,6 @@ public sealed partial class MapCanvas : Control
         // an area pick or an armed formation takes the click in any tool
         if (FormationPressed(e, cell)) return;
         if (MeasurePressed(e, world, cell)) return;
-        if (FogPressed(e, world)) return;
         if (SightPressed(e, cell)) return;
         if (RevealPressed(e, world, cell)) return;
         if (PlayerPawnPressed(e, cell)) return;
@@ -2166,7 +2163,6 @@ public sealed partial class MapCanvas : Control
         if (ObjectMoved(world)) return;
         if (ImageMoved(world)) return;
         if (MeasureMoved(world)) return;
-        if (FogMoved(world)) return;
         if (SightMoved(world)) return;
         if (RevealMoved(world)) return;
         if (PlayerPawnMoved(world)) return;
@@ -2264,7 +2260,6 @@ public sealed partial class MapCanvas : Control
         if (ObjectReleased(e)) return;
         if (ImageReleased(e)) return;
         if (MeasureReleased(e)) return;
-        if (FogReleased(e)) return;
         if (SightReleased(e)) return;
         if (RevealReleased(e)) return;
         if (PlayerPawnReleased(e)) return;
@@ -2564,13 +2559,6 @@ public sealed partial class MapCanvas : Control
         if (e.KeyModifiers == KeyModifiers.Shift && FormationArmed)
         {
             RotateFormation(e.Delta.Y > 0 ? 1 : -1);
-            e.Handled = true;
-            return;
-        }
-        // the fog tool rotates nothing: shift+scroll steps its radius instead
-        if (e.KeyModifiers == KeyModifiers.Shift && Mode == ToolMode.Fog)
-        {
-            StepFog(e.Delta.Y > 0 ? 1 : -1);
             e.Handled = true;
             return;
         }

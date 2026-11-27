@@ -109,7 +109,6 @@
                             <Border Classes="sep" />
                             <Button x:Name="ToolErase" Classes="hot" />
                             <Button x:Name="ToolMeasure" Classes="hot" />
-                            <Button x:Name="ToolFog" Classes="hot" />
                             <Button x:Name="ToolSight" Classes="hot" />
                             <Button x:Name="ToolReveal" Classes="hot" />
                         </WrapPanel>

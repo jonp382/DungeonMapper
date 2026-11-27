@@ -268,10 +268,6 @@ public sealed partial class MapDocument
     // multiplayer: cells the DM has revealed to players. a mask over cell
     // coordinates, independent of the floor (copy, move and erase leave it)
     public HashSet<CellKey> Revealed { get; } = new();
-    /// multiplayer: the area lit for players (the DM's anchored fog circle):
-    /// center in world units and radius in cells. null = all revealed floor is
-    /// lit. session only: not saved, not part of undo
-    public (double x, double y, int radius)? PlayerLight { get; set; }
     /// turn tracking (Models/TurnTracker.cs): the turn of the combat on this
     /// map, 0 = no combat. saved and undone with the map
     public int CombatTurn { get; set; }

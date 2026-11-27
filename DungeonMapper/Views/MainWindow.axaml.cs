@@ -167,14 +167,6 @@ public partial class MainWindow : Window
             Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
             StrokeLineCap = PenLineCap.Round,
         });
-        // no png for fog yet: a drawn eye
-        SetIcon(ToolFog, new Avalonia.Controls.Shapes.Path
-        {
-            Width = 20, Height = 20, Stretch = Stretch.None,
-            Data = Geometry.Parse("M2,10 Q10,2 18,10 Q10,18 2,10 Z M10,7.5 A2.5,2.5 0 1 1 9.99,7.5 Z"),
-            Stroke = new SolidColorBrush(Color.FromRgb(216, 216, 224)), StrokeThickness = 2,
-            StrokeLineCap = PenLineCap.Round,
-        });
         // no png for sight yet: an eye with sight lines fanning out
         SetIcon(ToolSight, new Avalonia.Controls.Shapes.Path
         {
@@ -220,7 +212,6 @@ public partial class MainWindow : Window
         ToolImage.Click += (_, _) => SetTool(ToolMode.Image);
         ToolPolygon.Click += (_, _) => SetTool(ToolMode.Polygon);
         ToolMeasure.Click += (_, _) => SetTool(ToolMode.Measure);
-        ToolFog.Click += (_, _) => SetTool(ToolMode.Fog);
         ToolSight.Click += (_, _) => SetTool(ToolMode.Sight);
         ToolReveal.Click += (_, _) => SetTool(ToolMode.Reveal);
 
@@ -255,7 +246,6 @@ public partial class MainWindow : Window
         // settings, door presets and hotkeys modal popups
         InitSettings();
         InitMeasure();
-        InitFog();
         InitSight();
         InitReveal();
         InitSession();
@@ -377,8 +367,6 @@ public partial class MainWindow : Window
             { Canvas.CancelLine(); Canvas.Refresh(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Measure && Canvas.HasMeasure && !IsTyping())
             { Canvas.ClearMeasure(); e.Handled = true; return; }
-            if (Canvas.Mode == ToolMode.Fog && Canvas.FogAnchored && !IsTyping())
-            { Canvas.ReleaseFogAnchor(); e.Handled = true; return; }
             if (Canvas.Mode == ToolMode.Sight && Canvas.HasSight && !IsTyping())
             { Canvas.ClearSight(); e.Handled = true; return; }
         }
@@ -469,7 +457,6 @@ public partial class MainWindow : Window
         LabelTool(ToolObject, "Object");
         LabelTool(ToolImage, "Image");
         LabelTool(ToolMeasure, "Measure");
-        LabelTool(ToolFog, "Fog");
         LabelTool(ToolSight, "Sight");
         LabelTool(ToolReveal, "Reveal");
         // the view menu shows the zoom to fit letter, display only
@@ -492,7 +479,6 @@ public partial class MainWindow : Window
         ToolMode.Object => ToolObject,
         ToolMode.Image => ToolImage,
         ToolMode.Measure => ToolMeasure,
-        ToolMode.Fog => ToolFog,
         ToolMode.Sight => ToolSight,
         ToolMode.Reveal => ToolReveal,
         _ => ToolPolygon,
@@ -554,7 +540,6 @@ public partial class MainWindow : Window
         Canvas.ArmedImage = null;
         Canvas.CancelLine(); // a half-dragged line ghost must not survive a tool switch
         Canvas.ClearMeasure(); // a measurement lasts until a tool switch
-        Canvas.ResetFog(); // fog is back on and unanchored each time the tool is picked
         Canvas.ClearSight(); // line of sight lasts until a tool switch
         Canvas.ResetReveal();
         SetStatus(mode switch
@@ -572,7 +557,6 @@ public partial class MainWindow : Window
             ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag its handles to resize or its dashed edge to move",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. shift+drag for a radius. esc clears",
-            ToolMode.Fog => "fog: the vision radius follows the cursor, click to anchor it. shift+scroll changes the radius, esc releases the anchor",
             ToolMode.Sight => "sight: click a pawn or a cell to see what it can see, drag a pawn to move it and watch. hover a cell for the line to it. shift+scroll changes the range, esc clears",
             ToolMode.Reveal => "reveal: choose cells or items and show or hide, then drag a box (room: click inside a room, circle: drag out from a center)",
             _ => "",

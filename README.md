@@ -31,7 +31,6 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, drag its handles to resize it, or drag the dashed edge of its box to move it. Shift+drag places one over another object. |
 | Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, drag its handles to resize it, or drag the dashed edge of its box to move it. See [Images](#images). |
 | Measure | G | Drag to measure a distance, or Shift+drag for a spell radius. See [Measuring](#measuring). |
-| Fog | V | Dims the map outside a vision radius to show how far a character can see. See [Fog](#fog). |
 | Sight | K | Shows what a pawn can see, and what it could shoot past other pawns. See [Line of Sight](#line-of-sight). |
 | Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |
 
@@ -135,19 +134,6 @@ The measure tool only reads the map. It never changes anything, adds an undo ste
 ![pawn2pawn](./images/measure_pawn2pawn.png)
 
 
-## Fog of War
-
-The fog tool shows how far a character can see. Like the measure tool it only reads the map: nothing changes, no undo step, nothing saved.
-
-- With the tool selected the whole map is dimmed, except the cells within the vision radius. Cells whose center is inside the circle are revealed. Walls are ignored.
-- The center follows the cursor and snaps to the closest cell center or grid corner. Anywhere on a pawn's cell snaps to the pawn.
-- Click to anchor the center. Click somewhere else to move it. Esc or **release anchor** goes back to following the cursor.
-- The **vision radius** slider runs from 0 to 120 ft in 10 ft steps, starting at 30 ft. Shift+scroll changes it too. It is kept until you close the app.
-- The **fog on** checkbox turns the dimming off without leaving the tool. The fog never shows with another tool selected, and picking the tool again turns it back on.
-- The fog color (black by default) and how dark it is (30 percent by default) are in settings.
-
-![fog of war](./images/fog%20of%20war.png)
-
 ## Line of Sight
 
 The sight tool shows everything a pawn can see. It is for the DM only: players in a session can not use it and never see it.
@@ -184,7 +170,6 @@ The DM can host a session for players on the same network (home wifi or LAN). Pl
 - **Managing your pawns:** the **manage** button in the pawn panel opens the pawn management window with only Player pawns. Players can add pawns (always Player pawns), duplicate them, and change their name, colors and image. The affiliation and the hero mark stay the DM's, and players never delete a pawn type (ask the DM). There are no affiliation or status style tabs, no import or export, and no counts from the DM's other maps. Changes go to the DM's campaign (typing is sent after a short pause) and show for everyone.
 - **Labels:** joined players have the **label** tool. A label a player adds goes onto the DM's map for everyone (and is saved in the DM's file), marked with the player's name; it shows to players wherever it is. Any player can change (text, size, alignment, color, resize) or delete labels that players can edit; the DM's own labels stay the DM's. The DM's label view has a **players can edit** checkbox to hand any label over or take one back, and shows which player made a label. Each player change is one undo step for the DM.
 - **Images:** joined players have the **image** tool and use their own images folder. Any player can place images, and change or delete any image that is not DM only. Each change is one undo step for the DM. A DM only image is never sent to players (the shared folder itself is not hidden from them).
-- **Light:** in the fog tool, clicking to anchor the circle also lights it for players: revealed floor and images outside it show dimmer on their screens (in their own fog color and darkness). The light stays when you change tools; **clear players' light** in the fog panel lights all revealed floor again. It is not saved.
 - **Ping:** press backslash (changeable in the hotkeys menu, which now also takes digits and keys like [ ] ; ,) to ping the cell under the cursor. Everyone else in the session sees rings on it and a note at the top right, "Ana pinged 12,7", with a **jump** button. The DM's pings go to the map shown to players, so the DM pings from that map.
 - The status bar shows the session on the right. The first time you host, your firewall may ask to allow Dungeon Mapper; allow it on private networks. Sessions use port 47320 (TCP) and 47321 (UDP, for the list of sessions).
 

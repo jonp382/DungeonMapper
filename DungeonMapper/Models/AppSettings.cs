@@ -321,7 +321,6 @@ public sealed class AppSettings
             ["Image"] = "B",
             // not a tool: zoom to fit. same table so it gets the hotkeys menu row
             ["Measure"] = "G",
-            ["Fog"] = "V",
             ["Sight"] = "K",
             ["Reveal"] = "H",
             [FitHotkey] = "Z",
@@ -400,6 +399,9 @@ public sealed class AppSettings
         // settings.json written before a hotkey existed: fill in missing keys
         foreach (var (k, v) in Default().ToolHotkeys)
             if (!s.ToolHotkeys.ContainsKey(k)) s.ToolHotkeys[k] = v;
+        // and drop hotkeys of tools that are gone (the fog tool)
+        var tools = Default().ToolHotkeys;
+        foreach (var k in s.ToolHotkeys.Keys.Where(k => !tools.ContainsKey(k)).ToList()) s.ToolHotkeys.Remove(k);
         return s;
     }
 

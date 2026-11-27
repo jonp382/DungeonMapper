@@ -3778,103 +3778,6 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
-// --- fog tool ---
-{
-    using var h = new CanvasHarness();
-    h.Doc.Pawns[new CellKey(5, 5)] = new Pawn { Cell = new CellKey(5, 5), TemplateId = "p" };
-    var c = h.Canvas;
-    Check(c.FogSnap(new Point(2.1, 2.1)) == new Point(2, 2), "fog: near a corner snaps to the corner");
-    Check(c.FogSnap(new Point(2.4, 2.6)) == new Point(2.5, 2.5), "fog: near a center snaps to the center");
-    Check(c.FogSnap(new Point(5.05, 5.05)) == new Point(5.5, 5.5), "fog: anywhere on a pawn's cell snaps to the pawn");
-
-    Check(c.FogFeet == 30 && c.FogRadiusCells == 6, "fog: radius starts at 30 ft (6 cells)");
-    c.FogFeet = 135; Check(c.FogFeet == 120, "fog: radius stops at 120 ft");
-    c.FogFeet = -5; Check(c.FogFeet == 0, "fog: radius stops at 0");
-    c.FogFeet = 34; Check(c.FogFeet == 30, "fog: radius snaps to 10 ft steps");
-
-    int commits = h.CommitCount;
-    c.Mode = ToolMode.Fog;
-    c.ResetFog();
-    h.MoveToAt(h.ScreenWorld(3.5, 3.5));
-    Check(c.FogCenter == new Point(3.5, 3.5) && !c.FogAnchored, "fog: the center follows the cursor");
-    Check(c.FogRevealed().Count == MapCanvas.CellsInRadius(new Point(3.5, 3.5), 6).Count, "fog: reveals the same cells the measure radius catches");
-    h.ClickW(7.05, 7.05);
-    Check(c.FogAnchored && c.FogCenter == new Point(7, 7), "fog: a click anchors the center (snapped to a corner)");
-    h.MoveToAt(h.ScreenWorld(2.5, 2.5));
-    Check(c.FogCenter == new Point(7, 7), "fog: the anchor stays when the cursor moves");
-    h.ClickW(9.5, 4.5);
-    Check(c.FogCenter == new Point(9.5, 4.5), "fog: a click elsewhere moves the anchor");
-    Check(c.ReleaseFogAnchor() && !c.FogAnchored, "fog: release drops the anchor");
-    h.MoveToAt(h.ScreenWorld(2.5, 2.5));
-    Check(c.FogCenter == new Point(2.5, 2.5), "fog: released, the center follows the cursor again");
-
-    // shift+scroll steps the radius
-    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), 1);
-    Check(c.FogFeet == 40, "fog: shift+scroll up grows the radius by 10 ft");
-    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), -1);
-    h.ShiftWheelAt(h.ScreenWorld(2.5, 2.5), -1);
-    Check(c.FogFeet == 20, "fog: shift+scroll down shrinks it");
-
-    // pixels: anchored on the pawn, 30 ft. a revealed cell is brighter than a fogged one
-    c.FogFeet = 30;
-    h.Click(5, 5);
-    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
-    var bmp = h.Render();
-    var inside = h.PixelAt(bmp, (int)h.ScreenOf(8, 5).X + 8, (int)h.ScreenOf(8, 5).Y + 8);
-    var outside = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
-    Check(Lum(inside) > Lum(outside), "fog: cells outside the radius are dimmed, inside are not");
-    c.FogOn = false;
-    bmp = h.Render();
-    var off = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
-    Check(Lum(off) == Lum(inside), "fog: unticked, nothing is dimmed");
-    c.FogOn = true;
-    c.Mode = ToolMode.Select;
-    bmp = h.Render();
-    off = h.PixelAt(bmp, (int)h.ScreenOf(14, 5).X + 8, (int)h.ScreenOf(14, 5).Y + 8);
-    Check(Lum(off) == Lum(inside), "fog: never shows outside the fog tool");
-
-    Check(h.CommitCount == commits && h.Doc.Pawns.Count == 1 && h.Doc.Cells.Count == 0, "fog: no commits (no undo steps) and the map is untouched");
-
-    var d = AppSettings.Default();
-    Check(d.ToolHotkeys["Fog"] == "V" && d.ToolHotkeys.Values.Count(v => v == "V") == 1, "fog: hotkey V by default, used by nothing else");
-    Check(d.FogOpacity == 30 && d.FogR == 0 && d.FogG == 0 && d.FogB == 0, "fog: default dim is black at 30 percent");
-    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"fog_opacity\":500,\"fog_r\":10}")!;
-    Check(imp.FogOpacity == 100 && imp.FogR == 10, "fog: settings import clamps the opacity and keeps the color");
-}
-
-// --- fog tool: window smoke test ---
-{
-    _ = new CanvasHarness();
-    string step = "construct";
-    try
-    {
-        var w = new DungeonMapper.Views.MainWindow();
-        w.Show();
-        var t = typeof(DungeonMapper.Views.MainWindow);
-        var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
-        object? Call(string name, params object?[] args) =>
-            t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
-        var canvas = (MapCanvas)t.GetField("Canvas", flags)!.GetValue(w)!;
-        step = "fog panel"; Call("SetTool", ToolMode.Fog);
-        var slider = (Avalonia.Controls.Slider?)t.GetField("_fogSlider", flags)!.GetValue(w);
-        Check(slider?.Value == canvas.FogFeet && canvas.FogActive, "fog: panel builds, slider shows the radius, fog is on");
-        canvas.FogFeet = 60;
-        Check(slider!.Value == 60, "fog: a radius change (shift+scroll) moves the slider");
-        slider.Value = 90;
-        Check(canvas.FogFeet == 90, "fog: the slider sets the radius");
-        canvas.FogOn = false;
-        step = "settings"; Call("ShowSettings"); Call("CloseSettings");
-        step = "tool switch"; Call("SetTool", ToolMode.Room);
-        Check(!canvas.FogActive, "fog: a tool switch hides the fog");
-        Call("SetTool", ToolMode.Fog);
-        Check(canvas.FogActive && !canvas.FogAnchored && canvas.FogFeet == 90, "fog: picking the tool again turns it on, unanchored, radius kept");
-    }
-    catch (Exception ex)
-    {
-        Check(false, $"fog: window views build without errors (failed at {step}: {(ex.InnerException ?? ex)})");
-    }
-}
-
 // --- multiplayer: dm only flag and revealed cells (model) ---
 {
     Check(new Door().DmOnly && new VertexDoor().DmOnly && new AngledDoor().DmOnly && new MapLabel().DmOnly
@@ -4484,8 +4387,8 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
         && AppSettings.HotkeyNameOf(Avalonia.Input.Key.D7) == "D7" && AppSettings.HotkeyNameOf(Avalonia.Input.Key.F5) is null,
         "ping: hotkeys take letters, digits and punctuation keys, not function keys");
     Check(AppSettings.HotkeyLabel("OemPipe") == "\\" && AppSettings.HotkeyLabel("D7") == "7" && AppSettings.HotkeyLabel("Q") == "Q", "ping: keys show as their symbol");
-    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"tool_hotkeys\":{\"Ping\":\"OemOpenBrackets\",\"Fog\":\"F5\"}}")!;
-    Check(imp.ToolHotkeys["Ping"] == "OemOpenBrackets" && imp.ToolHotkeys["Fog"] == "V", "ping: a punctuation hotkey survives loading, a bad one goes back to the default");
+    var imp = AppSettings.ParseImport("{\"kind\":\"settings\",\"tool_hotkeys\":{\"Ping\":\"OemOpenBrackets\",\"Sight\":\"F5\"}}")!;
+    Check(imp.ToolHotkeys["Ping"] == "OemOpenBrackets" && imp.ToolHotkeys["Sight"] == "K", "ping: a punctuation hotkey survives loading, a bad one goes back to the default");
 
     using (var h = new CanvasHarness())
     {
@@ -5026,54 +4929,6 @@ Check(sp.Red == 200 && sp.Green == 20 && sp.Blue == 20, "pawn compress: solid co
     }
 }
 
-// --- multiplayer: players' light ---
-{
-    using var h = new CanvasHarness();
-    var c = h.Canvas;
-    AddRoom(h.Doc, 0, 0, 14, 8);
-    h.Doc.SetRevealed(h.Doc.FloorCells(), true);
-    c.Mode = ToolMode.Fog;
-    c.ResetFog();
-    c.FogFeet = 20;
-    h.MoveTo(3, 3);
-    Check(h.Doc.PlayerLight is null, "light: following the cursor lights nothing for players");
-    h.Click(3, 3);
-    Check(h.Doc.PlayerLight == (3.5, 3.5, 4), "light: anchoring the fog lights that circle for players");
-    c.FogFeet = 30;
-    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: a radius change while anchored follows");
-    c.Mode = ToolMode.Select; c.ResetFog();
-    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: it stays when the tool changes");
-    c.Mode = ToolMode.Fog;
-    c.FogFeet = 60;
-    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: an unanchored radius change does not move it");
-    Check(!MapSerializer.ToJson(h.Doc).Contains("light"), "light: never saved");
-    var hist = new History(); hist.Initialize(h.Doc);
-    h.Doc.ApplyFrom(MapSerializer.FromJson(MapSerializer.ToJson(h.Doc)));
-    Check(h.Doc.PlayerLight == (3.5, 3.5, 6), "light: undo leaves it alone");
-
-    var v = PlayerView.Build(h.Doc);
-    Check(v.PlayerLight == (3.5, 3.5, 6), "light: the players' copy carries it");
-    var back = MapSerializer.PackageFromWire(MapSerializer.PackageToWire(new PlayerPackage { Map = v }));
-    Check(back.Map.PlayerLight == (3.5, 3.5, 6), "light: it crosses the wire");
-    Check(MapSerializer.PackageFromWire(MapSerializer.PackageToWire(new PlayerPackage { Map = new MapDocument() })).Map.PlayerLight is null, "light: none crosses as none");
-
-    // drawn on the player's side: outside the circle is dimmer
-    c.Mode = ToolMode.Measure;
-    c.RemoteDocument = v;
-    int Lum((byte r, byte g, byte b, byte a) p) => p.r + p.g + p.b;
-    var bmp = h.Render();
-    var inside = h.PixelAt(bmp, (int)h.ScreenOf(4, 3).X + 8, (int)h.ScreenOf(4, 3).Y + 8);
-    var outside = h.PixelAt(bmp, (int)h.ScreenOf(13, 3).X + 8, (int)h.ScreenOf(13, 3).Y + 8);
-    Check(Lum(inside) > Lum(outside), "light: unlit revealed floor is dimmer for players");
-    c.RemoteDocument = null;
-    c.Mode = ToolMode.Select;
-    bmp = h.Render();
-    outside = h.PixelAt(bmp, (int)h.ScreenOf(13, 3).X + 8, (int)h.ScreenOf(13, 3).Y + 8);
-    Check(Lum(inside) == Lum(outside), "light: the DM's own view is not dimmed");
-    c.ClearPlayerLight();
-    Check(h.Doc.PlayerLight is null, "light: clear removes it");
-}
-
 // --- images: model and folder ---
 string imgDir = Path.Combine(Path.GetTempPath(), "dmtest_images_" + Guid.NewGuid().ToString("N")[..8]);
 string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
@@ -5252,38 +5107,6 @@ string WritePng(string path, int w, int h, SkiaSharp.SKColor color)
     Check(sent.Count == 1 && !sent[0].DmOnly && c.Document.Images.Count == 2 && h.CommitCount == commits && h.Doc.Images.Count == 2,
         "images canvas: a player's image goes to the DM and shows at once");
     c.RemoteDocument = null;
-}
-
-// --- images: players' light dims them ---
-{
-    using var h = new CanvasHarness();
-    var c = h.Canvas;
-    ImageStore.Folder = imgDir;
-    var red = ImageStore.FromFile(Path.Combine(imgDir, "sub", "Statue.png"))!;
-    AddRoom(h.Doc, 0, 0, 8, 5);
-    h.Doc.SetRevealed(h.Doc.FloorCells(), true);
-    MapImage Img(int x, int y, int w, int hh) { var i = red.Copy(); i.Id = Guid.NewGuid().ToString("N"); i.X = x; i.Y = y; i.W = w; i.H = hh; i.Fit = ImageFit.Stretch; i.DmOnly = false; return i; }
-    h.Doc.Images.Add(Img(1, 1, 1, 1));   // lit, on floor
-    h.Doc.Images.Add(Img(6, 3, 1, 1));   // unlit, on revealed floor
-    h.Doc.Images.Add(Img(12, 2, 2, 2));  // unlit, beside the map (no floor)
-    h.Doc.PlayerLight = (1.5, 1.5, 1);
-    c.Mode = ToolMode.Measure;
-    c.RemoteDocument = PlayerView.Build(h.Doc);
-    foreach (var im in c.Document.Images)
-        for (int i = 0; i < 100 && c.ImageState(im).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
-    Check(c.Document.Images.Count == 3 && c.Document.Images.All(im => c.ImageState(im).bitmap is not null), "images light: the player's pictures load");
-    var bmp = h.Render();
-    (byte r, byte g, byte b, byte a) At(int cx, int cy) => h.PixelAt(bmp, (int)h.ScreenOf(cx, cy).X, (int)h.ScreenOf(cx, cy).Y);
-    var lit = At(1, 1); var onFloor = At(6, 3); var beside = At(12, 2);
-    Check(lit.r > 200 && lit.g < 60, "images light: an image in the lit circle is not dimmed");
-    Check(beside.r < lit.r, "images light: an image beside the map outside the light is dimmed for players");
-    Check(beside == onFloor, "images light: an image on unlit revealed floor is dimmed once, same as one beside the map");
-    c.RemoteDocument = null;
-    c.Mode = ToolMode.Select;
-    foreach (var im in h.Doc.Images)
-        for (int i = 0; i < 100 && c.ImageState(im).why == "loading…"; i++) { Avalonia.Threading.Dispatcher.UIThread.RunJobs(); Thread.Sleep(10); }
-    bmp = h.Render();
-    Check(At(12, 2) == lit, "images light: the DM's own view does not dim images");
 }
 
 // --- images: window smoke test ---
@@ -6906,6 +6729,20 @@ try { Directory.Delete(imgDir, true); } catch { }
     }
     catch (Exception ex) { Check(false, $"badge: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();
+}
+
+// --- fog tool removed ---
+{
+    using var h = new CanvasHarness();
+    h.Canvas.Library.Pawns.Add(new PawnTemplate { Id = "p", Name = "P" });
+    h.Doc.Pawns[new CellKey(2, 2)] = new Pawn { Cell = new CellKey(2, 2), TemplateId = "p" };
+    Check(h.Canvas.SnapCenter(new Point(1.1, 1.1)) == new Point(1, 1) && h.Canvas.SnapCenter(new Point(1.4, 1.6)) == new Point(1.5, 1.5)
+        && h.Canvas.SnapCenter(new Point(2.05, 2.95)) == new Point(2.5, 2.5),
+        "reveal snap: closest corner or center, a pawn's cell snaps to the pawn");
+    Check(!Enum.GetNames<ToolMode>().Contains("Fog") && !AppSettings.Default().ToolHotkeys.ContainsKey("Fog"), "fog tool: gone from the tools and the hotkeys");
+    var old = AppSettings.Default(); old.ToolHotkeys["Fog"] = "V";
+    var fogLoaded = AppSettings.Parse(old.ToJson());
+    Check(fogLoaded is not null && !fogLoaded.ToolHotkeys.ContainsKey("Fog") && fogLoaded.ToolHotkeys.ContainsKey("Sight"), "fog tool: an old settings file loses its fog hotkey");
 }
 
 Console.WriteLine($"\n{pass} passed, {fail} failed");

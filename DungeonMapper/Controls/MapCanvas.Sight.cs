@@ -285,7 +285,7 @@ public sealed partial class MapCanvas
                 for (int i = 1; i < s.Region.Count; i++) g.LineTo(WorldToScreen(s.Region[i].x, s.Region[i].y));
                 g.EndFigure(true);
             }
-            var col = FogColor;
+            var col = DimColor;
             ctx.DrawGeometry(new SolidColorBrush(Color.FromArgb(alpha, col.R, col.G, col.B)), null, geo);
         }
         var center = WorldToScreen(viewer.X + 0.5, viewer.Y + 0.5);

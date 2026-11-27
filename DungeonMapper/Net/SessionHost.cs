@@ -291,7 +291,7 @@ public sealed class SessionHost : IDisposable
             var msg = new NetMessage
             {
                 Type = "state", MapName = full.MapName,
-                Package = new PackageWire { Map = w.Map, PawnLibrary = w.PawnLibrary, ObjectTypes = w.ObjectTypes, ObjectPictures = pics, Presets = w.Presets, Light = w.Light, Formations = w.Formations },
+                Package = new PackageWire { Map = w.Map, PawnLibrary = w.PawnLibrary, ObjectTypes = w.ObjectTypes, ObjectPictures = pics, Presets = w.Presets, Formations = w.Formations },
             };
             await NetProtocol.WriteAsync(p.Stream, msg);
             foreach (var k in pics.Keys) p.Pictures.Add(k);

@@ -15,7 +15,7 @@ public enum RevealShape { Box, Room, Circle }
 // decides what players see:
 //  - cells: show or hide floor cells by box (a click is one cell), room (a
 //    click fills to the walls, doors count as walls) or circle (drag out from
-//    a center that snaps like the fog tool)
+//    a center that snaps to the closest cell center, corner or pawn)
 //  - items: a box marks labels, doors, objects and pawns (filtered by kind)
 //    DM-only or visible
 // every change is one undo step. while the tool is selected, unrevealed floor
@@ -66,7 +66,7 @@ public sealed partial class MapCanvas
         }
         _revealDragging = true;
         _revealStart = _revealEnd = cell;
-        _revealCenter = FogSnap(world);
+        _revealCenter = SnapCenter(world);
         _revealRadius = 0;
         e.Pointer.Capture(this);
         InvalidateVisual();
@@ -196,7 +196,7 @@ public sealed partial class MapCanvas
         // unrevealed floor, dimmed with the fog settings
         var hidden = Document.FloorCells().Where(c => !Document.Revealed.Contains(c));
         byte alpha = (byte)Math.Clamp(Settings.FogOpacity * 255 / 100, 0, 255);
-        var fog = FogColor;
+        var fog = DimColor;
         if (alpha > 0) FillCellRuns(ctx, hidden, new SolidColorBrush(Color.FromArgb(alpha, fog.R, fog.G, fog.B)));
 
         // DM-only items: a dashed outline
@@ -256,5 +256,19 @@ public sealed partial class MapCanvas
             ctx.DrawRectangle(new SolidColorBrush(tint, 0.15), new Pen(new SolidColorBrush(tint), 1.5, new DashStyle(new double[] { 4, 3 }, 0)),
                 new Rect(a, b));
         }
+    }
+
+    /// the dim over hidden floor (reveal tool) and outside the sight region
+    private Color DimColor => Color.FromRgb((byte)Settings.FogR, (byte)Settings.FogG, (byte)Settings.FogB);
+
+    /// the closest cell center or cell corner, or the pawn on that cell (the
+    /// reveal circle's center)
+    public Point SnapCenter(Point world)
+    {
+        var cell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+        var center = CellCenter(cell);
+        if (Document.Pawns.ContainsKey(cell)) return center;
+        var corner = new Point(Math.Round(world.X), Math.Round(world.Y));
+        return Dist(world, corner) < Dist(world, center) ? corner : center;
     }
 }

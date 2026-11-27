@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Avalonia;
+using Avalonia.Input;
 using Avalonia.Media;
 using DungeonMapper.Models;
 
@@ -60,5 +61,13 @@ public sealed partial class MapCanvas
             ctx.DrawRectangle(new SolidColorBrush(Color.FromArgb((byte)(200 * (1 - k)), 12, 12, 16)), new Pen(new SolidColorBrush(PingColor, 1 - k), 1), box, 4, 4);
             ctx.DrawText(ft, new Point(box.X + 5, box.Y + 2));
         }
+    }
+
+    protected override void OnPointerExited(PointerEventArgs e)
+    {
+        base.OnPointerExited(e);
+        var hoverBefore = CursorCell;
+        CursorCell = null;
+        HoverTimers(hoverBefore);
     }
 }
