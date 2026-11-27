@@ -78,16 +78,20 @@ public partial class MainWindow
         ToolPanel.AddButtonRaw(row);
     }
 
-    // multiplayer: the item's DM only flag, one undo step per flip
-    private void AddDmOnlyCheck(Func<bool> get, Action<bool> set) =>
-        ToolPanel.AddCheck("DM only", get(), v =>
+    // multiplayer: the item's DM only flag as the hidden / visible badge by
+    // the panel title, one undo step per flip
+    private void AddDmOnlyCheck(Func<bool> get, Action<bool> set)
+    {
+        void Show() => ToolPanel.SetBadge(get(), () =>
         {
-            if (v == get()) return;
-            set(v);
+            set(!get());
             ActiveHistory.Commit(_doc);
             Canvas.Refresh();
+            Show();
             FocusCanvas();
-        }, "hidden from players, even on revealed floor");
+        });
+        Show();
+    }
 
     // after a delete: one undo step, every count follows, back to the tool view
     private void AfterDelete(string what)

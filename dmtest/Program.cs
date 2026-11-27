@@ -6874,5 +6874,39 @@ try { Directory.Delete(imgDir, true); } catch { }
         "player pawns: only Player affiliation templates start visible");
 }
 
+// --- hidden / visible badge ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    object? CallOn(object w, string name, params object?[] args) =>
+        t.GetMethods(flags).First(m => m.Name == name && m.GetParameters().Length == args.Length).Invoke(w, args);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var wlib = (PawnLibrary)t.GetProperty("ActiveLibrary", flags)!.GetValue(w)!;
+        wlib.Pawns.Add(new PawnTemplate { Id = "gob", Name = "Gob" });
+        var canvas = (MapCanvas)FieldOf(w, "Canvas")!;
+        var bdoc = canvas.Document;
+        var cell = new CellKey(1, 1);
+        bdoc.Pawns[cell] = new Pawn { Cell = cell, TemplateId = "gob", DmOnly = true };
+        ((History)t.GetProperty("ActiveHistory", flags)!.GetValue(w)!).Commit(bdoc);
+        var panel = (DungeonMapper.Views.ToolPanel)FieldOf(w, "ToolPanel")!;
+        CallOn(w, "ShowPawnInfo", bdoc.Pawns[cell]);
+        Check(panel.BadgeText == "hidden", "badge: a DM only pawn's view says hidden by the title");
+        Check(!Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(panel).OfType<Avalonia.Controls.CheckBox>().Any(c => c.Content as string == "DM only"),
+            "badge: no DM only checkbox in the view any more");
+        panel.BadgeClick!();
+        Check(!bdoc.Pawns[cell].DmOnly && panel.BadgeText == "visible", "badge: clicking it shows the pawn to players and flips to visible");
+        CallOn(w, "DoUndo");
+        Check(bdoc.Pawns[cell].DmOnly, "badge: the flip is one undo step");
+        CallOn(w, "SetTool", ToolMode.Room);
+        Check(panel.BadgeText is null, "badge: a tool view has no badge");
+    }
+    catch (Exception ex) { Check(false, $"badge: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

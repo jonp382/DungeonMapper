@@ -15,7 +15,9 @@ namespace DungeonMapper.Views;
 public sealed class ToolPanel : Border
 {
     // side panel titles are 14, a step below the modal titles
-    private readonly TextBlock _title = new() { Classes = { "title" }, FontSize = 14 };
+    private readonly TextBlock _title = new() { Classes = { "title" }, FontSize = 14, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+    // right of the title: the open item's hidden / visible badge
+    private readonly ContentControl _badge = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel _content = new() { Spacing = 6 };
     private readonly ScrollViewer _scroll;
     // where the Add* builders append
@@ -37,7 +39,11 @@ public sealed class ToolPanel : Border
             Content = _content,
         };
         var root = new StackPanel { Spacing = 8 };
-        root.Children.Add(_title);
+        var head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 6 };
+        head.Children.Add(_title);
+        Grid.SetColumn(_badge, 1);
+        head.Children.Add(_badge);
+        root.Children.Add(head);
         root.Children.Add(_scroll);
         Child = root;
     }
@@ -60,6 +66,32 @@ public sealed class ToolPanel : Border
         _title.Text = title;
         Target.Children.Clear();
         DeleteAction = null;
+        _badge.Content = null;
+        BadgeClick = null;
+    }
+
+    /// clicking the badge (null when the view has none)
+    public Action? BadgeClick { get; private set; }
+    /// the badge's text, null when there is none
+    public string? BadgeText => (_badge.Content as Border)?.Child is TextBlock t ? t.Text : null;
+
+    /// the item's hidden / visible badge by the title (user): pink "hidden"
+    /// for DM only, grey "visible"; a click flips it
+    public void SetBadge(bool hidden, Action onClick)
+    {
+        BadgeClick = onClick;
+        var pill = new Border
+        {
+            Background = hidden ? new SolidColorBrush(Color.FromRgb(236, 90, 220)) : new SolidColorBrush(Color.FromRgb(0x3a, 0x3a, 0x46)) /* Ui.Bg.Button */,
+            CornerRadius = new CornerRadius(9),
+            Padding = new Thickness(8, 1, 8, 2),
+            Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand),
+            Child = new TextBlock { Text = hidden ? "hidden" : "visible", FontSize = 11, FontWeight = FontWeight.SemiBold, Foreground = hidden ? Brushes.Black : Brushes.White },
+        };
+        ToolTip.SetTip(pill, hidden ? "hidden from players (DM only), even on revealed floor. click to show it to them"
+                                    : "players see it when it is on revealed floor. click to hide it from them");
+        pill.PointerPressed += (_, e) => { e.Handled = true; onClick(); };
+        _badge.Content = pill;
     }
 
     /// the open item view's delete (the delete key runs it), null when the
