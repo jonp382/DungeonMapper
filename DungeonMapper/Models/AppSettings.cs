@@ -152,6 +152,8 @@ public sealed class AppSettings
     // Toggle: when false, minor gridlines (every 5ft edge) are not drawn at all,
     // so at spacing 2 you can show only the 10ft major lines.
     [JsonPropertyName("show_minor_grid")] public bool ShowMinorGrid { get; set; } = true;
+    // the toolbar's map building tools folded away (during play)
+    [JsonPropertyName("build_tools_folded")] public bool BuildToolsFolded { get; set; }
     // opacity of the major and minor lines drawn inside floored regions, in
     // percent. 0 hides them, 100 is the full line color.
     [JsonPropertyName("floor_grid_opacity")] public int FloorGridOpacity { get; set; } = 100;

@@ -36,6 +36,12 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Opacity" Value="0.35" />
         </Style>
+        <!-- the build group's fold arrow: narrow -->
+        <Style Selector="Button.hot.fold">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="#9a9aaa" />
+        </Style>
         <!-- thin divider between hotbar groups -->
         <Style Selector="Border.sep">
             <Setter Property="Width" Value="1" />
@@ -92,23 +98,33 @@
                     <DockPanel>
                         <!-- map switching sits at the right end of the bar -->
                         <WrapPanel ItemSpacing="2" LineSpacing="4" VerticalAlignment="Center">
+                            <!-- selection -->
                             <Button x:Name="ToolSelect" Classes="hot" />
                             <Border Classes="sep" />
-                            <Button x:Name="ToolRoom" Classes="hot" />
-                            <Button x:Name="ToolFloor" Classes="hot" />
-                            <Button x:Name="ToolWall" Classes="hot" />
-                            <Button x:Name="ToolPolygon" Classes="hot" />
+                            <!-- building the map: folds away during play (the
+                                 arrow), the hotkeys still work -->
+                            <Button x:Name="ToggleBuildTools" Classes="hot fold" />
+                            <StackPanel x:Name="BuildTools" Orientation="Horizontal" Spacing="2">
+                                <Button x:Name="ToolRoom" Classes="hot" />
+                                <Button x:Name="ToolPolygon" Classes="hot" />
+                                <Button x:Name="ToolFloor" Classes="hot" />
+                                <Button x:Name="ToolWall" Classes="hot" />
+                                <Button x:Name="ToolDoor" Classes="hot" />
+                                <Button x:Name="ToolStair" Classes="hot" />
+                                <Button x:Name="ToolErase" Classes="hot" />
+                            </StackPanel>
                             <Border Classes="sep" />
-                            <Button x:Name="ToolDoor" Classes="hot" />
-                            <Button x:Name="ToolStair" Classes="hot" />
-                            <Button x:Name="ToolLabel" Classes="hot" />
+                            <!-- placing things -->
                             <Button x:Name="ToolPawn" Classes="hot" />
                             <Button x:Name="ToolObject" Classes="hot" />
+                            <Button x:Name="ToolLabel" Classes="hot" />
                             <Button x:Name="ToolImage" Classes="hot" />
                             <Border Classes="sep" />
-                            <Button x:Name="ToolErase" Classes="hot" />
+                            <!-- reading the map, nothing changes -->
                             <Button x:Name="ToolMeasure" Classes="hot" />
                             <Button x:Name="ToolSight" Classes="hot" />
+                            <Border Classes="sep" />
+                            <!-- what players see -->
                             <Button x:Name="ToolReveal" Classes="hot" />
                         </WrapPanel>
                     </DockPanel>

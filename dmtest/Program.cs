@@ -7179,5 +7179,37 @@ try { Directory.Delete(imgDir, true); } catch { }
     w.Close();
 }
 
+// --- toolbar groups ---
+{
+    _ = new CanvasHarness();
+    var t = typeof(DungeonMapper.Views.MainWindow);
+    var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+    object? FieldOf(object w, string name) => t.GetField(name, flags)!.GetValue(w);
+    var w = new DungeonMapper.Views.MainWindow(); w.Show();
+    try
+    {
+        var settings = (AppSettings)FieldOf(w, "_settings")!;
+        settings.BuildToolsFolded = false;
+        t.GetMethod("ShowBuildTools", flags)!.Invoke(w, null);
+        var build = (Avalonia.Controls.StackPanel)FieldOf(w, "BuildTools")!;
+        var names = build.Children.OfType<Avalonia.Controls.Button>().Select(b => b.Name).ToList();
+        Check(names.SequenceEqual(new[] { "ToolRoom", "ToolPolygon", "ToolFloor", "ToolWall", "ToolDoor", "ToolStair", "ToolErase" }),
+            "toolbar: the build group holds room, polygon, floor, wall, door, stair, erase");
+        var bar = (Avalonia.Controls.WrapPanel)build.Parent!;
+        var order = bar.Children.Select(c => c is Avalonia.Controls.Border ? "|" : c.Name).ToList();
+        Check(string.Join(" ", order) == "ToolSelect | ToggleBuildTools BuildTools | ToolPawn ToolObject ToolLabel ToolImage | ToolMeasure ToolSight | ToolReveal",
+            "toolbar: select | build | pawn object label image | measure sight | reveal");
+        var fold = (Avalonia.Controls.Button)FieldOf(w, "ToggleBuildTools")!;
+        fold.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(!build.IsVisible && settings.BuildToolsFolded, "toolbar: the arrow folds the build tools away (and remembers it)");
+        t.GetMethods(flags).First(m => m.Name == "SetTool").Invoke(w, new object[] { ToolMode.Room });
+        Check(((MapCanvas)FieldOf(w, "Canvas")!).Mode == ToolMode.Room, "toolbar: a folded tool can still be picked (its hotkey)");
+        fold.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(build.IsVisible && !settings.BuildToolsFolded, "toolbar: and the arrow brings them back");
+    }
+    catch (Exception ex) { Check(false, $"toolbar: window test failed: {(ex.InnerException ?? ex)}"); }
+    w.Close();
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

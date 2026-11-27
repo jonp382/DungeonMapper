@@ -281,6 +281,8 @@ public partial class MainWindow : Window
         Canvas.PawnConfigRequested += p => ShowPawnInfo(p);
         Canvas.ObjectConfigRequested += o => ShowObjectInfo(o);
         InitContextMenus();
+        ToggleBuildTools.Click += (_, _) => { _settings.BuildToolsFolded = !_settings.BuildToolsFolded; SettingChanged(); ShowBuildTools(); FocusCanvas(); };
+        ShowBuildTools();
         // the item being edited is ringed on the map; any new view drops it
         ToolPanel.Cleared += () => Canvas.ClearHighlight();
         // an item's view links back to the tool's view ("← door tool")
@@ -510,6 +512,15 @@ public partial class MainWindow : Window
     private static void SetIcon(Button b, Control icon) => b.Content = icon;
 
     // the popups share the space over the map, only one shows at a time
+    /// the build group shown or folded behind its arrow (settings)
+    private void ShowBuildTools()
+    {
+        bool folded = _settings.BuildToolsFolded;
+        BuildTools.IsVisible = !folded;
+        ToggleBuildTools.Content = folded ? "▸" : "◂";
+        ToolTip.SetTip(ToggleBuildTools, folded ? "show the map building tools" : "fold the map building tools away (their hotkeys still work)");
+    }
+
     private void CloseModals()
     {
         FlushSettings();
