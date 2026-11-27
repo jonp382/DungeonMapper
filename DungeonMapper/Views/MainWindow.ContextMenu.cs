@@ -23,8 +23,11 @@ public partial class MainWindow
 
     private void OnContextRequested(Point world, CellKey cell)
     {
-        if (Canvas.PlayerPreview || Joined) return;
-        var items = ContextItems(world, cell);
+        if (Joined) return;
+        // the preview edits nothing: its menu only leaves it
+        var items = Canvas.PlayerPreview
+            ? new List<Control> { MenuAction("leave player view preview", () => SetPlayerPreview(false)) }
+            : ContextItems(world, cell);
         if (items.Count == 0) return;
         Canvas.CancelMove();
         var menu = new MenuFlyout();
@@ -47,7 +50,7 @@ public partial class MainWindow
         if (_doc.ObjectAt(cell) is { } obj) return ObjectMenu(obj);
         if (_doc.Stairs.TryGetValue(cell, out var stair)) return StairMenu(cell, stair);
         if (Canvas.WallAt(world) is { } wall) return WallMenu(wall);
-        return new();
+        return MapMenu(cell);
     }
 
     private static MenuItem MenuAction(string header, Action onClick, bool enabled = true)
@@ -387,6 +390,48 @@ public partial class MainWindow
                 FormationFromArea(null, x0, y0, x1, y1);
             }, pawns),
             MenuAction("clear selection", () => { Canvas.ClearSelection(); FocusCanvas(); }),
+        };
+    }
+
+    // ---------- empty map ----------
+
+    private List<Control> MapMenu(CellKey cell)
+    {
+        var last = ActiveLibrary.Recent.Select(id => ActiveLibrary.Find(id)).FirstOrDefault(t => t is not null);
+        var formation = _lastFormationId is null ? null : ActiveLibrary.Formations.Find(f => f.Id == _lastFormationId);
+        bool floor = _doc.IsFloorCell(cell);
+        return new()
+        {
+            MenuAction("paste here", () => { Canvas.PasteAt(cell); Canvas.Refresh(); FocusCanvas(); }, Canvas.HasClipboard),
+            MenuAction(last is null ? "place last pawn here" : $"place {PawnName(last)} here", () =>
+            {
+                if (last is not null) Canvas.PlacePawnAt(last, cell);
+                FocusCanvas();
+            }, last is not null),
+            MenuAction(formation is null ? "deploy last formation here" : $"deploy {formation.Name} here", () =>
+            {
+                if (formation is null) return;
+                DeployFormation(formation);
+                Canvas.DeployFormationAt(cell);
+                Canvas.Refresh();
+            }, formation is not null),
+            new Separator(),
+            MenuAction("ping here", () => DoPingAt(cell)),
+            MenuAction("sight from here", () => { SetTool(ToolMode.Sight); Canvas.ShowSight(cell); FocusCanvas(); }),
+            new Separator(),
+            MenuAction("reveal this room to players", () =>
+            {
+                int n = _doc.SetRevealed(_doc.RevealRoomCells(cell), true);
+                MenuCommit(n == 0 ? "that room was already revealed" : $"revealed {Plural(n, "cell")}");
+            }, floor),
+            MenuAction("hide this room from players", () =>
+            {
+                int n = _doc.SetRevealed(_doc.RevealRoomCells(cell), false);
+                MenuCommit(n == 0 ? "that room was already hidden" : $"hid {Plural(n, "cell")}");
+            }, floor),
+            new Separator(),
+            MenuAction("zoom to fit", () => { Canvas.AutoFit(); FocusCanvas(); }),
+            MenuAction(Canvas.PlayerPreview ? "leave player view preview" : "player view preview", () => SetPlayerPreview(!Canvas.PlayerPreview)),
         };
     }
 }

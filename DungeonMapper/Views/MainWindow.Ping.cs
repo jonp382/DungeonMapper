@@ -28,6 +28,12 @@ public partial class MainWindow
     private void DoPing()
     {
         if (Canvas.CursorCell is not CellKey c) { SetStatus("point at the map to ping", StatusKind.Warning); return; }
+        DoPingAt(c);
+    }
+
+    /// pings a cell (the ping key at the cursor, the map's right-click menu)
+    private void DoPingAt(CellKey c)
+    {
         if (_client is not null)
         {
             Canvas.ShowPing(c, "you");

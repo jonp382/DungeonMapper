@@ -1969,25 +1969,29 @@ public sealed partial class MapCanvas : Control
     /// goes back to the tool's view
     public event Action? NothingClicked;
 
+    /// places a pawn of template t on an empty cell (the pawn tool, the map's
+    /// right-click "place ... here"), one undo step. a hero moves instead:
+    /// the old copy goes and keeps its status
+    public void PlacePawnAt(PawnTemplate t, CellKey cell)
+    {
+        if (Document.Pawns.ContainsKey(cell)) return;
+        var placed = new Pawn { Cell = cell, TemplateId = t.Id, DmOnly = NewPawnHidden(t.Id) };
+        Document.PlacePawn(placed);
+        if (t.Hero && TakeHeroCopies(cell, t.Id) is { } old)
+        {
+            placed.Statuses = old.CloneStatuses();
+            placed.DmOnly = old.DmOnly;
+            Status($"moved hero {(string.IsNullOrWhiteSpace(t.Name) ? "pawn" : t.Name)}");
+        }
+        Commit();
+        PawnPlaced?.Invoke(t.Id);
+    }
+
     /// The pawn tool's plain click on a cell with no pawn: places the armed pawn.
     private void PawnToolClick(CellKey cell)
     {
         if (Document.Pawns.TryGetValue(cell, out var existing)) { PawnConfigRequested?.Invoke(existing); return; }
-        if (ArmedPawn is not null)
-        {
-            // place a pawn that hard-references the armed library template.
-            // a hero moves instead: the old copy goes and keeps its status.
-            var placed = new Pawn { Cell = cell, TemplateId = ArmedPawn.Id, DmOnly = NewPawnHidden(ArmedPawn.Id) };
-            Document.PlacePawn(placed);
-            if (ArmedPawn.Hero && TakeHeroCopies(cell, ArmedPawn.Id) is { } old)
-            {
-                placed.Statuses = old.CloneStatuses();
-                placed.DmOnly = old.DmOnly;
-                Status($"moved hero {(string.IsNullOrWhiteSpace(ArmedPawn.Name) ? "pawn" : ArmedPawn.Name)}");
-            }
-            Commit();
-            PawnPlaced?.Invoke(ArmedPawn.Id);
-        }
+        if (ArmedPawn is not null) PlacePawnAt(ArmedPawn, cell);
         else
         {
             NothingClicked?.Invoke();

@@ -6961,7 +6961,7 @@ try { Directory.Delete(imgDir, true); } catch { }
         var heads = pm.Select(i => (string)i.Header!).ToList();
         Check(heads.SequenceEqual(new[] { "add status...", "remove fear", "open", "change pawn...", "show to players", "sight from here", "measure from here", "copy", "delete" }),
             "context menu: a pawn's menu lists its actions");
-        Check(Menu(new CellKey(5, 5)).Count == 0, "context menu: empty floor has no pawn menu");
+        Check(Menu(new CellKey(5, 5)).Select(i => (string)i.Header!).First() == "paste here", "context menu: empty floor opens the map's menu");
         Pick(pm, "remove fear");
         Check(cdoc.Pawns[cell].Statuses.Count == 0, "context menu: remove takes the status off");
         Pick(Menu(cell), "show to players");
@@ -7112,6 +7112,30 @@ try { Directory.Delete(imgDir, true); } catch { }
         CallOn(w, "CloseModals");
         PickAt(new Point(2.5, 2.5), "clear selection");
         Check(canvas.SelectionRect is null, "context menu: clear selection drops it");
+
+        // the empty map
+        var mm0 = MenuAt(new Point(5.5, 5.5));
+        Check(!mm0.First(i => H(i) == "place last pawn here").IsEnabled, "context menu: with no pawn placed yet there is nothing to place");
+        cdoc.Pawns.Remove(new CellKey(2, 2));
+        flib.NoteRecent("gob");
+        var mm = MenuAt(new Point(5.5, 5.5)).Select(H).ToList();
+        Check(mm.SequenceEqual(new[] { "paste here", "place Gob here", "deploy last formation here", "ping here", "sight from here",
+            "reveal this room to players", "hide this room from players", "zoom to fit", "player view preview" }),
+            "context menu: the map's menu names the last pawn placed");
+        PickAt(new Point(5.5, 5.5), "place Gob here");
+        Check(cdoc.Pawns.TryGetValue(new CellKey(5, 5), out var placedGob) && placedGob.TemplateId == "gob", "context menu: place ... here puts the last pawn there");
+        PickAt(new Point(0.5, 5.5), "hide this room from players");
+        Check(!cdoc.Revealed.Contains(new CellKey(1, 1)), "context menu: hide this room hides the room's floor");
+        PickAt(new Point(0.5, 5.5), "reveal this room to players");
+        Check(cdoc.Revealed.Contains(new CellKey(6, 6)), "context menu: reveal this room reveals the whole room");
+        canvas.CopyPawn(new CellKey(5, 5));
+        PickAt(new Point(0.5, 0.5), "paste here");
+        Check(cdoc.Pawns.ContainsKey(new CellKey(0, 0)), "context menu: paste here pastes at the clicked cell");
+        Check(!MenuAt(new Point(20.5, 20.5)).First(i => H(i) == "reveal this room to players").IsEnabled, "context menu: off the floor there is no room to reveal");
+        PickAt(new Point(20.5, 20.5), "player view preview");
+        Check(canvas.PlayerPreview && MenuAt(new Point(5.5, 5.5)).Select(H).SequenceEqual(new[] { "leave player view preview" }), "context menu: in the preview the menu only leaves it");
+        PickAt(new Point(5.5, 5.5), "leave player view preview");
+        Check(!canvas.PlayerPreview, "context menu: and leaving works");
     }
     catch (Exception ex) { Check(false, $"context menu: window test failed: {(ex.InnerException ?? ex)}"); }
     w.Close();
