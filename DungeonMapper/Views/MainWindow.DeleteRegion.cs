@@ -57,7 +57,9 @@ public partial class MainWindow
         DockPanel.SetDock(info, Dock.Bottom);
         dock.Children.Add(info);
 
-        var list = new StackPanel { Spacing = 2 };
+        // right margin: the scroll bar (only if it ever has to scroll) sits
+        // beside the counts, not over them (user bug)
+        var list = new StackPanel { Spacing = 2, Margin = new(0, 0, 14, 0) };
         // the list scrolls rather than run under the summary (user bug)
         dock.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto });
         list.Children.Add(new TextBlock { Text = "tick what to delete. shift+delete deletes everything without asking.", Classes = { "hint" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Margin = new(0, 0, 0, 4) });
@@ -118,7 +120,7 @@ public partial class MainWindow
         };
         cancel.Click += (_, _) => { CloseModals(); FocusCanvas(); };
 
-        ShowModal(380, 500, "Delete", $"{x1 - x0 + 1}x{y1 - y0 + 1} cell region", dock);
+        ShowModal(420, 600, "Delete", $"{x1 - x0 + 1}x{y1 - y0 + 1} cell region", dock);
         _modalKind = "delete-region";
         // enter confirms
         Avalonia.Threading.Dispatcher.UIThread.Post(() => { if (confirm.IsEnabled) confirm.Focus(); else cancel.Focus(); });
