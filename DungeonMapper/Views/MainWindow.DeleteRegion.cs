@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -57,12 +58,20 @@ public partial class MainWindow
         dock.Children.Add(info);
 
         var list = new StackPanel { Spacing = 2 };
-        dock.Children.Add(list);
+        // the list scrolls rather than run under the summary (user bug)
+        dock.Children.Add(new ScrollViewer { Content = list, VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto });
         list.Children.Add(new TextBlock { Text = "tick what to delete. shift+delete deletes everything without asking.", Classes = { "hint" }, TextWrapping = Avalonia.Media.TextWrapping.Wrap, Margin = new(0, 0, 0, 4) });
+        // all / none tick every kind that is in the region, or none of them
+        var chips = new WrapPanel { Margin = new(0, 0, 0, 4) };
+        list.Children.Add(chips);
 
         var checks = new List<(CheckBox box, int count)>();
         void Update()
         {
+            var on = checks.Where(c => c.count > 0).Select(c => c.box.IsChecked == true).ToList();
+            chips.Children.Clear();
+            chips.Children.Add(Chip("all", on.Count > 0 && on.All(x => x), null, () => SetAll(true)));
+            chips.Children.Add(Chip("none", on.All(x => !x), null, () => SetAll(false)));
             summary.Text = n.Total(f) == 0 ? "nothing ticked is in the region." : $"deletes {MapCanvas.DescribeCounts(n, f)}.";
             confirm.IsEnabled = n.Total(f) > 0;
         }
@@ -92,6 +101,11 @@ public partial class MainWindow
         var adjustBox = new CheckBox { Content = "adjust walls (re-seal rooms on the new edge)", IsChecked = adjust, Margin = new(0, 6, 0, 0), Tag = "adjust" };
         adjustBox.IsCheckedChanged += (_, _) => adjust = adjustBox.IsChecked == true;
         list.Children.Add(adjustBox);
+        void SetAll(bool on)
+        {
+            foreach (var (box, count) in checks) if (count > 0) box.IsChecked = on;
+            Update();
+        }
         Update();
 
         confirm.Click += (_, _) =>
@@ -104,7 +118,7 @@ public partial class MainWindow
         };
         cancel.Click += (_, _) => { CloseModals(); FocusCanvas(); };
 
-        ShowModal(380, 420, "Delete", $"{x1 - x0 + 1}x{y1 - y0 + 1} cell region", dock);
+        ShowModal(380, 500, "Delete", $"{x1 - x0 + 1}x{y1 - y0 + 1} cell region", dock);
         _modalKind = "delete-region";
         // enter confirms
         Avalonia.Threading.Dispatcher.UIThread.Post(() => { if (confirm.IsEnabled) confirm.Focus(); else cancel.Focus(); });

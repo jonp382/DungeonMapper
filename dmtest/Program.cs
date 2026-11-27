@@ -6590,6 +6590,15 @@ try { Directory.Delete(imgDir, true); } catch { }
         var boxes = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.CheckBox>().Where(c => c.Tag is string).ToDictionary(c => (string)c.Tag!);
         Check(boxes["pawns"].IsChecked == true && boxes["cells"].IsChecked == true && boxes["stairs"].IsChecked == false && !boxes["stairs"].IsEnabled,
             "delete key: every kind in the region starts ticked, kinds with none are greyed out");
+        string? ChipText(Avalonia.Controls.Button b) => (b.Content as Avalonia.Controls.StackPanel)?.Children.OfType<Avalonia.Controls.TextBlock>().FirstOrDefault()?.Text;
+        Avalonia.Controls.Button? ChipB(string text) { overlay.UpdateLayout(); return Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Button>().FirstOrDefault(b => b.Classes.Contains("chip") && ChipText(b) == text); }
+        Check(ChipB("all") is not null && ChipB("none") is not null && ChipB("all")!.Classes.Contains("on"), "delete key: all and none chips above the boxes, all lit to start");
+        ChipB("none")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(boxes.Values.All(b => b.IsChecked != true || (string)b.Tag! == "adjust") && !Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Button>().First(b => b.Content as string == "delete").IsEnabled,
+            "delete key: none unticks every kind and delete greys out");
+        ChipB("all")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+        Check(boxes["pawns"].IsChecked == true && boxes["cells"].IsChecked == true && boxes["stairs"].IsChecked == false,
+            "delete key: all ticks every kind in the region (not the empty ones)");
         boxes["pawns"].IsChecked = false;
         boxes["walls"].IsChecked = false;
         var confirm = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(overlay).OfType<Avalonia.Controls.Button>().First(b => b.Content as string == "delete");
