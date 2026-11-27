@@ -177,7 +177,9 @@ public sealed partial class MapCanvas
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
+        var hoverBefore = CursorCell;
         CursorCell = null;
+        HoverTimers(hoverBefore);
         // the cursor left the map: without an anchor everything is dimmed
         if (_fogHover is null) return;
         _fogHover = null;

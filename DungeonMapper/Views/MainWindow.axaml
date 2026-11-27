@@ -313,9 +313,9 @@
                                             <StackPanel VerticalAlignment="Center">
                                                 <TextBlock Classes="body" Text="status turn timers" />
                                                 <TextBlock Classes="hint" TextWrapping="Wrap"
-                                                           Text="a circle beside each status on a pawn with the turns it has left. shows when zoomed in close." />
+                                                           Text="a circle beside each status on a pawn with the turns it has left, when zoomed in close. on every pawn always, or only on the pawn under the mouse." />
                                             </StackPanel>
-                                            <CheckBox x:Name="SetShowStatusTimers" Grid.Column="1" Classes="toggle" Content="show" Margin="0,0,10,0" />
+                                            <CheckBox x:Name="SetStatusTimersHover" Grid.Column="1" Classes="toggle" Content="hover only" Margin="0,0,10,0" />
                                         </Grid>
                                         <Grid Classes="setting" ColumnDefinitions="*,Auto,58">
                                             <StackPanel VerticalAlignment="Center">

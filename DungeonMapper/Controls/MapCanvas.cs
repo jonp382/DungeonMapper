@@ -2099,7 +2099,9 @@ public sealed partial class MapCanvas : Control
         }
 
         var world = ScreenToWorld(e.GetPosition(this));
+        var hoverBefore = CursorCell;
         CursorCell = new CellKey((int)Math.Floor(world.X), (int)Math.Floor(world.Y));
+        HoverTimers(hoverBefore);
         if (FormationMoved(world)) return;
         if (ObjectMoved(world)) return;
         if (ImageMoved(world)) return;

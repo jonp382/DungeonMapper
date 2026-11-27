@@ -6272,10 +6272,17 @@ try { Directory.Delete(imgDir, true); } catch { }
     var probe = new Point(at.X - 160 * 0.12 * 0.7, at.Y);
     var px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
     Check(px.g > 180 && px.r < 100, "timers: a circle in the status's color beside the pawn");
-    h.Canvas.Settings.ShowStatusTimers = false;
+    h.Canvas.Settings.StatusTimersOnHover = true;
     px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
-    Check(!(px.g > 180 && px.r < 100), "timers: the setting turns them off");
-    h.Canvas.Settings.ShowStatusTimers = true;
+    Check(!(px.g > 180 && px.r < 100), "timers: hover only hides them while the mouse is off the pawn");
+    h.Canvas.RaiseEvent(new Avalonia.Input.PointerEventArgs(Avalonia.Input.InputElement.PointerMovedEvent, h.Canvas,
+        new Avalonia.Input.Pointer(1, Avalonia.Input.PointerType.Mouse, true), h.Canvas, Center(1, 1), 0,
+        new Avalonia.Input.PointerPointProperties(), Avalonia.Input.KeyModifiers.None));
+    Check(h.Canvas.CursorCell == new CellKey(1, 1) && h.Canvas.TimersOn(new CellKey(1, 1)) && !h.Canvas.TimersOn(new CellKey(2, 1)),
+        "timers: hover only shows them on the pawn under the mouse");
+    px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
+    Check(px.g > 180 && px.r < 100, "timers: and draws them there");
+    h.Canvas.Settings.StatusTimersOnHover = false;
     h.Doc.Pawns[new CellKey(1, 1)].Statuses[0].Turns = -1;
     h.Canvas.Settings.ShowPermanentTimers = false;
     px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
@@ -6283,8 +6290,8 @@ try { Directory.Delete(imgDir, true); } catch { }
     h.Canvas.Settings.ShowPermanentTimers = true;
     px = h.PixelAt(h.Render(), (int)probe.X, (int)probe.Y);
     Check(px.g > 180 && px.r < 100, "timers: and an infinity circle when it is on");
-    var saved = AppSettings.ParseImport("{\"kind\":\"settings\",\"show_status_timers\":false,\"show_permanent_timers\":false}");
-    Check(saved is { ShowStatusTimers: false, ShowPermanentTimers: false } && new AppSettings() is { ShowStatusTimers: true, ShowPermanentTimers: true }, "timers: both settings are saved, on by default");
+    var saved = AppSettings.ParseImport("{\"kind\":\"settings\",\"status_timers_hover\":true,\"show_permanent_timers\":false}");
+    Check(saved is { StatusTimersOnHover: true, ShowPermanentTimers: false } && new AppSettings() is { StatusTimersOnHover: false, ShowPermanentTimers: true }, "timers: both settings are saved, always shown and ∞ by default");
     // arcs run down with the turns: whole at 6+ or permanent, a sixth less per turn, start kept
     Check(MapCanvas.ArcFraction(-1) == 1 && MapCanvas.ArcFraction(6) == 1 && MapCanvas.ArcFraction(20) == 1 && MapCanvas.ArcFraction(3) == 0.5
         && Math.Abs(MapCanvas.ArcFraction(1) - 1 / 6.0) < 1e-9 && MapCanvas.ArcFraction(0) == 0, "arc length: full at 6+ or permanent, a sixth per turn below");

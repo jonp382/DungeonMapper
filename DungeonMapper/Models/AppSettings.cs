@@ -187,8 +187,10 @@ public sealed class AppSettings
     [JsonPropertyName("pawn_status_gap")] public int PawnStatusGap { get; set; } = 8;
     public const int MaxPawnStatusGap = 30;
     // status turn timers: a circle with the turns left beside each status on
-    // a pawn (zoomed in near max only). permanent ones show ∞ or nothing
-    [JsonPropertyName("show_status_timers")] public bool ShowStatusTimers { get; set; } = true;
+    // a pawn (zoomed in near max only), on every pawn or only the one under
+    // the cursor (user: hover replaced the old on/off). permanent ones show ∞
+    // or nothing
+    [JsonPropertyName("status_timers_hover")] public bool StatusTimersOnHover { get; set; }
     [JsonPropertyName("show_permanent_timers")] public bool ShowPermanentTimers { get; set; } = true;
     // how far out a timer sits, percent: 0 = centered on the ring, 50 = just
     // touching it from outside, 100 = a timer's radius clear of it (linear)

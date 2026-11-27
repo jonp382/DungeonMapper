@@ -31,7 +31,21 @@ public sealed partial class MapCanvas
         return new Point(center.X + d * Math.Cos(a), center.Y + d * Math.Sin(a));
     }
 
-    public bool TimersShown => Settings.ShowStatusTimers && _scale >= TimerMinScale;
+    /// zoomed in close enough for timers (both modes)
+    public bool TimersShown => _scale >= TimerMinScale;
+
+    /// whether pawn p at cell c shows its timers: every pawn, or with the
+    /// hover setting only the one under the cursor (any tool)
+    public bool TimersOn(CellKey c) => TimersShown && (!Settings.StatusTimersOnHover || CursorCell == c);
+
+    /// the cursor moved to another cell: in hover mode, redraw when a pawn's
+    /// timers come or go
+    private void HoverTimers(CellKey? before)
+    {
+        if (before == CursorCell || !Settings.StatusTimersOnHover || !TimersShown) return;
+        if ((before is { } b && Document.Pawns.ContainsKey(b)) || (CursorCell is { } n && Document.Pawns.ContainsKey(n)))
+            InvalidateVisual();
+    }
 
     private void DrawStatusTimers(DrawingContext ctx, Point topLeft, Point bottomRight)
     {
@@ -40,7 +54,7 @@ public sealed partial class MapCanvas
         var edge = new Pen(new SolidColorBrush(Color.FromArgb(230, 12, 12, 16)), Math.Max(1.5, _scale * 0.012));
         foreach (var (c, p) in Document.Pawns)
         {
-            if (p.Statuses.Count == 0) continue;
+            if (p.Statuses.Count == 0 || !TimersOn(c)) continue;
             if (c.X + 2 < topLeft.X || c.X - 1 > bottomRight.X || c.Y + 2 < topLeft.Y || c.Y - 1 > bottomRight.Y) continue;
             var ring = RingStatuses(Presets, p.Statuses);
             var center = WorldToScreen(c.X + 0.5, c.Y + 0.5);

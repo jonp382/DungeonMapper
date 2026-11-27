@@ -164,10 +164,10 @@ public partial class MainWindow
             if (_settings.CpuRenderer != Program.CpuRendering)
                 SetStatus("restart the app to change how it draws", StatusKind.Warning);
         };
-        SetShowStatusTimers.IsCheckedChanged += (_, _) =>
+        SetStatusTimersHover.IsCheckedChanged += (_, _) =>
         {
             if (_settingsLoading) return;
-            _settings.ShowStatusTimers = SetShowStatusTimers.IsChecked == true;
+            _settings.StatusTimersOnHover = SetStatusTimersHover.IsChecked == true;
             SettingChanged();
             RefreshSettings();
         };
@@ -240,7 +240,7 @@ public partial class MainWindow
             c.Host.Content = b;
         }
         SetShowMinor.IsChecked = _settings.ShowMinorGrid;
-        SetShowStatusTimers.IsChecked = _settings.ShowStatusTimers;
+        SetStatusTimersHover.IsChecked = _settings.StatusTimersOnHover;
         SetCpuRenderer.IsChecked = _settings.CpuRenderer;
         SetCpuRendererNow.Text = (Program.CpuRendering ? "currently using CPU rendering" : "currently using GPU rendering")
             + (_settings.CpuRenderer != Program.CpuRendering ? ". changes after a restart" : "");
