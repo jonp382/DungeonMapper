@@ -5481,10 +5481,9 @@ try { Directory.Delete(imgDir, true); } catch { }
     s1.DragMods(1, 1, 1, 1, sh);
     Check(opened == 1, "shift box (Select): a shift+click on a pawn still opens it");
 
-    foreach (var mode in new[] { ToolMode.Move, ToolMode.Pawn })
+    foreach (var mode in new[] { ToolMode.Move })
     {
         var h = Setup(mode);
-        if (mode == ToolMode.Pawn) h.Canvas.ArmedPawn = new PawnTemplate { Id = "p3", Name = "armed" };
         Check(!h.Canvas.MovePawnsOnly, $"shift box ({mode}): move pawns only is off");
         h.DragMods(1, 1, 2, 2, sh);
         Check(h.Canvas.MoveArmed && h.Doc.Pawns.Count == 2, $"shift box ({mode}): shift+drag from a pawn arms a move, nothing moved yet");
@@ -5505,6 +5504,25 @@ try { Directory.Delete(imgDir, true); } catch { }
         Check(h.Doc.Pawns.ContainsKey(new CellKey(0, 4)) && !h.Doc.Pawns.ContainsKey(new CellKey(3, 3)), $"shift box ({mode}): a plain drag still moves one pawn");
     }
 
+    // pawn tool: a shift box selects the pawns, a drag inside moves them
+    {
+        var h = Setup(ToolMode.Pawn);
+        h.Canvas.ArmedPawn = new PawnTemplate { Id = "p3", Name = "armed" };
+        h.DragMods(1, 1, 2, 2, sh);
+        Check(!h.Canvas.MoveArmed && h.Canvas.SelectionRect is not null && h.Doc.Pawns.Count == 2, "shift box (Pawn): shift+drag selects the pawns, nothing moves yet");
+        int commits = h.CommitCount;
+        h.Press(1, 1); h.MoveTo(3, 3);
+        Check(h.Canvas.CanRotate, "shift box (Pawn): a picked up pawn box can be rotated");
+        h.Release(3, 3);
+        Check(h.Doc.Pawns.ContainsKey(new CellKey(3, 3)) && h.Doc.Pawns.ContainsKey(new CellKey(4, 4)) && h.Doc.Pawns.Count == 2
+            && h.CommitCount == commits + 1 && !h.Canvas.MoveArmed, "shift box (Pawn): dragging inside the box moves the pawns in one step");
+        Check(h.Doc.Stairs.ContainsKey(new CellKey(1, 2)) && h.Doc.Cells.Contains(new CellKey(1, 1)) && !h.Doc.Stairs.ContainsKey(new CellKey(3, 4)),
+            "shift box (Pawn): only pawns move, the stair and floor stay");
+        h.Canvas.ClearSelection();
+        h.Drag(3, 3, 0, 4);
+        Check(h.Doc.Pawns.ContainsKey(new CellKey(0, 4)) && !h.Doc.Pawns.ContainsKey(new CellKey(3, 3)), "shift box (Pawn): with no box a plain drag moves one pawn");
+    }
+
     // move tool: a plain box with pawns only off still moves everything
     var m = Setup(ToolMode.Move);
     m.Drag(0, 0, 2, 2);
@@ -5518,7 +5536,7 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(p.Doc.Pawns.TryGetValue(new CellKey(4, 4), out var pl) && pl.TemplateId == "p3" && !p.Canvas.MoveArmed,
         "shift box (Pawn): a shift+click without a drag places the armed pawn");
     p.DragMods(0, 3, 0, 5, sh);
-    Check(!p.Canvas.MoveArmed && p.Statuses.Contains("no pawns in that region"), "shift box (Pawn): a box with no pawns arms nothing");
+    Check(p.Canvas.SelectionRect is null && p.Statuses.Contains("no pawns in that region"), "shift box (Pawn): a box with no pawns selects nothing");
 }
 
 // --- multiplayer: a player's shift+drag box (several pawns at once) ---
@@ -5561,8 +5579,45 @@ try { Directory.Delete(imgDir, true); } catch { }
     var back = DungeonMapper.Net.NetProtocol.ReadAsync(ms).GetAwaiter().GetResult()!;
     Check(back.Placements![0] is { FromX: 1, FromY: 2, X: 3, Y: 4 }, "pawn box wire: from and to cross the wire");
 
-    // canvas: move and pawn tools, joined
-    foreach (var mode in new[] { ToolMode.Move, ToolMode.Pawn })
+    // canvas: pawn tool, joined: shift box selects, a drag inside sends
+    {
+        var h = new CanvasHarness();
+        h.Canvas.Library = lib;
+        var r = Map();
+        h.Canvas.RemoteDocument = r;
+        h.Canvas.Mode = ToolMode.Pawn;
+        h.Canvas.ArmedPawn = lib.Find("pg");
+        var sent = new List<List<(CellKey from, CellKey to)>>(); var single = 0; var placed = 0; var opened = 0;
+        h.Canvas.PlayerMoveManyRequested += mv => sent.Add(mv);
+        h.Canvas.PlayerMoveRequested += (_, _) => single++;
+        h.Canvas.PlayerPlaceRequested += (_, _) => placed++;
+        h.Canvas.PawnConfigRequested += _ => opened++;
+        var sh = Avalonia.Input.RawInputModifiers.Shift;
+        h.DragMods(1, 1, 2, 2, sh);
+        Check(!h.Canvas.MoveArmed && h.Canvas.SelectionRect == (1, 1, 2, 1) && single == 0, "pawn box joined (Pawn): shift+drag selects your pawns (not the orc), nothing sent");
+        h.Drag(1, 1, 9, 1);
+        Check(sent.Count == 0 && !h.Canvas.MoveArmed && h.LastStatus == "pawns can only go onto revealed floor", "pawn box joined (Pawn): a refused drop sends nothing and puts them back");
+        h.DragMods(1, 1, 2, 2, sh);
+        h.Drag(1, 1, 3, 4);
+        Check(sent.Count == 1 && sent[0].Count == 2 && sent[0].Contains((k1, new CellKey(3, 4))) && sent[0].Contains((k2, new CellKey(4, 4)))
+            && !h.Canvas.MoveArmed && r.Pawns.ContainsKey(k1) && placed == 0,
+            "pawn box joined (Pawn): the drop sends only the Player pawns and nothing changes locally");
+        h.DragMods(1, 1, 2, 2, sh);
+        h.Press(1, 1); h.MoveTo(3, 3);
+        h.Canvas.RotateRegion(-1);
+        h.Release(3, 3);
+        Check(sent.Count == 2 && sent[1].Select(mv => mv.from).OrderBy(x => x.X).SequenceEqual(new[] { k1, k2 })
+            && sent[1].First(mv => mv.from == k1).to.X == sent[1].First(mv => mv.from == k2).to.X,
+            "pawn box joined (Pawn): a rotated drop keeps each pawn's source");
+        h.Canvas.ClearSelection();
+        h.DragMods(1, 2, 1, 3, sh);
+        Check(h.Canvas.SelectionRect is null && h.LastStatus == "none of your pawns in that region", "pawn box joined (Pawn): a box with only DM pawns selects nothing");
+        h.DragMods(1, 1, 1, 1, sh);
+        Check(opened == 1, "pawn box joined (Pawn): a shift+click acts as a plain click");
+    }
+
+    // canvas: move tool, joined
+    foreach (var mode in new[] { ToolMode.Move })
     {
         var h = new CanvasHarness();
         h.Canvas.Library = lib;

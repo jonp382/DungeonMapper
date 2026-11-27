@@ -60,7 +60,10 @@ public sealed partial class MapCanvas
             // the DM's move and pawn tools (pawns only, released in the select
             // box code, which calls RemoteBoxReleased)
             if (_moveArmed) { MoveAt(cell); return true; }
+            // the pawn tool: inside a box of your pawns, drag to move them
+            if (Mode == ToolMode.Pawn && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && BeginDragMove(e, cell)) return true;
             if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { BeginBox(e, cell); return true; }
+            if (Mode == ToolMode.Pawn && HasSelection) ClearSelection();
         }
         if (Mode == ToolMode.Pawn)
         {
@@ -148,6 +151,8 @@ public sealed partial class MapCanvas
         }
         _selectStart = new CellKey(box.x0, box.y0);
         _selectEnd = new CellKey(box.x1, box.y1);
+        // the pawn tool: the box only selects, a drag inside moves (DragMove)
+        if (Mode == ToolMode.Pawn) return;
         _remoteMoveFrom = snap.Pawns.Select(p => p.Cell).ToList();
         _clipboard = snap;
         _moveSourceDoc = null;

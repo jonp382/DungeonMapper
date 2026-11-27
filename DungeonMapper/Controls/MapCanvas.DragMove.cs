@@ -31,8 +31,10 @@ public sealed partial class MapCanvas
     private bool BeginDragMove(PointerPressedEventArgs e, CellKey cell)
     {
         if (_moveArmed || !InSelection(cell) || SelectionRect is not var (x0, y0, x1, y1)) return false;
-        bool pawnsOnly = SelectPawnsOnly;
+        // the pawn tool only ever moves pawns; a joined player only their own
+        bool pawnsOnly = Mode == ToolMode.Pawn || SelectPawnsOnly;
         var snap = Document.CaptureRegion(x0, y0, x1, y1);
+        if (_remote is not null) snap.Pawns.RemoveAll(p => !PlayerPawns.Controlled(Library.Find(p.TemplateId)));
         if (pawnsOnly) snap = PawnsOnlySnapshot(snap, out _);
         if (snap.Empty)
         {
@@ -42,7 +44,8 @@ public sealed partial class MapCanvas
         _clipboardBeforeMove = _clipboard;
         _clipboardSaved = true;
         _clipboard = snap;
-        _moveSourceDoc = Document;
+        if (_remote is not null) _remoteMoveFrom = snap.Pawns.ConvertAll(p => p.Cell);
+        _moveSourceDoc = _remote is null ? Document : null;
         _cutSource = null;
         _moveArmed = true;
         _armedPawnsOnly = pawnsOnly;
@@ -84,7 +87,9 @@ public sealed partial class MapCanvas
         {
             // no drag: put everything back and treat it as a click
             CancelMove();
-            if (Mode == ToolMode.Select) SelectClick(world, cell);
+            if (_remote is not null) RemoteBoxReleased(cell, true);
+            else if (Mode == ToolMode.Select) SelectClick(world, cell);
+            else if (Mode == ToolMode.Pawn) PawnToolClick(cell);
             InvalidateVisual();
             return true;
         }

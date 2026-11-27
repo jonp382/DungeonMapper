@@ -1425,7 +1425,7 @@ public sealed partial class MapCanvas : Control
         }
 
         // selection rectangle (cyan)
-        if (_selectDragging || (_selectStart != _selectEnd && (Mode == ToolMode.Select || Mode == ToolMode.Move))
+        if (_selectDragging || (_selectStart != _selectEnd && (Mode is ToolMode.Select or ToolMode.Move or ToolMode.Pawn))
             || (Mode is ToolMode.Move or ToolMode.Pawn && _moveArmed))
         {
             var (x0, y0, x1, y1) = NormRect(_selectStart, _selectEnd);
@@ -2153,8 +2153,11 @@ public sealed partial class MapCanvas : Control
                 // an armed pawns only move (from a shift+drag box): this click
                 // is its target
                 if (_moveArmed) { MoveAt(cell); break; }
-                // shift+drag: a pawns only move box, like the move tool
+                // inside a shift box's pawns: drag to move them
+                if (!Shifted(e) && BeginDragMove(e, cell)) break;
+                // shift+drag: a box that picks pawns
                 if (Shifted(e)) { BeginBox(e, cell); break; }
+                if (HasSelection) ClearSelection();
                 // a placed pawn drags like in the move tool; a click opens it
                 if (BeginPawnDrag(e, cell)) break;
                 PawnToolClick(cell);
@@ -2365,7 +2368,22 @@ public sealed partial class MapCanvas : Control
                 InvalidateVisual();
                 return;
             }
-            if (Mode is ToolMode.Move or ToolMode.Pawn && !singleCell)
+            if (Mode == ToolMode.Pawn && !singleCell)
+            {
+                // a shift box picks the pawns: the selection shrinks to them,
+                // then a drag inside it moves them
+                var (bx0, by0, bx1, by1) = NormRect(_selectStart, _selectEnd);
+                PawnsOnlySnapshot(Document.CaptureRegion(bx0, by0, bx1, by1), out var pbox);
+                if (!Document.Pawns.Keys.Any(k => k.X >= bx0 && k.X <= bx1 && k.Y >= by0 && k.Y <= by1))
+                {
+                    ClearSelection();
+                    Status("no pawns in that region", StatusKind.Warning);
+                }
+                else { _selectStart = new CellKey(pbox.x0, pbox.y0); _selectEnd = new CellKey(pbox.x1, pbox.y1); }
+                InvalidateVisual();
+                return;
+            }
+            if (Mode == ToolMode.Move && !singleCell)
             {
                 // arm the move: capture the region so the paste ghost previews
                 // it at the cursor until the destination click. remember the map
