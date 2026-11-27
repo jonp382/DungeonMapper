@@ -17,7 +17,7 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 
 | Tool | Key | What it does |
 | --- | --- | --- |
-| Select | S | Click something to edit it. A clicked object, label or image gets the same handles as in its own tool: drag a handle to resize, or the dashed edge to move it. Drag a pawn to move it (landing on another pawn swaps them). Drag elsewhere, or Shift+drag from anywhere, to select an area, then copy, cut or paste it. The clear clipboard button drops the clipboard and the paste ghost. |
+| Select | S | Click something to edit it. Drag a pawn, object, label or image to move it (a pawn landing on another swaps them). A clicked object, label or image gets the same handles as in its own tool: drag a handle to resize. Drag on empty space, or Shift+drag from anywhere, to select an area, then copy, cut or paste it. The clear clipboard button drops the clipboard and the paste ghost. |
 | Move | M | Drag around an area, then click where it should go. Drag a single pawn to move just that pawn. Shift+drag a box to move only the pawns in it (from anywhere, even with "move pawns only" off). |
 | Room | R | Drag a rectangle to make a walled room. Drawing over an existing room merges the two. |
 | Polygon | N | Click grid points to outline an odd-shaped room. Click the first point again, or press Enter, to finish. |
@@ -25,11 +25,11 @@ Run the `DungeonMapper` program for your system (Windows or Linux). There is not
 | Wall | W | Press on one grid point and release on another to draw a wall line. |
 | Door | D | Click a wall to place a door. Click a door to change its type or state. Close open doors shuts every open door of one type on the map in one step. |
 | Stair | T | Click or drag to place stairs, then pick which way they go. |
-| Label | L | Click to place a label, or drag to make one that spans an area. Click a label to edit it, drag its handles to resize it, or drag the dashed edge of its box to move it. |
+| Label | L | Click to place a label, or drag to make one that spans an area. Click a label to edit it, drag its handles to resize it, or drag it to move it. |
 | Erase | E | Remove things, and choose what the eraser takes. |
 | Pawn | P | Place pawns from your library onto the map. Click a placed pawn to open it, or drag it to move it. Shift+drag a box to pick up several pawns, then click where they go (R turns them, Esc cancels). |
-| Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, drag its handles to resize it, or drag the dashed edge of its box to move it. Shift+drag places one over another object. |
-| Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, drag its handles to resize it, or drag the dashed edge of its box to move it. See [Images](#images). |
+| Object | O | Pick an object type, such as a statue, and drag out its size on the map. Click an object to change its name or look, drag its handles to resize it, or drag it to move it. Shift+drag places one over another object. |
+| Image | B | Choose a picture from your images folder, then click to place it at its own size or drag a box. Click an image to change it, drag its handles to resize it, or drag it to move it. See [Images](#images). |
 | Measure | G | Drag to measure a distance, or Shift+drag for a spell radius. See [Measuring](#measuring). |
 | Sight | K | Shows what a pawn can see, and what it could shoot past other pawns. See [Line of Sight](#line-of-sight). |
 | Reveal | H | Chooses what players will see: reveal or hide floor, mark items DM only. See [Reveal](#reveal). |

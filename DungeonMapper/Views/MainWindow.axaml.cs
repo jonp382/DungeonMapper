@@ -544,17 +544,17 @@ public partial class MainWindow : Window
         Canvas.ResetReveal();
         SetStatus(mode switch
         {
-            ToolMode.Select => "select: click an element to configure (objects, labels and images get handles: resize, or drag the dashed edge to move), drag a pawn to move it, drag a region to select, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
+            ToolMode.Select => "select: click an element to configure, drag a pawn, object, label or image to move it (objects, labels and images get resize handles), drag empty space to select a region, Ctrl+C copy, Ctrl+V paste, shift+scroll / R / Shift+R rotates the clipboard",
             ToolMode.Move => "move: drag a region to select, then click the destination to move it. shift+drag moves only pawns. shift+scroll / R / Shift+R rotates the armed region, Escape cancels",
             ToolMode.Room => "room: click-drag a rectangle. edges get auto-walls",
             ToolMode.Floor => "floor: manual mode drags a rectangle; flood fill mode clicks a cell to fill the room it is in",
             ToolMode.Door => "door: click a wall edge to place, click a door to configure",
             ToolMode.Stair => "stair: click a cell to place, click a stair to configure, drag for a region",
-            ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit, drag its handles to resize or its dashed edge to move",
+            ToolMode.Label => "label: click a cell to place, drag a range for a label that spans it, click a label to edit, drag it to move it, its handles to resize",
             ToolMode.Erase => "erase: click-drag to remove cells, walls, doors, stairs, labels. delete key deletes the selection",
             ToolMode.Pawn => "pawn: click a cell to place, click a pawn to configure, drag a pawn to move it, shift+drag a box to move several. one pawn per cell",
-            ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag its handles to resize or its dashed edge to move",
-            ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag its handles to resize or its dashed edge to move",
+            ToolMode.Object => "object: pick a type, drag to place. click an object to configure, drag it to move it, its handles to resize",
+            ToolMode.Image => "image: choose a picture, click to place it at its own size or drag a box. click an image to change it, drag it to move it, its handles to resize",
             ToolMode.Wall => "wall: click on your starting grid point and release on your end point to draw a line",
             ToolMode.Measure => "measure: drag for a distance, ctrl+click adds a leg. shift+drag for a radius. esc clears",
             ToolMode.Sight => "sight: click a pawn or a cell to see what it can see, drag a pawn to move it and watch. hover a cell for the line to it. shift+scroll changes the range, esc clears",

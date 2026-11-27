@@ -79,10 +79,12 @@ public sealed partial class MapCanvas
         e.Pointer.Capture(null);
         if (HandleLabel is { } l && (l.Cell.X, l.Cell.Y, l.W, l.H) != _labelStart)
         {
+            _bodyClick = null;
             Status(_labelHandle == MoveHandle ? $"label moved to {l.Cell.X},{l.Cell.Y}" : $"label resized to {l.W * 5}x{l.H * 5}ft");
             Commit();
             LabelResized?.Invoke(l);
         }
+        else RunBodyClick();
         InvalidateVisual();
         return true;
     }

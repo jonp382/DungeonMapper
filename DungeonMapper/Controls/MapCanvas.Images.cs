@@ -254,9 +254,13 @@ public sealed partial class MapCanvas
                 Status("only the DM edits that image", StatusKind.Error);
                 return;
             }
-            SelectedImageId = hit.Id;
-            ImageConfigRequested?.Invoke(hit);
-            InvalidateVisual();
+            // drag it to move it, a click opens it
+            BeginBodyMove(e, ScreenToWorld(e.GetPosition(this)), null, hit, null, () =>
+            {
+                SelectedImageId = hit.Id;
+                ImageConfigRequested?.Invoke(hit);
+                InvalidateVisual();
+            });
             return;
         }
         if (ArmedImage is null)
@@ -344,12 +348,14 @@ public sealed partial class MapCanvas
             e.Pointer.Capture(null);
             if (SelectedImage is { } sel && _imgRect != (sel.X, sel.Y, sel.W, sel.H))
             {
+                _bodyClick = null;
                 (sel.X, sel.Y, sel.W, sel.H) = _imgRect;
                 Status(_imgHandle == MoveHandle ? $"image moved to {sel.X},{sel.Y}" : $"image resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ImagesChanged?.Invoke();
                 ImageConfigRequested?.Invoke(sel);
             }
+            else RunBodyClick();
             InvalidateVisual();
             return true;
         }

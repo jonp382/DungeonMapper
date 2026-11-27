@@ -1875,6 +1875,49 @@ public sealed partial class MapCanvas : Control
     /// players (user), every other new pawn hidden
     public bool NewPawnHidden(string templateId) => !(Library.Find(templateId) is { } t && PlayerPawns.Controlled(t));
 
+    /// the select tool's plain click (or a press on an item without a drag):
+    /// opens the element under the cursor. a pawn here means a shift+click
+    /// (a plain press on a pawn drags it), which opens it like a plain click.
+    /// the boxed item's handles go unless the click opens one again
+    private void SelectClick(Point world, CellKey cell)
+    {
+        ClearBoxSelection();
+        if (Document.Pawns.TryGetValue(cell, out var clicked))
+        {
+            PawnConfigRequested?.Invoke(clicked);
+            return;
+        }
+        var edge = HitEdge(world);
+        var vt = HitVertex(world);
+        VertexDoor? vd = null;
+        if (vt is not null && (edge is null || MidDist(world, edge.Value) >= vt.Value.dist - 1e-9))
+            vd = Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, true))
+              ?? Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, false));
+        var door = edge is not null ? Document.GetDoor(edge.Value) : null;
+        if (vd is not null) DoorConfigRequested?.Invoke(vd);
+        else if (door is not null) DoorConfigRequested?.Invoke(door);
+        else if (Document.Stairs.TryGetValue(cell, out var s)) StairConfigRequested?.Invoke(s);
+        else
+        {
+            var lbl = LabelAt(cell);
+            if (lbl is not null)
+            {
+                if (_pressClicks >= 2) LabelEditRequested?.Invoke(lbl);
+                else LabelConfigRequested?.Invoke(lbl);
+            }
+            else if (Document.ImageAt(cell) is { } img)
+            {
+                SelectedImageId = img.Id;
+                ImageConfigRequested?.Invoke(img);
+            }
+            else if (Document.ObjectAt(cell) is { } obj)
+            {
+                SelectedObjectId = obj.Id;
+                ObjectConfigRequested?.Invoke(obj);
+            }
+        }
+    }
+
     /// The pawn tool's plain click on a cell with no pawn: places the armed pawn.
     private void PawnToolClick(CellKey cell)
     {
@@ -1953,6 +1996,8 @@ public sealed partial class MapCanvas : Control
                 // tools). a click without a drag shows the pawn's info. shift
                 // starts the box even on a pawn.
                 if (!Shifted(e) && BeginPawnDrag(e, cell)) break;
+                // a label, image or object: drag it to move it, a click opens it
+                if (Mode == ToolMode.Select && !Shifted(e) && SelectBodyPressed(e, world, cell)) break;
                 BeginBox(e, cell);
                 break;
 
@@ -2079,9 +2124,10 @@ public sealed partial class MapCanvas : Control
                 }
                 if (lbl is not null)
                 {
-                    // a double click edits the text on the map
+                    // a double click edits the text on the map; otherwise drag
+                    // it to move it, a click opens it
                     if (e.ClickCount >= 2) LabelEditRequested?.Invoke(lbl);
-                    else LabelConfigRequested?.Invoke(lbl);
+                    else { var open = lbl; BeginBodyMove(e, world, open, null, null, () => LabelConfigRequested?.Invoke(open)); }
                     break;
                 }
                 _dragging = true;
@@ -2354,49 +2400,7 @@ public sealed partial class MapCanvas : Control
             }
             // a region drag lets go of the boxed object, label or image
             if (!singleCell && Mode == ToolMode.Select) ClearBoxSelection();
-            if (singleCell)
-            {
-                // single cell: manage the element under the cursor. a pawn here
-                // means a shift+click (a plain press on a pawn drags it), which
-                // opens it like a plain click. the boxed item's handles go
-                // unless the click opens one again
-                ClearBoxSelection();
-                if (Document.Pawns.TryGetValue(cell, out var clicked))
-                {
-                    PawnConfigRequested?.Invoke(clicked);
-                    InvalidateVisual();
-                    return;
-                }
-                var edge = HitEdge(world);
-                var vt = HitVertex(world);
-                VertexDoor? vd = null;
-                if (vt is not null && (edge is null || MidDist(world, edge.Value) >= vt.Value.dist - 1e-9))
-                    vd = Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, true))
-                      ?? Document.GetVertexDoor(new VertexDoorKey(vt.Value.x, vt.Value.y, false));
-                var door = edge is not null ? Document.GetDoor(edge.Value) : null;
-                if (vd is not null) DoorConfigRequested?.Invoke(vd);
-                else if (door is not null) DoorConfigRequested?.Invoke(door);
-                else if (Document.Stairs.TryGetValue(cell, out var s)) StairConfigRequested?.Invoke(s);
-                else
-                {
-                    var lbl = LabelAt(cell);
-                    if (lbl is not null)
-                    {
-                        if (_pressClicks >= 2) LabelEditRequested?.Invoke(lbl);
-                        else LabelConfigRequested?.Invoke(lbl);
-                    }
-                    else if (Document.ImageAt(cell) is { } img)
-                    {
-                        SelectedImageId = img.Id;
-                        ImageConfigRequested?.Invoke(img);
-                    }
-                    else if (Document.ObjectAt(cell) is { } obj)
-                    {
-                        SelectedObjectId = obj.Id;
-                        ObjectConfigRequested?.Invoke(obj);
-                    }
-                }
-            }
+            if (singleCell) SelectClick(world, cell);
             InvalidateVisual();
             return;
         }

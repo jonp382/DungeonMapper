@@ -293,9 +293,13 @@ public sealed partial class MapCanvas
         bool force = (e.KeyModifiers & KeyModifiers.Shift) != 0;
         if (!force && Document.ObjectAt(cell) is { } hit)
         {
-            SelectedObjectId = hit.Id;
-            ObjectConfigRequested?.Invoke(hit);
-            InvalidateVisual();
+            // drag it to move it, a click opens it
+            BeginBodyMove(e, ScreenToWorld(e.GetPosition(this)), null, null, hit, () =>
+            {
+                SelectedObjectId = hit.Id;
+                ObjectConfigRequested?.Invoke(hit);
+                InvalidateVisual();
+            });
             return;
         }
         if (ArmedObject is null)
@@ -362,11 +366,13 @@ public sealed partial class MapCanvas
             e.Pointer.Capture(null);
             if (SelectedObject is { } sel && _resizeRect != (sel.X, sel.Y, sel.W, sel.H))
             {
+                _bodyClick = null;
                 (sel.X, sel.Y, sel.W, sel.H) = _resizeRect;
                 Status(_resizeHandle == MoveHandle ? $"moved to {sel.X},{sel.Y}" : $"resized to {sel.W * 5}x{sel.H * 5}ft");
                 Commit();
                 ObjectsChanged?.Invoke();
             }
+            else RunBodyClick();
             InvalidateVisual();
             return true;
         }

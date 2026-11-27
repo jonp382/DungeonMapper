@@ -6748,5 +6748,64 @@ try { Directory.Delete(imgDir, true); } catch { }
     Check(fogLoaded is not null && !fogLoaded.ToolHotkeys.ContainsKey("Fog") && fogLoaded.ToolHotkeys.ContainsKey("Sight"), "fog tool: an old settings file loses its fog hotkey");
 }
 
+// --- move items by dragging their body ---
+{
+    using var h = new CanvasHarness();
+    var lib = new ObjectLibrary();
+    var ot = new ObjectType { Name = "statue" };
+    lib.Types.Add(ot);
+    h.Canvas.ObjectTypes = lib;
+    var obj = new MapObject { TypeId = ot.Id, X = 1, Y = 1, W = 2, H = 2 };
+    h.Doc.Objects.Add(obj);
+    var lbl = new MapLabel { Cell = new CellKey(8, 1), W = 2, H = 1, Text = "hall" };
+    h.Doc.Labels.Add(lbl);
+    var im = new MapImage { Id = "im1", Path = "x.png", X = 2, Y = 8, W = 2, H = 2, PixelW = 200, PixelH = 200 };
+    h.Doc.Images.Add(im);
+    MapObject? openedObj = null;
+    h.Canvas.ObjectConfigRequested += o => openedObj = o;
+    MapLabel? openedLbl = null;
+    h.Canvas.LabelConfigRequested += l => openedLbl = l;
+
+    h.Canvas.Mode = ToolMode.Select;
+    int c0 = h.CommitCount;
+    h.Drag(1, 1, 4, 3);
+    Check(obj is { X: 4, Y: 3, W: 2, H: 2 } && h.CommitCount == c0 + 1 && h.Canvas.SelectionRect is null,
+        "body drag: the select tool moves an object dragged by its body, one undo step, no region");
+    h.Click(5, 4);
+    Check(openedObj == obj && h.CommitCount == c0 + 1, "body drag: a click on it still opens it");
+    h.Drag(8, 1, 9, 3);
+    Check(lbl.Cell == new CellKey(9, 3) && lbl.W == 2, "body drag: a label moves by its body");
+    h.Drag(2, 8, 5, 9);
+    Check(im is { X: 5, Y: 9, W: 2, H: 2 }, "body drag: an image moves by its body");
+    // shift+drag from an object still draws a region
+    h.DragMods(4, 3, 6, 5, Avalonia.Input.RawInputModifiers.Shift);
+    Check(obj is { X: 4, Y: 3 } && h.Canvas.SelectionRect == (4, 3, 6, 5), "body drag: shift+drag from an item draws a region instead");
+    h.Canvas.ClearSelection();
+
+    // the object and label tools move by the body too
+    h.Canvas.Mode = ToolMode.Object;
+    h.Drag(4, 3, 2, 3);
+    Check(obj is { X: 2, Y: 3 }, "body drag: the object tool moves an object by its body");
+    openedObj = null;
+    h.Click(2, 3);
+    Check(openedObj == obj && h.Doc.Objects.Count == 1, "body drag: and a click in the object tool still opens it");
+    h.Canvas.Mode = ToolMode.Label;
+    openedLbl = null;
+    h.Drag(9, 3, 9, 5);
+    Check(lbl.Cell == new CellKey(9, 5) && h.Doc.Labels.Count == 1, "body drag: the label tool moves a label by its body, no new label");
+    h.Click(9, 5);
+    Check(openedLbl == lbl, "body drag: and a click in the label tool still opens it");
+
+    // a door on the clicked spot keeps its click priority in the select tool
+    h.Canvas.Mode = ToolMode.Select;
+    h.Doc.AddRoom(14, 1, 16, 3);
+    h.Doc.TryPlaceDoor(new EdgeKey(new CellKey(15, 1), Side.North), out var door);
+    h.Doc.Objects.Add(new MapObject { TypeId = ot.Id, X = 15, Y = 1, W = 1, H = 1 });
+    IDoorConfig? openedDoor = null;
+    h.Canvas.DoorConfigRequested += d => openedDoor = d;
+    h.ClickW(15.5, 1.05);
+    Check(openedDoor == door, "body drag: a click on a door edge over an object still opens the door");
+}
+
 Console.WriteLine($"\n{pass} passed, {fail} failed");
 return fail == 0 ? 0 : 1;

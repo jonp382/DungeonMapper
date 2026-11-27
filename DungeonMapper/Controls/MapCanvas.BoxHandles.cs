@@ -76,6 +76,65 @@ public sealed partial class MapCanvas
         SelectedImageId = null;
     }
 
+    /// a press on an item's body that did not drag runs this on release:
+    /// the tool's plain click (open the item)
+    private Action? _bodyClick;
+
+    /// moving an item by dragging its body (user): the label, image or object
+    /// gets the box and follows the pointer by whole cells, like a drag on its
+    /// dashed edge. a release without a move runs click instead
+    private bool BeginBodyMove(PointerPressedEventArgs e, Point world, MapLabel? label, MapImage? image, MapObject? obj, Action click)
+    {
+        if (label is not null)
+        {
+            SelectedLabel = label;
+            _labelResizing = true;
+            _labelHandle = MoveHandle;
+            _labelStart = (label.Cell.X, label.Cell.Y, label.W, label.H);
+        }
+        else if (image is not null)
+        {
+            SelectedImageId = image.Id;
+            _imgResizing = true;
+            _imgHandle = MoveHandle;
+            _imgRect = (image.X, image.Y, image.W, image.H);
+        }
+        else if (obj is not null)
+        {
+            SelectedObjectId = obj.Id;
+            _objResizing = true;
+            _resizeHandle = MoveHandle;
+            _resizeRect = (obj.X, obj.Y, obj.W, obj.H);
+        }
+        else return false;
+        _boxGrab = world;
+        _bodyClick = click;
+        e.Pointer.Capture(this);
+        InvalidateVisual();
+        return true;
+    }
+
+    /// the select tool: a press on the top label, image or object at cell.
+    /// a release without a drag is a plain select click (doors and stairs on
+    /// the cell keep their click priority)
+    private bool SelectBodyPressed(PointerPressedEventArgs e, Point world, CellKey cell)
+    {
+        var label = LabelAt(cell);
+        var image = label is null ? Document.ImageAt(cell) : null;
+        var obj = label is null && image is null ? Document.ObjectAt(cell) : null;
+        if (label is null && image is null && obj is null) return false;
+        ClearBoxSelection();
+        return BeginBodyMove(e, world, label, image, obj, () => SelectClick(world, cell));
+    }
+
+    /// a body press ended without moving: the tool's click
+    private void RunBodyClick()
+    {
+        var click = _bodyClick;
+        _bodyClick = null;
+        click?.Invoke();
+    }
+
     /// the box under the cursor, for the pointer shape
     private Rect? HoverBox()
     {
